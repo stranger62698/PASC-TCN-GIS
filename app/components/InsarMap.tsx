@@ -42,7 +42,7 @@ export default function InsarMap({ points, selected, visible, subSection, onSele
   const [resultMode, setResultMode] = useState<"points" | "heat">("points");
   const [opacity, setOpacity] = useState(86);
   const [zoom, setZoom] = useState(10);
-  const [cursor, setCursor] = useState({ lat: 39.9042, lng: 116.4074 });
+  const [cursor, setCursor] = useState({ lat: 20.0414, lng: 110.3334 });
   const [tileError, setTileError] = useState("");
   const [baseVisible, setBaseVisible] = useState(true);
   const [resultVisible, setResultVisible] = useState(true);
@@ -77,7 +77,7 @@ export default function InsarMap({ points, selected, visible, subSection, onSele
       if (disposed || !hostRef.current) return;
       const L = module.default;
       leafletRef.current = L;
-      const map = L.map(hostRef.current, { center: [39.9042, 116.4074], zoom: 10, zoomControl: false, attributionControl: true, preferCanvas: true });
+      const map = L.map(hostRef.current, { center: [20.0414, 110.3334], zoom: 14, zoomControl: false, attributionControl: true, preferCanvas: true });
       mapRef.current = map;
       L.control.zoom({ position: "topleft" }).addTo(map);
       const initial = makeBase(L, "osm");
@@ -173,7 +173,7 @@ export default function InsarMap({ points, selected, visible, subSection, onSele
   }, [selected]);
 
   return (
-    <section className="map-stage" aria-label="北京市形变速率 WebGIS 地图">
+    <section className="map-stage" aria-label="海口市形变速率 WebGIS 地图">
       <div ref={hostRef} className="leaflet-map" />
       <div className="basemap-switcher">
         {(Object.keys(BASES) as BaseKey[]).map((key) => <button key={key} className={base === key ? "active" : ""} onClick={() => setBase(key)}><i className={`base-thumb ${key}`} /><span>{BASES[key].label}<small>{BASES[key].sub}</small></span></button>)}

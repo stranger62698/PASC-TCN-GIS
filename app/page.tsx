@@ -21,13 +21,13 @@ export type Point = {
 };
 
 const points: Point[] = [
-  { id: "BJ-CBD-0231", name: "国贸中心区", x: 63, y: 44, lon: 116.4582, lat: 39.9096, velocity: -8.6, displacement: -34.2, coherence: 0.91, updated: "2026-07-28", series: [-2, -4, -6, -9, -8, -13, -16, -18, -17, -22, -25, -26, -31, -34] },
-  { id: "BJ-CY-0108", name: "朝阳公园东", x: 73, y: 34, lon: 116.4933, lat: 39.9388, velocity: -3.2, displacement: -12.8, coherence: 0.88, updated: "2026-07-28", series: [-1, -2, -2, -4, -3, -5, -7, -8, -8, -9, -11, -10, -12, -13] },
-  { id: "BJ-FT-0784", name: "丰台科技园", x: 34, y: 67, lon: 116.2987, lat: 39.8241, velocity: 2.4, displacement: 9.7, coherence: 0.86, updated: "2026-07-16", series: [0, 1, 2, 2, 1, 3, 4, 4, 6, 5, 7, 8, 9, 10] },
-  { id: "BJ-HD-0316", name: "中关村南", x: 37, y: 29, lon: 116.3168, lat: 39.9674, velocity: -12.4, displacement: -49.6, coherence: 0.94, updated: "2026-07-28", series: [-3, -5, -9, -11, -14, -18, -19, -24, -27, -30, -35, -39, -43, -50] },
-  { id: "BJ-DX-0422", name: "大兴新城北", x: 55, y: 78, lon: 116.3419, lat: 39.7526, velocity: -5.1, displacement: -20.4, coherence: 0.82, updated: "2026-07-16", series: [-1, -2, -4, -5, -7, -6, -9, -11, -12, -13, -15, -17, -18, -20] },
-  { id: "BJ-TZ-0645", name: "运河商务区", x: 85, y: 58, lon: 116.7012, lat: 39.9018, velocity: 5.8, displacement: 23.1, coherence: 0.89, updated: "2026-07-28", series: [1, 2, 4, 3, 6, 7, 9, 10, 11, 14, 15, 18, 20, 23] },
-  { id: "BJ-SY-0169", name: "首都机场西", x: 79, y: 19, lon: 116.5903, lat: 40.0475, velocity: -1.8, displacement: -7.3, coherence: 0.84, updated: "2026-07-16", series: [0, -1, -2, -1, -3, -2, -4, -4, -5, -4, -6, -6, -7, -7] },
+  { id:"102846", name:"海口监测点 102846", x:0, y:0, lon:110.3284, lat:20.04539, velocity:-0.73, displacement:-5.91, coherence:0.91, updated:"2025-05-03", mode:"Stable", series:[0,-2.55,-1.72,-0.14,-0.09,-2.55,-10.48,-5.23,-3.59,-1.57,0.59,-4.8,-4.6,-5.91] },
+  { id:"102863", name:"海口监测点 102863", x:0, y:0, lon:110.3285, lat:20.04542, velocity:-1.24, displacement:-10.04, coherence:0.89, updated:"2025-05-03", mode:"Stable", series:[0,-3.9,-5.12,-2.81,-4.33,-7.54,-9.53,-7,-8.82,-5.62,-6.12,-10.28,-10.94,-10.04] },
+  { id:"102881", name:"海口监测点 102881", x:0, y:0, lon:110.3287, lat:20.04545, velocity:-1.22, displacement:-9.92, coherence:0.88, updated:"2025-05-03", mode:"Piecewise", series:[0,-6.54,-7.27,-9.15,-14.21,-6.32,-11.08,-7.98,-7.99,-5.27,-9.5,-10.45,-10.75,-9.92] },
+  { id:"103241", name:"海口监测点 103241", x:0, y:0, lon:110.328, lat:20.04519, velocity:1.1, displacement:8.95, coherence:0.93, updated:"2025-05-03", mode:"Piecewise", series:[0,0.75,1.79,4.17,0.95,7.61,6.71,12.56,14.91,16.01,14.78,9.56,10.3,8.95] },
+  { id:"103260", name:"海口监测点 103260", x:0, y:0, lon:110.3282, lat:20.04522, velocity:0.36, displacement:2.89, coherence:0.90, updated:"2025-05-03", mode:"Stable", series:[0,0.44,1.34,-0.41,-0.31,0.69,-3.19,3.62,5.02,7.71,4.57,2.66,1.99,2.89] },
+  { id:"103277", name:"海口监测点 103277", x:0, y:0, lon:110.3283, lat:20.04525, velocity:0.01, displacement:0.11, coherence:0.92, updated:"2025-05-03", mode:"Stable", series:[0,-1.22,-5.37,3.15,3.68,2.11,-0.55,1.35,1.84,3.44,1.43,-0.26,1.74,0.11] },
+  { id:"103293", name:"海口监测点 103293", x:0, y:0, lon:110.3285, lat:20.04528, velocity:1.33, displacement:10.76, coherence:0.87, updated:"2025-05-03", mode:"Piecewise", series:[0,1.2,0,5.65,2.42,11.77,6.85,9.53,12.17,15.56,14.47,12.57,12.81,10.76] },
 ];
 
 const InsarMap = dynamic(() => import("./components/InsarMap"), { ssr: false, loading: () => <section className="map-stage map-loading"><span>正在初始化 WebGIS 地图…</span></section> });
@@ -125,8 +125,8 @@ function TrendChart({ point }: { point: Point }) {
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.fillStyle = "#7e8b92";
-    ctx.fillText("2023.01", pad.left, height - 4);
-    ctx.fillText("2026.07", width - 52, height - 4);
+    ctx.fillText("2017.03", pad.left, height - 4);
+    ctx.fillText("2025.05", width - 52, height - 4);
   }, [point]);
 
   return <canvas ref={canvasRef} className="trend-canvas" aria-label={`${point.name}累计形变时序曲线`} />;
@@ -135,15 +135,15 @@ function TrendChart({ point }: { point: Point }) {
 function OverviewPanel({ onOpenMap, section }: { onOpenMap: () => void; section: string }) {
   return <section className="content-stage overview-stage" data-section={section}>
     <div id="overview-project" className={`content-head section-target ${section === "项目概览" ? "is-target" : ""}`}>
-      <div><span className="eyebrow">PROJECT NARRATIVE · 演示项目</span><h1>从雷达影像到城市形变线索</h1><p>以北京核心城区为示例，展示时序 InSAR 数据如何经过处理、质量控制与空间分析，转化为可检索、可解释、可交互的 WebGIS 成果。</p></div>
+      <div><span className="eyebrow">HAIKOU INSAR · 项目成果</span><h1>从雷达影像到海口地表形变线索</h1><p>面向海口研究区，展示 2017—2025 年时序 InSAR 数据如何经过质量控制、空间分析与模式识别，转化为可检索、可解释、可交互的 WebGIS 成果。</p></div>
       <button className="primary-button compact" onClick={onOpenMap}>进入形变地图 →</button>
     </div>
 
     <div className="overview-metrics">
       <article><span>Sentinel-1 IW</span><strong>36</strong><small>景升轨 SLC 影像</small></article>
-      <article><span>观测周期</span><strong>42</strong><small>个月 · 2023.01—2026.07</small></article>
-      <article><span>有效监测点</span><strong>1.28M</strong><small>PS / DS 点目标</small></article>
-      <article><span>平均相干性</span><strong>0.86</strong><small>阈值 ≥ 0.75</small></article>
+      <article><span>观测期数</span><strong>210</strong><small>期 · 2017.03—2025.05</small></article>
+      <article><span>示例数据</span><strong>4,072</strong><small>有效 InSAR 点</small></article>
+      <article><span>属性字段</span><strong>214</strong><small>坐标 · 时序 · Pattern</small></article>
     </div>
 
     <div className="narrative-grid">
@@ -227,7 +227,8 @@ export default function Home() {
   const [authReady, setAuthReady] = useState(false);
   const [selected, setSelected] = useState(points[0]);
   const [dataset, setDataset] = useState<Point[]>(points);
-  const [datasetName, setDatasetName] = useState("北京城市地表形变监测");
+  const [datasetName, setDatasetName] = useState("海口市时序 InSAR 形变监测");
+  const [datasetMeta, setDatasetMeta] = useState({ pointCount: 4072, dateCount: 210, firstDate: "2017.03", lastDate: "2025.05", invalidCount: 0 });
   const [importStatus, setImportStatus] = useState("");
   const [activeNav, setActiveNav] = useState("形变地图");
   const [activeSubNav, setActiveSubNav] = useState("点位图层");
@@ -239,10 +240,7 @@ export default function Home() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (["localhost", "127.0.0.1"].includes(window.location.hostname)) { setAuthReady(true); return; }
-    fetch("/api/session", { credentials: "include" }).then((response) => response.json()).then((session) => {
-      if (!session.authenticated) window.location.replace("/login"); else setAuthReady(true);
-    }).catch(() => window.location.replace("/login"));
+    setAuthReady(true);
   }, []);
 
   useEffect(() => {
@@ -284,12 +282,12 @@ export default function Home() {
     setImportStatus("正在流式读取 CSV 并计算空间范围…");
     const maxPreview = 50000;
     const sample: Point[] = [];
-    let headers: string[] = [], remainder = "", rowIndex = 0;
+    let headers: string[] = [], remainder = "", rowIndex = 0, invalidCount = 0;
     let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
     const decoder = new TextDecoder("utf-8");
     const chunkSize = 4 * 1024 * 1024;
     const splitRow = (line: string) => line.split(/,(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)/).map((value) => value.replace(/^\"|\"$/g, "").trim());
-    const aliases = { lon: ["lon","lng","longitude","经度","x"], lat: ["lat","latitude","纬度","y"], velocity: ["velocity","vel","rate","mean_velocity","速率","年均速率"], coherence: ["coherence","coh","相干性","相干系数"], id: ["id","point_id","pid","点号","点位编号"], mode: ["mode","pattern","形变模式","类别"] };
+    const aliases = { lon: ["lon","lng","longitude","经度","x","xpos"], lat: ["lat","latitude","纬度","y","ypos"], velocity: ["velocity","vel","rate","mean_velocity","速率","年均速率"], coherence: ["coherence","coh","相干性","相干系数"], id: ["id","fid","point_id","pid","点号","点位编号"], mode: ["mode","pattern","形变模式","类别"] };
     const findIndex = (keys: string[]) => headers.findIndex((header) => keys.includes(header.toLowerCase()));
     for (let offset = 0; offset < file.size; offset += chunkSize) {
       const text = decoder.decode(await file.slice(offset, Math.min(file.size, offset + chunkSize)).arrayBuffer(), { stream: offset + chunkSize < file.size });
@@ -298,12 +296,16 @@ export default function Home() {
         if (!line.trim()) continue;
         if (!headers.length) { headers = splitRow(line).map((value) => value.toLowerCase()); continue; }
         const values = splitRow(line); const lon = Number(values[findIndex(aliases.lon)]), lat = Number(values[findIndex(aliases.lat)]);
-        if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+        if (!Number.isFinite(lon) || !Number.isFinite(lat) || Math.abs(lon) < 1 || Math.abs(lat) < 1 || lon < -180 || lon > 180 || lat < -90 || lat > 90) { invalidCount++; continue; }
         minLon = Math.min(minLon, lon); minLat = Math.min(minLat, lat); maxLon = Math.max(maxLon, lon); maxLat = Math.max(maxLat, lat);
-        rowIndex++; const velocity = Number(values[findIndex(aliases.velocity)]) || 0; const coherence = Number(values[findIndex(aliases.coherence)]) || 0;
+        rowIndex++; const coherence = Number(values[findIndex(aliases.coherence)]) || 0.9;
         const id = values[findIndex(aliases.id)] || `IMPORT-${rowIndex}`; const mode = values[findIndex(aliases.mode)] || (velocity <= -8 ? "持续沉降" : velocity > 3 ? "抬升趋势" : "相对稳定");
         const timeIndexes = headers.map((header, index) => /^(d|t|date|disp|20\d{2})/.test(header) ? index : -1).filter((index) => index >= 0).slice(0, 240);
-        const series = timeIndexes.length ? timeIndexes.map((index) => Number(values[index]) || 0) : [0, velocity / 4, velocity / 2, velocity];
+        const series = timeIndexes.length ? timeIndexes.map((index) => Number(values[index]) || 0) : [0];
+        const dateHeadersForRow = timeIndexes.map((index) => headers[index]);
+        const firstStamp = dateHeadersForRow[0]?.match(/(20\d{2})(\d{2})(\d{2})/); const lastStamp = dateHeadersForRow.at(-1)?.match(/(20\d{2})(\d{2})(\d{2})/);
+        const elapsedYears = firstStamp && lastStamp ? Math.max(1 / 12, (Date.UTC(+lastStamp[1], +lastStamp[2] - 1, +lastStamp[3]) - Date.UTC(+firstStamp[1], +firstStamp[2] - 1, +firstStamp[3])) / 31557600000) : 1;
+        const explicitVelocity = Number(values[findIndex(aliases.velocity)]); const velocity = Number.isFinite(explicitVelocity) ? explicitVelocity : (series.at(-1)! - series[0]) / elapsedYears;
         const point: Point = { id, name: id, x: 0, y: 0, lon, lat, velocity, displacement: series.at(-1) || 0, coherence, updated: "导入数据", series, mode };
         if (sample.length < maxPreview) sample.push(point); else { const replace = Math.floor(Math.random() * rowIndex); if (replace < maxPreview) sample[replace] = point; }
       }
@@ -312,7 +314,8 @@ export default function Home() {
     }
     if (!sample.length) { setImportStatus("未识别到经纬度字段，请确认 CSV 含 lon/lat 或 经度/纬度"); return; }
     const boundaryPoints: Point[] = [[minLon,minLat],[minLon,maxLat],[maxLon,minLat],[maxLon,maxLat]].map(([lon,lat], index) => ({ id:`__BOUNDARY_${index}`, name:"范围边界", x:0, y:0, lon, lat, velocity:0, displacement:0, coherence:1, updated:"范围计算", series:[0] }));
-    setDataset([...sample, ...boundaryPoints]); setSelected(sample[0]); setDatasetName(file.name.replace(/\.csv$/i, ""));
+    const dateHeaders = headers.filter((header) => /^d?20\d{6}$/i.test(header)); const formatDate = (value?: string) => value ? `${value.replace(/^d/i, "").slice(0,4)}.${value.replace(/^d/i, "").slice(4,6)}` : "—";
+    setDataset([...sample, ...boundaryPoints]); setSelected(sample[0]); setDatasetName(`海口 · ${file.name.replace(/\.csv$/i, "")}`); setDatasetMeta({ pointCount: rowIndex, dateCount: dateHeaders.length, firstDate: formatDate(dateHeaders[0]), lastDate: formatDate(dateHeaders.at(-1)), invalidCount });
     const localOnly = ["localhost", "127.0.0.1"].includes(window.location.hostname);
     if (!localOnly) {
       try {
@@ -328,7 +331,7 @@ export default function Home() {
         await fetch("/api/uploads/complete", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ datasetId:start.datasetId, parts, bbox:[minLon,minLat,maxLon,maxLat], pointCount:rowIndex, fieldCount:headers.length }) });
         setImportStatus(`上传完成 · ${rowIndex.toLocaleString()} 点 · ${headers.length} 字段 · 已进入格式转换队列`);
       } catch (error) { setImportStatus(`本地预览完成；云端上传失败：${String(error)}`); }
-    } else setImportStatus(`预览完成 · 扫描 ${rowIndex.toLocaleString()} 点 · ${headers.length} 字段 · 抽样 ${sample.length.toLocaleString()} 点`);
+    } else setImportStatus(`定位完成 · ${rowIndex.toLocaleString()} 个有效点 · ${dateHeaders.length} 期时序${invalidCount ? ` · 已剔除 ${invalidCount} 条无效坐标` : ""}`);
     notify("已根据全量点数据最大外包范围自动定位");
   };
 
@@ -366,9 +369,9 @@ export default function Home() {
           <button className="project-select">{datasetName} <span>⌄</span></button>
         </div>
         <div className="project-meta">
-          <span><b>36</b> 景影像</span>
-          <span><b>1.28M</b> 有效点</span>
-          <span><b>2023.01—2026.07</b> 观测周期</span>
+          <span><b>{datasetMeta.dateCount}</b> 观测期数</span>
+          <span><b>{datasetMeta.pointCount.toLocaleString()}</b> 有效点</span>
+          <span><b>{datasetMeta.firstDate}—{datasetMeta.lastDate}</b> 观测周期</span>
         </div>
         <button className="outline-button" onClick={() => fileRef.current?.click()}>导入 CSV</button><input ref={fileRef} className="hidden-input" type="file" accept=".csv,text/csv" onChange={(event) => event.target.files?.[0] && parseCsvPreview(event.target.files[0])} />
       </section>

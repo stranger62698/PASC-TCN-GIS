@@ -1,4 +1,31 @@
-# vinext-starter
+# LANJIFYW 澜迹 · 海口时序 InSAR WebGIS
+
+这是可在 Edge、Chrome 等现代浏览器中使用的完整网站项目。页面支持导入海口 InSAR CSV（`FID,xpos,ypos,DYYYYMMDD...,Pattern`）、自动剔除无效坐标、计算研究区外包范围、定位 OSM/Esri 底图，以及点选查看时间序列。
+
+## 在另一台设备继续修改
+
+复制整个项目文件夹（不要只复制单个网页文件），至少需要 `app/`、`public/`、`db/`、`.openai/hosting.json`、`package.json`、`pnpm-lock.yaml`、`vite.config.ts` 和 `tsconfig.json`。安装 Node.js 22.13 以上版本后运行：
+
+```bash
+pnpm install
+pnpm dev
+pnpm build
+```
+
+真实 CSV 属于用户数据，不必放进代码仓库；打开网页后从“导入 CSV”选择即可。天地图需要自行申请密钥并设置 `NEXT_PUBLIC_TIANDITU_KEY`；OSM 与 Esri World Imagery 不需要此密钥。
+
+## 海口 CSV 接口约定
+
+- 点号：`FID`
+- 经度：`xpos`（WGS84 / EPSG:4326）
+- 纬度：`ypos`（WGS84 / EPSG:4326）
+- 时序：`DYYYYMMDD`，例如 `D20170322`
+- 形变模式：`Pattern`，支持 `Stable`、`Linear`、`Piecewise`、`Stepwise`、`Undefined`
+- 可选字段：`velocity/rate`、`coherence/coh`；缺少速率时由首末期累计形变与时间跨度自动估算
+
+---
+
+# 原始运行说明
 
 A clean full-stack starter running on
 [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and

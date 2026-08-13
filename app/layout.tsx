@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "澜迹 Urban InSAR｜城市地表形变监测",
-  description: "面向城市地表形变分析的时序 InSAR 可视化工作台。",
+  title: "LANJIFYW 澜迹｜海口时序 InSAR WebGIS",
+  description: "面向海口地表形变分析的时序 InSAR 数据导入、地图定位与点位时序可视化工作台。",
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
-  metadataBase: new URL("https://lanje-urban-insar.app"),
+  metadataBase: new URL("https://lanje-urban-insar.fengyaowu78.chatgpt.site"),
   openGraph: {
     title: "澜迹 Urban InSAR",
     description: "城市地表形变时序 InSAR WebGIS 可视化工作台",
