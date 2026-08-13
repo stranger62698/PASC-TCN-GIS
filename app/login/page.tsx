@@ -7,7 +7,7 @@ export default async function LoginPage() {
   const user = await getChatGPTUser();
   return <main className="login-page">
     <section className="login-visual">
-      <div className="login-brand"><img src="/insar-satellite.png" alt="InSAR 卫星监测" /><span><b>澜迹</b><small>URBAN INSAR PLATFORM</small></span></div>
+      <div className="login-brand"><img src="/insar-satellite-v2.png" alt="InSAR 卫星监测" /><span><b>澜迹</b><small>LANJIFYW · INSAR PLATFORM</small></span></div>
       <div className="login-copy"><span>TIME-SERIES INSAR · WEBGIS</span><h1>让城市形变数据<br />更容易被看见</h1><p>导入监测点、探索空间形变模式、查看单点时间序列，并生成可用于科研汇报与项目展示的交互式成果。</p></div>
       <div className="login-orbit"><i /><i /><i /></div>
     </section>

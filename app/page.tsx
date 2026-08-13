@@ -339,13 +339,13 @@ export default function Home() {
     setVisible((current) => current.includes(item) ? current.filter((v) => v !== item) : [...current, item]);
   };
 
-  if (!authReady) return <main className="auth-loading"><img src="/insar-satellite.png" alt="" /><span>正在验证账户…</span></main>;
+  if (!authReady) return <main className="auth-loading"><img src="/insar-satellite-v2.png" alt="" /><span>正在初始化工作台…</span></main>;
 
   return (
     <main className="app-shell">
       <header className="topbar">
         <button className="brand" onClick={() => handleSubNav("数据总览", "项目概览")} aria-label="回到项目总览">
-          <span className="brand-mark satellite-mark"><img src="/insar-satellite.png" alt="InSAR 卫星监测图标" /></span>
+          <span className="brand-mark satellite-mark"><img src="/insar-satellite-v2.png" alt="InSAR 卫星监测图标" /></span>
           <span><strong>澜迹</strong><small>URBAN INSAR</small></span>
         </button>
 
