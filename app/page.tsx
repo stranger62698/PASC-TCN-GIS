@@ -238,6 +238,7 @@ export default function Home() {
     const maxPreview = 50000;
     const sample: Point[] = [];
     let headers: string[] = [], remainder = "", rowIndex = 0;
+    let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
     const decoder = new TextDecoder("utf-8");
     const chunkSize = 4 * 1024 * 1024;
     const splitRow = (line: string) => line.split(/,(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)/).map((value) => value.replace(/^\"|\"$/g, "").trim());
@@ -251,6 +252,7 @@ export default function Home() {
         if (!headers.length) { headers = splitRow(line).map((value) => value.toLowerCase()); continue; }
         const values = splitRow(line); const lon = Number(values[findIndex(aliases.lon)]), lat = Number(values[findIndex(aliases.lat)]);
         if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+        minLon = Math.min(minLon, lon); minLat = Math.min(minLat, lat); maxLon = Math.max(maxLon, lon); maxLat = Math.max(maxLat, lat);
         rowIndex++; const velocity = Number(values[findIndex(aliases.velocity)]) || 0; const coherence = Number(values[findIndex(aliases.coherence)]) || 0;
         const id = values[findIndex(aliases.id)] || `IMPORT-${rowIndex}`; const mode = values[findIndex(aliases.mode)] || (velocity <= -8 ? "持续沉降" : velocity > 3 ? "抬升趋势" : "相对稳定");
         const timeIndexes = headers.map((header, index) => /^(d|t|date|disp|20\d{2})/.test(header) ? index : -1).filter((index) => index >= 0).slice(0, 240);
@@ -262,8 +264,25 @@ export default function Home() {
       await new Promise((resolve) => window.setTimeout(resolve, 0));
     }
     if (!sample.length) { setImportStatus("未识别到经纬度字段，请确认 CSV 含 lon/lat 或 经度/纬度"); return; }
-    setDataset(sample); setSelected(sample[0]); setDatasetName(file.name.replace(/\.csv$/i, ""));
-    setImportStatus(`导入完成 · 扫描 ${rowIndex.toLocaleString()} 点 · 抽样显示 ${sample.length.toLocaleString()} 点`); notify("已根据点数据最大外包范围自动定位");
+    const boundaryPoints: Point[] = [[minLon,minLat],[minLon,maxLat],[maxLon,minLat],[maxLon,maxLat]].map(([lon,lat], index) => ({ id:`__BOUNDARY_${index}`, name:"范围边界", x:0, y:0, lon, lat, velocity:0, displacement:0, coherence:1, updated:"范围计算", series:[0] }));
+    setDataset([...sample, ...boundaryPoints]); setSelected(sample[0]); setDatasetName(file.name.replace(/\.csv$/i, ""));
+    const localOnly = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+    if (!localOnly) {
+      try {
+        setImportStatus("预览已生成 · 正在分片上传原始 CSV…");
+        const start = await fetch("/api/uploads/start", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ filename:file.name, size:file.size, contentType:file.type || "text/csv" }) }).then((response) => response.json());
+        if (!start.uploadId) throw new Error(start.error || "无法创建上传会话");
+        const uploadChunk = start.recommendedPartSize || 32 * 1024 * 1024; const parts = [];
+        for (let offset = 0, partNumber = 1; offset < file.size; offset += uploadChunk, partNumber++) {
+          const response = await fetch(`/api/uploads/part?datasetId=${encodeURIComponent(start.datasetId)}&partNumber=${partNumber}`, { method:"PUT", body:file.slice(offset, Math.min(file.size, offset + uploadChunk)) });
+          if (!response.ok) throw new Error(`第 ${partNumber} 片上传失败`); parts.push(await response.json());
+          setImportStatus(`正在上传 · ${Math.round(Math.min(100, (offset + uploadChunk) / file.size * 100))}%`);
+        }
+        await fetch("/api/uploads/complete", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ datasetId:start.datasetId, parts, bbox:[minLon,minLat,maxLon,maxLat], pointCount:rowIndex, fieldCount:headers.length }) });
+        setImportStatus(`上传完成 · ${rowIndex.toLocaleString()} 点 · ${headers.length} 字段 · 已进入格式转换队列`);
+      } catch (error) { setImportStatus(`本地预览完成；云端上传失败：${String(error)}`); }
+    } else setImportStatus(`预览完成 · 扫描 ${rowIndex.toLocaleString()} 点 · ${headers.length} 字段 · 抽样 ${sample.length.toLocaleString()} 点`);
+    notify("已根据全量点数据最大外包范围自动定位");
   };
 
   const toggleClass = (item: string) => {

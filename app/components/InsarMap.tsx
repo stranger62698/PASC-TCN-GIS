@@ -144,6 +144,7 @@ export default function InsarMap({ points, selected, visible, onSelect, onNotify
     resultLayerRef.current = group;
     if (!resultVisible) map.removeLayer(group);
     points.forEach((point) => {
+      if (point.id.startsWith("__BOUNDARY_")) return;
       const status = velocityClass(point.velocity);
       if (!visible.includes(status)) return;
       const selectedPoint = selected.id === point.id;
