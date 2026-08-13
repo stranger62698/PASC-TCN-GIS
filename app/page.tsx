@@ -202,6 +202,7 @@ function ApiPanel() {
 }
 
 export default function Home() {
+  const [authReady, setAuthReady] = useState(false);
   const [selected, setSelected] = useState(points[0]);
   const [dataset, setDataset] = useState<Point[]>(points);
   const [datasetName, setDatasetName] = useState("北京城市地表形变监测");
@@ -213,6 +214,13 @@ export default function Home() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [toast, setToast] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (["localhost", "127.0.0.1"].includes(window.location.hostname)) { setAuthReady(true); return; }
+    fetch("/api/session", { credentials: "include" }).then((response) => response.json()).then((session) => {
+      if (!session.authenticated) window.location.replace("/login"); else setAuthReady(true);
+    }).catch(() => window.location.replace("/login"));
+  }, []);
 
   const notify = (message: string) => {
     setToast(message);
@@ -261,6 +269,8 @@ export default function Home() {
   const toggleClass = (item: string) => {
     setVisible((current) => current.includes(item) ? current.filter((v) => v !== item) : [...current, item]);
   };
+
+  if (!authReady) return <main className="auth-loading"><img src="/insar-satellite.png" alt="" /><span>正在验证账户…</span></main>;
 
   return (
     <main className="app-shell">
