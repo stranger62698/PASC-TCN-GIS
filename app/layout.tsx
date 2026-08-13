@@ -2,13 +2,13 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "LANJIFYW 澜迹｜海口时序 InSAR WebGIS",
-  description: "面向海口地表形变分析的时序 InSAR 数据导入、地图定位与点位时序可视化工作台。",
+  title: "LANJIFYW｜城市地表形变时序监测平台",
+  description: "融合时序 InSAR、WebGIS、区域统计与点位分析的城市地表形变可视化平台。",
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
   metadataBase: new URL("https://lanje-urban-insar.fengyaowu78.chatgpt.site"),
   openGraph: {
-    title: "澜迹 Urban InSAR",
-    description: "城市地表形变时序 InSAR WebGIS 可视化工作台",
+    title: "LANJIFYW 城市时序 InSAR",
+    description: "看见城市地表毫米级形变",
     images: [{ url: "/og.png", width: 1200, height: 630, alt: "澜迹 Urban InSAR 城市形变监测" }],
   },
   twitter: { card: "summary_large_image", images: ["/og.png"] },
