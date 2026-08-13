@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import "leaflet/dist/leaflet.css";
+import Link from "next/link";
 
 export type Point = {
   id: string;
@@ -16,6 +17,7 @@ export type Point = {
   coherence: number;
   updated: string;
   series: number[];
+  mode?: string;
 };
 
 const points: Point[] = [
@@ -29,6 +31,13 @@ const points: Point[] = [
 ];
 
 const InsarMap = dynamic(() => import("./components/InsarMap"), { ssr: false, loading: () => <section className="map-stage map-loading"><span>正在初始化 WebGIS 地图…</span></section> });
+
+const HOVER_MENUS: Record<string, string[]> = {
+  "数据总览": ["项目概览", "处理流程", "成果说明"],
+  "形变地图": ["点位图层", "形变模式", "点位分析"],
+  "区域统计": ["速率分布", "重点区域", "范围对比"],
+  "接口验证": ["接口目录", "GeoJSON", "大数据架构"],
+};
 
 function velocityClass(value: number) {
   if (value <= -8) return "danger";
@@ -194,12 +203,16 @@ function ApiPanel() {
 
 export default function Home() {
   const [selected, setSelected] = useState(points[0]);
+  const [dataset, setDataset] = useState<Point[]>(points);
+  const [datasetName, setDatasetName] = useState("北京城市地表形变监测");
+  const [importStatus, setImportStatus] = useState("");
   const [activeNav, setActiveNav] = useState("形变地图");
   const [satellite, setSatellite] = useState("Sentinel-1");
   const [visible, setVisible] = useState(["danger", "warning", "stable", "positive"]);
   const [statsOpen, setStatsOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [toast, setToast] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const notify = (message: string) => {
     setToast(message);
@@ -212,6 +225,39 @@ export default function Home() {
     setStatsOpen(false);
   };
 
+  const parseCsvPreview = async (file: File) => {
+    setImportStatus("正在流式读取 CSV 并计算空间范围…");
+    const maxPreview = 50000;
+    const sample: Point[] = [];
+    let headers: string[] = [], remainder = "", rowIndex = 0;
+    const decoder = new TextDecoder("utf-8");
+    const chunkSize = 4 * 1024 * 1024;
+    const splitRow = (line: string) => line.split(/,(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)/).map((value) => value.replace(/^\"|\"$/g, "").trim());
+    const aliases = { lon: ["lon","lng","longitude","经度","x"], lat: ["lat","latitude","纬度","y"], velocity: ["velocity","vel","rate","mean_velocity","速率","年均速率"], coherence: ["coherence","coh","相干性","相干系数"], id: ["id","point_id","pid","点号","点位编号"], mode: ["mode","pattern","形变模式","类别"] };
+    const findIndex = (keys: string[]) => headers.findIndex((header) => keys.includes(header.toLowerCase()));
+    for (let offset = 0; offset < file.size; offset += chunkSize) {
+      const text = decoder.decode(await file.slice(offset, Math.min(file.size, offset + chunkSize)).arrayBuffer(), { stream: offset + chunkSize < file.size });
+      const lines = (remainder + text).split(/\r?\n/); remainder = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        if (!headers.length) { headers = splitRow(line).map((value) => value.toLowerCase()); continue; }
+        const values = splitRow(line); const lon = Number(values[findIndex(aliases.lon)]), lat = Number(values[findIndex(aliases.lat)]);
+        if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+        rowIndex++; const velocity = Number(values[findIndex(aliases.velocity)]) || 0; const coherence = Number(values[findIndex(aliases.coherence)]) || 0;
+        const id = values[findIndex(aliases.id)] || `IMPORT-${rowIndex}`; const mode = values[findIndex(aliases.mode)] || (velocity <= -8 ? "持续沉降" : velocity > 3 ? "抬升趋势" : "相对稳定");
+        const timeIndexes = headers.map((header, index) => /^(d|t|date|disp|20\d{2})/.test(header) ? index : -1).filter((index) => index >= 0).slice(0, 240);
+        const series = timeIndexes.length ? timeIndexes.map((index) => Number(values[index]) || 0) : [0, velocity / 4, velocity / 2, velocity];
+        const point: Point = { id, name: id, x: 0, y: 0, lon, lat, velocity, displacement: series.at(-1) || 0, coherence, updated: "导入数据", series, mode };
+        if (sample.length < maxPreview) sample.push(point); else { const replace = Math.floor(Math.random() * rowIndex); if (replace < maxPreview) sample[replace] = point; }
+      }
+      setImportStatus(`已扫描 ${(Math.min(file.size, offset + chunkSize) / 1048576).toFixed(0)} / ${(file.size / 1048576).toFixed(0)} MB · ${rowIndex.toLocaleString()} 点`);
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
+    if (!sample.length) { setImportStatus("未识别到经纬度字段，请确认 CSV 含 lon/lat 或 经度/纬度"); return; }
+    setDataset(sample); setSelected(sample[0]); setDatasetName(file.name.replace(/\.csv$/i, ""));
+    setImportStatus(`导入完成 · 扫描 ${rowIndex.toLocaleString()} 点 · 抽样显示 ${sample.length.toLocaleString()} 点`); notify("已根据点数据最大外包范围自动定位");
+  };
+
   const toggleClass = (item: string) => {
     setVisible((current) => current.includes(item) ? current.filter((v) => v !== item) : [...current, item]);
   };
@@ -220,20 +266,20 @@ export default function Home() {
     <main className="app-shell">
       <header className="topbar">
         <button className="brand" onClick={() => notify("已回到项目总览")} aria-label="回到项目总览">
-          <span className="brand-mark"><i /><i /><i /></span>
+          <span className="brand-mark satellite-mark"><img src="/insar-satellite.png" alt="InSAR 卫星监测图标" /></span>
           <span><strong>澜迹</strong><small>URBAN INSAR</small></span>
         </button>
 
         <nav className={mobileOpen ? "nav-menu open" : "nav-menu"} aria-label="主导航">
           {["数据总览", "形变地图", "区域统计", "接口验证"].map((item) => (
-            <button key={item} className={activeNav === item ? "active" : ""} onClick={() => handleNav(item)}>{item}</button>
+            <div className="nav-item" key={item}><button className={activeNav === item ? "active" : ""} onClick={() => handleNav(item)}>{item}<i>⌄</i></button><div className="hover-menu">{HOVER_MENUS[item].map((sub) => <button key={sub} onClick={() => { handleNav(item); notify(`已进入：${sub}`); }}>{sub}</button>)}</div></div>
           ))}
         </nav>
 
         <div className="top-actions">
           <span className="sync-state"><i /> 数据已同步</span>
           <button className="icon-button" onClick={() => notify("当前数据说明已是最新版本")} aria-label="数据说明">?</button>
-          <button className="avatar" onClick={() => notify("个人工作台 · 冯耀武")}>FY</button>
+          <Link className="avatar" href="/login" aria-label="账户中心">FY</Link>
           <button className="menu-toggle" onClick={() => setMobileOpen(!mobileOpen)} aria-label="展开导航">☰</button>
         </div>
       </header>
@@ -241,14 +287,14 @@ export default function Home() {
       <section className="projectbar">
         <div>
           <span className="eyebrow">当前项目</span>
-          <button className="project-select">北京城市地表形变监测 <span>⌄</span></button>
+          <button className="project-select">{datasetName} <span>⌄</span></button>
         </div>
         <div className="project-meta">
           <span><b>36</b> 景影像</span>
           <span><b>1.28M</b> 有效点</span>
           <span><b>2023.01—2026.07</b> 观测周期</span>
         </div>
-        <button className="outline-button" onClick={() => notify("报告任务已创建，示例版暂不下载文件")}>生成报告</button>
+        <button className="outline-button" onClick={() => fileRef.current?.click()}>导入 CSV</button><input ref={fileRef} className="hidden-input" type="file" accept=".csv,text/csv" onChange={(event) => event.target.files?.[0] && parseCsvPreview(event.target.files[0])} />
       </section>
 
       <section className={activeNav === "形变地图" ? "workspace" : "workspace view-panel"}>
@@ -259,11 +305,7 @@ export default function Home() {
           </div>
 
           <label className="field-label" htmlFor="city">研究区域</label>
-          <select id="city" className="select-field" defaultValue="beijing">
-            <option value="beijing">北京市 · 核心城区</option>
-            <option value="shanghai">上海市 · 示例数据</option>
-            <option value="shenzhen">深圳市 · 示例数据</option>
-          </select>
+          <button id="city" className="select-field import-region" onClick={() => fileRef.current?.click()}><span>{datasetName}</span><b>导入 / 替换</b></button>{importStatus && <p className="import-status">{importStatus}</p>}
 
           <span className="field-label">数据源</span>
           <div className="segmented">
@@ -293,7 +335,7 @@ export default function Home() {
           <label className="coherence-row"><span>相干性阈值 <b>≥ 0.75</b></span><input type="range" min="0" max="100" defaultValue="75" /></label>
         </aside>
 
-        {activeNav === "形变地图" && <InsarMap points={points} selected={selected} visible={visible} onSelect={setSelected} onNotify={notify} />}
+        {activeNav === "形变地图" && <InsarMap points={dataset} selected={selected} visible={visible} onSelect={setSelected} onNotify={notify} />}
         {activeNav === "数据总览" && <OverviewPanel onOpenMap={() => setActiveNav("形变地图")} />}
         {activeNav === "区域统计" && <StatisticsPanel />}
         {activeNav === "接口验证" && <ApiPanel />}
@@ -320,6 +362,7 @@ export default function Home() {
             <div className="section-title"><h3>点位信息</h3><span>最后更新 {selected.updated}</span></div>
             <dl><div><dt>经度</dt><dd>{selected.lon.toFixed(6)}°</dd></div><div><dt>纬度</dt><dd>{selected.lat.toFixed(6)}°</dd></div><div><dt>高程</dt><dd>48.6 m</dd></div><div><dt>数据源</dt><dd>{satellite} IW</dd></div></dl>
           </div>
+          <div className="analysis-box"><span className="eyebrow">POINT ANALYSIS</span><div><span>形变模式</span><strong>{selected.mode || (selected.velocity <= -8 ? "持续沉降" : selected.velocity > 3 ? "抬升趋势" : "相对稳定")}</strong></div><div><span>趋势置信度</span><strong>{Math.min(99, Math.round(selected.coherence * 100))}%</strong></div><p>综合速率方向、时序斜率与相干性生成快速判读；接入原始分类字段后优先使用真实结果。</p></div>
           <button className="primary-button" onClick={() => notify(`已将 ${selected.id} 加入重点监测清单`)}>加入重点监测</button>
         </aside>
       </section>

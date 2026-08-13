@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Point } from "../page";
 
+export type ImportedPoint = Point & { imported?: boolean };
+
 type Props = {
   points: Point[];
   selected: Point;
@@ -16,7 +18,7 @@ type BaseKey = "osm" | "tianditu" | "imagery";
 const BASES: Record<BaseKey, { label: string; sub: string }> = {
   osm: { label: "OSM", sub: "开放街道" },
   tianditu: { label: "天地图", sub: "矢量中文" },
-  imagery: { label: "卫星", sub: "公开影像" },
+  imagery: { label: "Esri 影像", sub: "World Imagery" },
 };
 
 function velocityClass(value: number) {
@@ -41,6 +43,10 @@ export default function InsarMap({ points, selected, visible, onSelect, onNotify
   const [zoom, setZoom] = useState(10);
   const [cursor, setCursor] = useState({ lat: 39.9042, lng: 116.4074 });
   const [tileError, setTileError] = useState("");
+  const [baseVisible, setBaseVisible] = useState(true);
+  const [resultVisible, setResultVisible] = useState(true);
+  const [boundaryVisible, setBoundaryVisible] = useState(true);
+  const boundaryRef = useRef<any>(null);
 
   const makeBase = (L: any, key: BaseKey) => {
     const options = { maxZoom: 19, crossOrigin: true, updateWhenIdle: true };
@@ -98,6 +104,36 @@ export default function InsarMap({ points, selected, visible, onSelect, onNotify
   }, [base]);
 
   useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !baseLayerRef.current) return;
+    if (baseVisible) {
+      if (!map.hasLayer(baseLayerRef.current)) baseLayerRef.current.addTo(map);
+      if (labelsLayerRef.current && !map.hasLayer(labelsLayerRef.current)) labelsLayerRef.current.addTo(map);
+    } else {
+      if (map.hasLayer(baseLayerRef.current)) map.removeLayer(baseLayerRef.current);
+      if (labelsLayerRef.current && map.hasLayer(labelsLayerRef.current)) map.removeLayer(labelsLayerRef.current);
+    }
+  }, [baseVisible, base]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !resultLayerRef.current) return;
+    if (resultVisible && !map.hasLayer(resultLayerRef.current)) resultLayerRef.current.addTo(map);
+    if (!resultVisible && map.hasLayer(resultLayerRef.current)) map.removeLayer(resultLayerRef.current);
+  }, [resultVisible, points, visible, resultMode]);
+
+  useEffect(() => {
+    const L = leafletRef.current;
+    const map = mapRef.current;
+    if (!L || !map || !points.length) return;
+    if (boundaryRef.current) map.removeLayer(boundaryRef.current);
+    const bounds = L.latLngBounds(points.map((point) => [point.lat, point.lon]));
+    boundaryRef.current = L.rectangle(bounds.pad(.04), { color: "#087f75", weight: 1.5, dashArray: "6 5", fill: false, interactive: false });
+    if (boundaryVisible) boundaryRef.current.addTo(map);
+    map.fitBounds(bounds.pad(.12), { maxZoom: 13, animate: true });
+  }, [points, boundaryVisible]);
+
+  useEffect(() => {
     const L = leafletRef.current;
     const map = mapRef.current;
     if (!L || !map) return;
@@ -106,6 +142,7 @@ export default function InsarMap({ points, selected, visible, onSelect, onNotify
     const renderer = L.canvas({ padding: 0.4 });
     const group = L.layerGroup().addTo(map);
     resultLayerRef.current = group;
+    if (!resultVisible) map.removeLayer(group);
     points.forEach((point) => {
       const status = velocityClass(point.velocity);
       if (!visible.includes(status)) return;
@@ -137,9 +174,9 @@ export default function InsarMap({ points, selected, visible, onSelect, onNotify
       <div className={layerOpen ? "layer-manager open" : "layer-manager"}>
         <button className="layer-heading" onClick={() => setLayerOpen(!layerOpen)}><span>图层</span><i>▦</i></button>
         <div className="layer-body">
-          <label><input type="checkbox" defaultChecked /><i className="layer-symbol basemap" /><span>{BASES[base].label} 底图</span></label>
-          <label><input type="checkbox" defaultChecked /><i className="layer-symbol result" /><span>年均形变速率</span><b>7</b></label>
-          <label><input type="checkbox" defaultChecked /><i className="layer-symbol boundary" /><span>研究区边界</span></label>
+          <label><input type="checkbox" checked={baseVisible} onChange={(event) => setBaseVisible(event.target.checked)} /><i className="layer-symbol basemap" /><span>{base === "imagery" ? "Esri World Imagery" : BASES[base].label + " 底图"}</span></label>
+          <label><input type="checkbox" checked={resultVisible} onChange={(event) => setResultVisible(event.target.checked)} /><i className="layer-symbol result" /><span>年均形变速率</span><b>{points.length}</b></label>
+          <label><input type="checkbox" checked={boundaryVisible} onChange={(event) => setBoundaryVisible(event.target.checked)} /><i className="layer-symbol boundary" /><span>数据外包范围</span></label>
           <div className="layer-opacity"><span>结果透明度</span><b>{opacity}%</b><input type="range" min="20" max="100" value={opacity} onChange={(event) => setOpacity(Number(event.target.value))} /></div>
         </div>
       </div>
