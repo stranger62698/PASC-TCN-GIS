@@ -39,6 +39,23 @@ const HOVER_MENUS: Record<string, string[]> = {
   "接口验证": ["接口目录", "GeoJSON", "大数据架构"],
 };
 
+const DEFAULT_SUBNAV: Record<string, string> = {
+  "数据总览": "项目概览",
+  "形变地图": "点位图层",
+  "区域统计": "速率分布",
+  "接口验证": "接口目录",
+};
+
+const SECTION_IDS: Record<string, string> = {
+  "项目概览": "overview-project",
+  "处理流程": "overview-process",
+  "成果说明": "overview-results",
+  "速率分布": "stats-distribution",
+  "重点区域": "stats-focus",
+  "范围对比": "stats-compare",
+  "点位分析": "point-analysis",
+};
+
 function velocityClass(value: number) {
   if (value <= -8) return "danger";
   if (value < -2) return "warning";
@@ -115,9 +132,9 @@ function TrendChart({ point }: { point: Point }) {
   return <canvas ref={canvasRef} className="trend-canvas" aria-label={`${point.name}累计形变时序曲线`} />;
 }
 
-function OverviewPanel({ onOpenMap }: { onOpenMap: () => void }) {
-  return <section className="content-stage overview-stage">
-    <div className="content-head">
+function OverviewPanel({ onOpenMap, section }: { onOpenMap: () => void; section: string }) {
+  return <section className="content-stage overview-stage" data-section={section}>
+    <div id="overview-project" className={`content-head section-target ${section === "项目概览" ? "is-target" : ""}`}>
       <div><span className="eyebrow">PROJECT NARRATIVE · 演示项目</span><h1>从雷达影像到城市形变线索</h1><p>以北京核心城区为示例，展示时序 InSAR 数据如何经过处理、质量控制与空间分析，转化为可检索、可解释、可交互的 WebGIS 成果。</p></div>
       <button className="primary-button compact" onClick={onOpenMap}>进入形变地图 →</button>
     </div>
@@ -130,7 +147,7 @@ function OverviewPanel({ onOpenMap }: { onOpenMap: () => void }) {
     </div>
 
     <div className="narrative-grid">
-      <article className="pipeline-card">
+      <article id="overview-process" className={`pipeline-card section-target ${section === "处理流程" ? "is-target" : ""}`}>
         <div className="card-title"><span>01</span><div><small>PROCESSING</small><h2>时序处理链</h2></div></div>
         <div className="pipeline">
           <div><i className="satellite-glyph">◫</i><b>SLC 影像</b><small>轨道 / DEM</small></div><em>→</em>
@@ -141,7 +158,7 @@ function OverviewPanel({ onOpenMap }: { onOpenMap: () => void }) {
         <p className="method-note">演示采用 PS / SBAS 思路组织数据产品。网页负责成果表达与交互，不在浏览器内执行 SAR 成像和解缠计算。</p>
       </article>
 
-      <article className="result-card">
+      <article id="overview-results" className={`result-card section-target ${section === "成果说明" ? "is-target" : ""}`}>
         <div className="card-title"><span>02</span><div><small>DEFORMATION MODES</small><h2>典型形变模式</h2></div></div>
         <div className="mode-visual">
           <div className="mode-map"><i className="mode-zone z1"/><i className="mode-zone z2"/><i className="mode-zone z3"/><b>城市形变空间分区</b></div>
@@ -163,20 +180,20 @@ function OverviewPanel({ onOpenMap }: { onOpenMap: () => void }) {
   </section>;
 }
 
-function StatisticsPanel() {
+function StatisticsPanel({ section }: { section: string }) {
   const districts = [["海淀区", -5.8, 82], ["朝阳区", -4.3, 66], ["丰台区", -3.6, 54], ["通州区", 2.1, 39], ["东城区", -1.2, 28]];
   return <section className="content-stage statistics-stage">
     <div className="content-head"><div><span className="eyebrow">SPATIAL STATISTICS · 演示统计</span><h1>范围形变统计</h1><p>按行政区或自定义多边形聚合监测点，快速比较速度分布、异常面积与重点点位。</p></div><button className="outline-button">自定义范围 ⌖</button></div>
     <div className="stats-kpis"><article><span>覆盖面积</span><strong>1,264.8</strong><small>km²</small></article><article><span>平均速率</span><strong>−2.7</strong><small>mm / yr</small></article><article><span>异常点占比</span><strong>3.8%</strong><small>|V| ≥ 8 mm/yr</small></article><article><span>重点区域</span><strong>12</strong><small>处</small></article></div>
     <div className="stats-panels">
-      <article className="district-ranking"><div className="card-title"><span>01</span><div><small>RANKING</small><h2>行政区平均速率</h2></div></div>{districts.map(([name,value,width])=><div className="district-row" key={String(name)}><span>{name}</span><div><i style={{width:`${width}%`}} /></div><b>{Number(value)>0?"+":""}{value}</b><small>mm/yr</small></div>)}</article>
-      <article className="histogram-card"><div className="card-title"><span>02</span><div><small>DISTRIBUTION</small><h2>速度频数分布</h2></div></div><div className="histogram">{[12,19,33,51,73,96,84,60,41,28,17,9].map((value,index)=><i key={index} style={{height:`${value}%`}} />)}<em className="zero-line" /></div><div className="hist-axis"><span>−30</span><span>−15</span><span>0</span><span>+15</span><span>+30</span></div><p>主要点位集中在 −5 至 +3 mm/yr，左尾显示局部持续沉降异常。</p></article>
-      <article className="risk-table"><div className="card-title"><span>03</span><div><small>FOCUS AREAS</small><h2>重点监测区</h2></div></div><table><thead><tr><th>区域</th><th>速率</th><th>趋势</th><th>等级</th></tr></thead><tbody><tr><td>中关村南</td><td>−12.4</td><td>↘</td><td><i className="risk high">高</i></td></tr><tr><td>国贸中心区</td><td>−8.6</td><td>↘</td><td><i className="risk high">高</i></td></tr><tr><td>大兴新城北</td><td>−5.1</td><td>→</td><td><i className="risk medium">中</i></td></tr><tr><td>运河商务区</td><td>+5.8</td><td>↗</td><td><i className="risk watch">关注</i></td></tr></tbody></table></article>
+      <article id="stats-compare" className={`district-ranking section-target ${section === "范围对比" ? "is-target" : ""}`}><div className="card-title"><span>01</span><div><small>RANKING</small><h2>行政区范围对比</h2></div></div>{districts.map(([name,value,width])=><div className="district-row" key={String(name)}><span>{name}</span><div><i style={{width:`${width}%`}} /></div><b>{Number(value)>0?"+":""}{value}</b><small>mm/yr</small></div>)}</article>
+      <article id="stats-distribution" className={`histogram-card section-target ${section === "速率分布" ? "is-target" : ""}`}><div className="card-title"><span>02</span><div><small>DISTRIBUTION</small><h2>速度频数分布</h2></div></div><div className="histogram">{[12,19,33,51,73,96,84,60,41,28,17,9].map((value,index)=><i key={index} style={{height:`${value}%`}} />)}<em className="zero-line" /></div><div className="hist-axis"><span>−30</span><span>−15</span><span>0</span><span>+15</span><span>+30</span></div><p>主要点位集中在 −5 至 +3 mm/yr，左尾显示局部持续沉降异常。</p></article>
+      <article id="stats-focus" className={`risk-table section-target ${section === "重点区域" ? "is-target" : ""}`}><div className="card-title"><span>03</span><div><small>FOCUS AREAS</small><h2>重点监测区</h2></div></div><table><thead><tr><th>区域</th><th>速率</th><th>趋势</th><th>等级</th></tr></thead><tbody><tr><td>中关村南</td><td>−12.4</td><td>↘</td><td><i className="risk high">高</i></td></tr><tr><td>国贸中心区</td><td>−8.6</td><td>↘</td><td><i className="risk high">高</i></td></tr><tr><td>大兴新城北</td><td>−5.1</td><td>→</td><td><i className="risk medium">中</i></td></tr><tr><td>运河商务区</td><td>+5.8</td><td>↗</td><td><i className="risk watch">关注</i></td></tr></tbody></table></article>
     </div>
   </section>;
 }
 
-function ApiPanel() {
+function ApiPanel({ section }: { section: string }) {
   const [endpoint, setEndpoint] = useState("/api/health");
   const [result, setResult] = useState("选择接口并点击“发起请求”进行现场验证。");
   const [testing, setTesting] = useState(false);
@@ -191,10 +208,15 @@ function ApiPanel() {
     } catch (error) { setResult(`请求失败\n${String(error)}`); }
     finally { setTesting(false); }
   };
+  useEffect(() => {
+    if (section === "GeoJSON") setEndpoint("/api/points");
+    if (section === "大数据架构") setEndpoint("/api/datasets/architecture");
+    if (section === "接口目录") setEndpoint("/api/health");
+  }, [section]);
   return <section className="content-stage api-stage">
     <div className="content-head"><div><span className="eyebrow">LIVE API CONSOLE</span><h1>接口验证台</h1><p>网页中的点图层与后端服务使用 GeoJSON 交换数据。这里可现场验证线上接口、响应时间和数据结构。</p></div><span className="api-online"><i /> 服务在线</span></div>
     <div className="api-workbench">
-      <aside><h2>接口目录</h2><button className={endpoint==="/api/health"?"active":""} onClick={()=>setEndpoint("/api/health")}><b>GET</b><span>/api/health<small>服务健康状态</small></span></button><button className={endpoint==="/api/points"?"active":""} onClick={()=>setEndpoint("/api/points")}><b>GET</b><span>/api/points<small>GeoJSON 形变点</small></span></button><div className="schema-note"><span>数据规范</span><strong>OGC GeoJSON</strong><small>CRS84 · WGS84 经纬度</small></div></aside>
+      <aside><h2>接口目录</h2><button className={endpoint==="/api/health"?"active":""} onClick={()=>setEndpoint("/api/health")}><b>GET</b><span>/api/health<small>服务健康状态</small></span></button><button className={endpoint==="/api/points"?"active":""} onClick={()=>setEndpoint("/api/points")}><b>GET</b><span>/api/points<small>GeoJSON 形变点</small></span></button><button className={endpoint==="/api/datasets/architecture"?"active":""} onClick={()=>setEndpoint("/api/datasets/architecture")}><b>GET</b><span>/api/datasets/architecture<small>大数据接入架构</small></span></button><div className="schema-note"><span>数据规范</span><strong>OGC GeoJSON</strong><small>CRS84 · WGS84 经纬度</small></div></aside>
       <div className="api-console"><div className="request-line"><b>GET</b><code>{endpoint}</code><button onClick={runTest} disabled={testing}>{testing?"请求中…":"发起请求 →"}</button></div><div className="response-meta"><span>RESPONSE</span><i>application/json</i></div><pre>{result}</pre></div>
     </div>
     <div className="integration-notes"><article><b>前端地图</b><span>Leaflet 读取 GeoJSON，按 velocity 属性进行分级渲染。</span></article><article><b>真实数据替换</b><span>保持字段名或增加转换层，即可替换当前演示数据。</span></article><article><b>大数据量方案</b><span>点数达到百万级时，使用矢量瓦片或服务端聚合，不一次加载全部点。</span></article></div>
@@ -208,6 +230,7 @@ export default function Home() {
   const [datasetName, setDatasetName] = useState("北京城市地表形变监测");
   const [importStatus, setImportStatus] = useState("");
   const [activeNav, setActiveNav] = useState("形变地图");
+  const [activeSubNav, setActiveSubNav] = useState("点位图层");
   const [satellite, setSatellite] = useState("Sentinel-1");
   const [visible, setVisible] = useState(["danger", "warning", "stable", "positive"]);
   const [statsOpen, setStatsOpen] = useState(false);
@@ -222,6 +245,17 @@ export default function Home() {
     }).catch(() => window.location.replace("/login"));
   }, []);
 
+  useEffect(() => {
+    const requested = decodeURIComponent(window.location.hash.replace(/^#/, ""));
+    for (const [item, children] of Object.entries(HOVER_MENUS)) {
+      if (children.includes(requested)) {
+        setActiveNav(item);
+        setActiveSubNav(requested);
+        break;
+      }
+    }
+  }, []);
+
   const notify = (message: string) => {
     setToast(message);
     window.setTimeout(() => setToast(""), 2200);
@@ -229,8 +263,21 @@ export default function Home() {
 
   const handleNav = (item: string) => {
     setActiveNav(item);
+    setActiveSubNav(DEFAULT_SUBNAV[item]);
     setMobileOpen(false);
     setStatsOpen(false);
+    window.history.replaceState(null, "", `#${encodeURIComponent(DEFAULT_SUBNAV[item])}`);
+  };
+
+  const handleSubNav = (item: string, sub: string) => {
+    setActiveNav(item);
+    setActiveSubNav(sub);
+    setMobileOpen(false);
+    setStatsOpen(false);
+    window.history.replaceState(null, "", `#${encodeURIComponent(sub)}`);
+    const targetId = SECTION_IDS[sub];
+    if (targetId) window.setTimeout(() => document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
+    notify(`已进入：${sub}`);
   };
 
   const parseCsvPreview = async (file: File) => {
@@ -294,14 +341,14 @@ export default function Home() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <button className="brand" onClick={() => notify("已回到项目总览")} aria-label="回到项目总览">
+        <button className="brand" onClick={() => handleSubNav("数据总览", "项目概览")} aria-label="回到项目总览">
           <span className="brand-mark satellite-mark"><img src="/insar-satellite.png" alt="InSAR 卫星监测图标" /></span>
           <span><strong>澜迹</strong><small>URBAN INSAR</small></span>
         </button>
 
         <nav className={mobileOpen ? "nav-menu open" : "nav-menu"} aria-label="主导航">
           {["数据总览", "形变地图", "区域统计", "接口验证"].map((item) => (
-            <div className="nav-item" key={item}><button className={activeNav === item ? "active" : ""} onClick={() => handleNav(item)}>{item}<i>⌄</i></button><div className="hover-menu">{HOVER_MENUS[item].map((sub) => <button key={sub} onClick={() => { handleNav(item); notify(`已进入：${sub}`); }}>{sub}</button>)}</div></div>
+            <div className="nav-item" key={item}><button type="button" className={activeNav === item ? "active" : ""} onClick={() => handleNav(item)} aria-expanded={activeNav === item}>{item}<i>⌄</i></button><div className="hover-menu">{HOVER_MENUS[item].map((sub) => <button type="button" key={sub} className={activeNav === item && activeSubNav === sub ? "sub-active" : ""} aria-current={activeNav === item && activeSubNav === sub ? "page" : undefined} onClick={() => handleSubNav(item, sub)}>{sub}</button>)}</div></div>
           ))}
         </nav>
 
@@ -364,12 +411,12 @@ export default function Home() {
           <label className="coherence-row"><span>相干性阈值 <b>≥ 0.75</b></span><input type="range" min="0" max="100" defaultValue="75" /></label>
         </aside>
 
-        {activeNav === "形变地图" && <InsarMap points={dataset} selected={selected} visible={visible} onSelect={setSelected} onNotify={notify} />}
-        {activeNav === "数据总览" && <OverviewPanel onOpenMap={() => setActiveNav("形变地图")} />}
-        {activeNav === "区域统计" && <StatisticsPanel />}
-        {activeNav === "接口验证" && <ApiPanel />}
+        {activeNav === "形变地图" && <InsarMap points={dataset} selected={selected} visible={visible} subSection={activeSubNav} onSelect={setSelected} onNotify={notify} />}
+        {activeNav === "数据总览" && <OverviewPanel section={activeSubNav} onOpenMap={() => handleSubNav("形变地图", "点位图层")} />}
+        {activeNav === "区域统计" && <StatisticsPanel section={activeSubNav} />}
+        {activeNav === "接口验证" && <ApiPanel section={activeSubNav} />}
 
-        <aside className="detail-panel">
+        <aside id="point-analysis" className={`detail-panel section-target ${activeNav === "形变地图" && activeSubNav === "点位分析" ? "is-target" : ""}`}>
           <div className="detail-top">
             <div><span className="status-chip">已选点位</span><h2>{selected.name}</h2><p>{selected.id}</p></div>
             <button className="more-button" aria-label="更多操作" onClick={() => notify("点位菜单将在下一版开放")}>•••</button>

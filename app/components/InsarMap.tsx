@@ -9,6 +9,7 @@ type Props = {
   points: Point[];
   selected: Point;
   visible: string[];
+  subSection: string;
   onSelect: (point: Point) => void;
   onNotify: (message: string) => void;
 };
@@ -28,7 +29,7 @@ function velocityClass(value: number) {
   return "stable";
 }
 
-export default function InsarMap({ points, selected, visible, onSelect, onNotify }: Props) {
+export default function InsarMap({ points, selected, visible, subSection, onSelect, onNotify }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const baseLayerRef = useRef<any>(null);
@@ -47,6 +48,11 @@ export default function InsarMap({ points, selected, visible, onSelect, onNotify
   const [resultVisible, setResultVisible] = useState(true);
   const [boundaryVisible, setBoundaryVisible] = useState(true);
   const boundaryRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (subSection === "点位图层") setResultMode("points");
+    if (subSection === "形变模式") setResultMode("heat");
+  }, [subSection]);
 
   const makeBase = (L: any, key: BaseKey) => {
     const options = { maxZoom: 19, crossOrigin: true, updateWhenIdle: true };
