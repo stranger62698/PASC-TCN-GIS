@@ -38,3 +38,16 @@ yarn-error.log*
 /.wrangler/
 /outputs/
 /work/
+
+# Local Netlify folder
+.netlify
+/netlify/
+/netlify.toml
+
+# Generated previews, local archives and authentication logs
+/static-dist/
+/.work/
+/*.log
+/*.zip
+/*.tar.gz
+/tsconfig.tsbuildinfo
