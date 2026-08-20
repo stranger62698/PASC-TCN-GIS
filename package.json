@@ -18,9 +18,10 @@
   "dependencies": {
     "@netlify/blobs": "^10.7.13",
     "@netlify/functions": "^5.3.0",
-    "@netlify/identity": "1.2.0",
     "@netlify/otel": "^6.0.6",
     "@netlify/runtime-utils": "^2.3.0",
+    "@vercel/blob": "^2.8.0",
+    "@vercel/node": "^5.10.1",
     "drizzle-orm": "0.45.2",
     "html2canvas": "^1.4.1",
     "leaflet": "1.9.4",

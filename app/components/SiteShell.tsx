@@ -3,10 +3,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { navItems } from "../data/site";
+import { getSession } from "../lib/auth-client";
+import type { AuthUser } from "../lib/auth-client";
 
 export function SiteHeader(){
-  const path=usePathname(); const [scrolled,setScrolled]=useState(false); const [open,setOpen]=useState(false);
+  const path=usePathname(); const [scrolled,setScrolled]=useState(false); const [open,setOpen]=useState(false); const [account,setAccount]=useState<AuthUser|null>(null);
   useEffect(()=>{const fn=()=>setScrolled(window.scrollY>24);fn();window.addEventListener("scroll",fn);return()=>window.removeEventListener("scroll",fn)},[]);
+  useEffect(()=>{getSession().then(setAccount).catch(()=>setAccount(null))},[path]);
   return <header className={`site-header ${scrolled?"is-scrolled":""}`}>
     <Link className="site-brand" href="/"><img src="/insar-satellite-v2.png" alt="InSAR 卫星标志"/><span><b>LANJIFYW</b><small>城市时序 InSAR</small></span></Link>
     <button className="nav-toggle" aria-label="打开导航" aria-expanded={open} onClick={()=>setOpen(!open)}>☰</button>
@@ -14,7 +17,7 @@ export function SiteHeader(){
       <Link className={path===item.href||path.startsWith(item.href+"/")?"active":""} href={item.href} onClick={()=>setOpen(false)}>{item.label}{item.children&&<span>⌄</span>}</Link>
       {item.children&&<div className="nav-popover">{item.children.map(child=><Link href={child.href} key={child.href} onClick={()=>setOpen(false)}><b>{child.label}</b><small>查看相关内容与分析功能</small></Link>)}</div>}
     </div>)}</nav>
-    <Link className="header-login" href="/login">登录平台 <span>↗</span></Link>
+    <Link className="header-login" href={account?"/datasets":"/login"}>{account?`${account.name} · 我的数据`:"登录 / 注册"} <span>↗</span></Link>
   </header>
 }
 

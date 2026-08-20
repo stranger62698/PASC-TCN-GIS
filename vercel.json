@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
+  "devCommand": "pnpm exec vite --config vite.static.config.ts",
   "buildCommand": "pnpm run build:static",
   "outputDirectory": "static-dist",
   "cleanUrls": true,

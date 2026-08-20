@@ -7,7 +7,11 @@ export default defineConfig({
   root: "static-src",
   publicDir: "../public",
   plugins: [react()],
-  server: { fs: { allow: [".."] } },
+  server: {
+    port: process.env.PORT ? Number(process.env.PORT) : 4174,
+    host: "127.0.0.1",
+    fs: { allow: [".."] },
+  },
   resolve: {
     alias: {
       "next/link": fileURLToPath(new URL("./static-src/shims/next-link.tsx", import.meta.url)),

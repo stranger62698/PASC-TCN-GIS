@@ -1,8 +1,8 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { getUser, handleAuthCallback, logout } from "@netlify/identity";
-import type { User } from "@netlify/identity";
+import { getSession, signOut as logout } from "../lib/auth-client";
+import type { AuthUser } from "../lib/auth-client";
 import { PageHero, PageShell } from "./SiteShell";
 
 type QualityReport={invalid:number;missingRate:number;lowCoherence:number;outlierVelocity:number;modeCounts:Record<string,number>;warnings:string[];timeColumns:string[];bbox:[number,number,number,number]};
@@ -16,11 +16,11 @@ function formatBytes(value=0){if(value>=1024**3)return `${(value/1024**3).toFixe
 function downloadTemplate(){const csv=["point_id,longitude,latitude,velocity,label,coherence,project_name,D20200101,D20200113,D20200125","P-001,110.3284,20.04539,-2.31,Stable,0.91,示例研究区,0,-0.8,-1.1","P-002,110.3385,20.05542,-8.24,Linear,0.89,示例研究区,0,-3.9,-5.1"].join("\n"),blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="lanjifyw-insar-template.csv";a.click();URL.revokeObjectURL(a.href)}
 
 export function DatasetPage(){
-  const [user,setUser]=useState<User|null>(null),[loading,setLoading]=useState(true),[items,setItems]=useState<DatasetMeta[]>([]),[account,setAccount]=useState<AccountInfo|null>(null),[progress,setProgress]=useState(0),[phase,setPhase]=useState(""),[message,setMessage]=useState(""),[renaming,setRenaming]=useState<string|null>(null),[renameValue,setRenameValue]=useState(""),[replaceParent,setReplaceParent]=useState<DatasetMeta|null>(null),[report,setReport]=useState<DatasetMeta|null>(null);
+  const [user,setUser]=useState<AuthUser|null>(null),[loading,setLoading]=useState(true),[items,setItems]=useState<DatasetMeta[]>([]),[account,setAccount]=useState<AccountInfo|null>(null),[progress,setProgress]=useState(0),[phase,setPhase]=useState(""),[message,setMessage]=useState(""),[renaming,setRenaming]=useState<string|null>(null),[renameValue,setRenameValue]=useState(""),[replaceParent,setReplaceParent]=useState<DatasetMeta|null>(null),[report,setReport]=useState<DatasetMeta|null>(null);
   const fileRef=useRef<HTMLInputElement>(null);
 
   const refresh=async()=>{const response=await fetch("/api/private-datasets?op=list",{credentials:"include",cache:"no-store"});if(response.ok){const data=await response.json();setItems((data.items||[]).sort((a:DatasetMeta,b:DatasetMeta)=>b.uploadedAt.localeCompare(a.uploadedAt)));setAccount(data.account||null)}else if(response.status!==401)setMessage("私有数据服务暂时不可用，请稍后重试")};
-  useEffect(()=>{handleAuthCallback().catch(()=>null).then(()=>getUser()).then(current=>{setUser(current);setLoading(false);if(current)refresh()}).catch(()=>setLoading(false))},[]);
+  useEffect(()=>{getSession().then(current=>{setUser(current);setLoading(false);if(current)refresh()}).catch(()=>setLoading(false))},[]);
 
   const upload=async(file?:File)=>{
     if(!file||!user)return;
@@ -41,7 +41,7 @@ export function DatasetPage(){
   const updateDataset=async(item:DatasetMeta,patch:Partial<DatasetMeta>)=>{const response=await fetch(`/api/private-datasets?id=${item.id}`,{method:"PATCH",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify(patch)});if(!response.ok){setMessage("更新失败");return}setMessage("数据集信息已更新");setRenaming(null);await refresh()};
   const remove=async(id:string)=>{if(!confirm("确认删除这个私有数据集及其全部分块？此操作不可恢复。"))return;const response=await fetch(`/api/private-datasets?id=${id}`,{method:"DELETE",credentials:"include"});if(response.ok){setMessage("数据集已删除");await refresh()}else setMessage("删除失败")};
   const signOut=async()=>{await logout();window.location.href="/login"};
-  const accountName=String(user?.userMetadata?.username||user?.name||user?.email||"");
+  const accountName=String(user?.name||user?.email||"");
 
   if(loading)return <div className="auth-loading">正在检查账户…</div>;
   if(!user)return <PageShell><PageHero eyebrow="PRIVATE DATA WORKSPACE" title="登录后保存你的 InSAR 数据" description="公开地图可以直接本地导入；登录后 CSV 将按用户 ID 分块存储，其他用户无法访问。"/><section className="section"><div className="login-required"><h2>尚未登录</h2><p>注册时设置展示用户名并绑定邮箱；邮箱用于账户验证和密码找回。</p><Link className="button primary" href="/login">登录或注册</Link></div></section></PageShell>;

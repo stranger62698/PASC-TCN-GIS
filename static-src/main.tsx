@@ -10,8 +10,6 @@ import { AuthPage } from "../app/components/AuthPage";
 import { cases } from "../app/data/site";
 
 function App(){
-  const authCallback=/(confirmation_token|recovery_token|invite_token|access_token|type=recovery)/.test(window.location.hash);
-  if(authCallback)return <AuthPage/>;
   const base=(import.meta.env.BASE_URL||"/").replace(/\/$/,"");
   const hashMode=import.meta.env.VITE_HASH_ROUTING==="true";
   const rawPath=hashMode?window.location.hash.slice(1):window.location.pathname.slice(base.length);
