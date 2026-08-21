@@ -6,7 +6,7 @@ export type CaseStudy = {
 };
 
 export const cases: CaseStudy[] = [
-  { key: "city", label: "城市", title: "海口城市地表形变健康体检", kicker: "URBAN HEALTH · HAIKOU", description: "以时序 InSAR 建立城市尺度毫米级形变底图，识别沉降集聚区，并为重点设施筛查提供连续证据。", metrics: [["有效点", "407,200"], ["观测周期", "2017—2025"], ["空间分辨率", "20 m"]], tags: ["Sentinel-1", "PS-InSAR", "城市安全"], accent: "#1677ff", image:"/case-city-insar.png" },
+  { key: "city", label: "城市", title: "海口城市地表形变公开示例", kicker: "URBAN DEFORMATION · HAIKOU", description: "以时序 InSAR 组织城市尺度形变结果，通过速率、累计形变与时间序列发现值得进一步核查的位置。", metrics: [["网页示例点", "4,073"], ["观测期数", "210 期"], ["观测时间", "2017—2025"]], tags: ["Sentinel-1", "时序 InSAR", "城市形变"], accent: "#1677ff", image:"/case-city-insar.png" },
   { key: "landslide", label: "滑坡", title: "滑坡体活动性与形变演化监测", kicker: "LANDSLIDE MOTION", description: "沿坡体边界组织监测点，结合速率分区与累积形变时间序列，识别持续活动区和需要现场核查的加速区。", metrics: [["监测坡体", "12 处"], ["重点区域", "34"], ["复访周期", "12 d"]], tags: ["滑坡", "坡体活动", "趋势分析"], accent: "#ff8a34", image:"/case-landslide-insar.png" },
   { key: "road", label: "公路", title: "高边坡与路基沉降监测", kicker: "ROAD & SLOPE", description: "面向高边坡、填方路基和桥隧连接段，追踪形变速率变化和异常演化趋势。", metrics: [["监测里程", "164 km"], ["异常区", "17"], ["更新频率", "月度"]], tags: ["公路", "边坡", "沉降"], accent: "#0a9c93", image:"/case-road-insar.png" },
 ];

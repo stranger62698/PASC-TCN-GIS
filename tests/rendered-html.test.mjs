@@ -36,6 +36,7 @@ test("server-renders the LANJIFYW InSAR website", async () => {
   const html = await response.text();
   assert.doesNotMatch(html, developmentPreviewMeta);
   assert.match(html, /LANJIFYW/);
-  assert.match(html, /城市地表形变/);
+  assert.match(html, /城市地表形变智能分析平台/);
+  assert.match(html, /体验示例数据/);
   assert.doesNotMatch(html, /Your site is taking shape/);
 });

@@ -1,16 +1,91 @@
 "use client";
+
 import Link from "next/link";
-import { useState } from "react";
-import { cases } from "../data/site";
 import { PageShell } from "./SiteShell";
 
-export function HomePage(){const [active,setActive]=useState(cases[0]);return <PageShell>
-  <section className="home-hero grid-surface"><div className="hero-copy"><span className="eyebrow">TIME-SERIES INSAR · URBAN WEBGIS</span><h1>看见城市地表<br/><em>毫米级形变</em></h1><p>融合卫星遥感、时序分析与 WebGIS 交互，把海量监测点转化为可探索、可解释、可展示的城市安全信息。</p><div className="hero-actions"><Link className="button primary" href="/map">进入形变地图 <span>↗</span></Link><Link className="button ghost" href="/showcase">查看典型案例</Link></div><div className="hero-facts"><span><b>2017—2025</b>连续观测</span><span><b>毫米级</b>形变洞察</span><span><b>WebGIS</b>交互分析</span></div></div>
-  <div className="hero-visual"><div className="map-art"><span className="map-city">HAIKOU · 20.04°N</span><i className="heat h1"/><i className="heat h2"/><i className="heat h3"/>{[1,2,3,4,5,6,7].map(n=><b key={n} className={`point p${n}`}/>) }<div className="floating-panel"><small>SELECTED POINT</small><strong>−8.24 <em>mm/yr</em></strong><span>持续沉降 · Coherence 0.89</span><svg viewBox="0 0 180 50" aria-hidden="true"><polyline points="0,8 22,12 45,17 68,16 91,26 114,25 136,37 158,40 180,47"/></svg></div></div><div className="satellite-badge"><img src="/insar-satellite-v2.png" alt="Sentinel-1 InSAR 卫星"/><span><b>SENTINEL-1</b><small>时序雷达观测</small></span></div></div></section>
-  <section className="metric-strip"><article><span>卫星影像</span><b>36</b><small>Sentinel-1 IW</small></article><article><span>观测期数</span><b>210</b><small>2017.03—2025.05</small></article><article><span>有效监测点</span><b>407K</b><small>PS / DS 点目标</small></article><article><span>平均相干性</span><b>0.86</b><small>质量阈值 ≥ 0.75</small></article></section>
-  <section className="section"><div className="section-heading"><div><span className="eyebrow">INDUSTRIES</span><h2>面向真实场景的形变监测</h2></div><p>当前聚焦城市、滑坡和道路三类场景，以统一空间底图组织形变结果与时间序列。</p></div><div className="industry-grid industry-grid-three">{cases.map((item,i)=><Link href={`/showcase/${item.key}`} className={`industry-card industry-photo-card card-${i+1}`} key={item.key} style={{backgroundImage:`linear-gradient(180deg,rgba(5,20,43,.04),rgba(5,20,43,.9)),url(${item.image})`}}><span>0{i+1}</span><div><small>{item.kicker}</small><h3>{item.label}</h3><p>{item.description}</p><b>了解更多 →</b></div></Link>)}</div></section>
-  <section className="section soft-section"><div className="section-heading"><div><span className="eyebrow">PLATFORM</span><h2>空间结果与时间序列，在同一视图联动</h2></div><Link className="text-link" href="/map">打开完整工作台 →</Link></div><div className="platform-preview"><aside><small>LAYERS</small>{["Esri World Imagery","年均形变速率","数据外包范围","重点风险区域"].map((x,i)=><span key={x}><i className={i?"checked":"radio"}/>{x}</span>)}</aside><div className="preview-map"><i className="heat h1"/><i className="heat h2"/><div className="preview-legend">−30　−15　0　+15　+30 mm/yr</div></div><div className="preview-chart"><span className="status-pill">加速沉降</span><h3>HK-102881</h3><strong>−4.22 <small>mm/yr</small></strong><svg viewBox="0 0 260 130"><polyline points="0,18 20,23 40,28 60,31 80,39 100,45 120,55 140,64 160,69 180,81 200,91 220,103 240,112 260,122"/></svg><small>2017.03　　　　　　　　　2025.05</small></div></div></section>
-  <section className="section case-deck"><div className="section-heading"><div><span className="eyebrow">CASE DECK</span><h2>典型 InSAR 应用案例</h2></div><p>按行业切换案例，查看监测任务、核心指标与技术路径。</p></div><div className="case-tabs" role="tablist">{cases.map(item=><button role="tab" aria-selected={active.key===item.key} className={active.key===item.key?"active":""} onClick={()=>setActive(item)} key={item.key}>{item.label}</button>)}</div><article className="case-feature"><div><span className="eyebrow">{active.kicker}</span><h3>{active.title}</h3><p>{active.description}</p><div className="tag-list">{active.tags.map(t=><span key={t}>{t}</span>)}</div><Link className="button primary" href={`/showcase/${active.key}`}>查看案例详情 <span>↗</span></Link></div><div className="case-visual" style={{"--case-accent":active.accent} as React.CSSProperties}><div className="case-map"><i className="heat h1"/><i className="heat h2"/></div><div className="case-metrics">{active.metrics.map(([k,v])=><span key={k}><small>{k}</small><b>{v}</b></span>)}</div></div></article></section>
-  <section className="section"><div className="section-heading"><div><span className="eyebrow">WORKFLOW</span><h2>从 SAR 影像到风险洞察</h2></div></div><div className="workflow">{[["01","影像准备","轨道、DEM 与 SLC 影像"],["02","干涉处理","配准、干涉与解缠"],["03","时序反演","速度、累计量与相干性"],["04","模式识别","趋势分类与异常筛查"],["05","WebGIS 发布","地图、曲线与统计联动"]].map(([n,t,d])=><article key={n}><span>{n}</span><i/><h3>{t}</h3><p>{d}</p></article>)}</div></section>
-  <section className="cta-section grid-surface"><span className="eyebrow">START WITH YOUR DATA</span><h2>导入你的 InSAR 点数据<br/>开始一场空间探索</h2><p>系统将自动识别坐标、计算数据边界并联动点位时间序列。</p><div><Link className="button light" href="/map">进入分析平台</Link><Link className="button line-light" href="/datasets">管理数据集</Link></div></section>
-  </PageShell>}
+const demoMetrics = [
+  ["4,073", "有效监测点"],
+  ["210 期", "时序观测"],
+  ["2017.03—2025.05", "观测时间"],
+  ["5 类", "已标注形变模式"],
+];
+
+const analysisSteps = [
+  ["01", "发现值得关注的位置", "使用速率、累计形变、形变模式和质量条件，让用户先看到需要进一步分析的监测点。"],
+  ["02", "理解形变过程", "点击点位或框选区域，查看时序曲线、阶段速率、模式分布与区域统计。"],
+  ["03", "形成可追溯的解释", "所有数值由程序计算，形变类别读取已有字段，为后续 AI 辅助解读保留清晰依据。"],
+];
+
+export function HomePage() {
+  return <PageShell>
+    <section className="home-hero grid-surface">
+      <div className="hero-copy">
+        <span className="eyebrow">TIME-SERIES INSAR · URBAN WEBGIS</span>
+        <h1>看见城市地表<br/><em>毫米级形变</em></h1>
+        <p>融合卫星遥感、时序分析与 WebGIS 交互，把海量监测点转化为可探索、可解释、可展示的城市安全信息。</p>
+        <div className="hero-actions">
+          <Link className="button primary" href="/map">进入形变地图 <span>↗</span></Link>
+          <Link className="button ghost" href="/showcase">查看典型案例</Link>
+        </div>
+        <div className="hero-facts">
+          <span><b>2017—2025</b>连续观测</span>
+          <span><b>毫米级</b>形变洞察</span>
+          <span><b>WebGIS</b>交互分析</span>
+        </div>
+      </div>
+      <div className="hero-visual">
+        <div className="map-art">
+          <span className="map-city">HAIKOU · 20.04°N</span>
+          <i className="heat h1"/><i className="heat h2"/><i className="heat h3"/>
+          {[1,2,3,4,5,6,7].map(number => <b key={number} className={`point p${number}`}/>) }
+          <div className="floating-panel">
+            <small>SELECTED POINT</small>
+            <strong>−8.24 <em>mm/yr</em></strong>
+            <span>持续沉降 · Coherence 0.89</span>
+            <svg viewBox="0 0 180 50" aria-hidden="true"><polyline points="0,8 22,12 45,17 68,16 91,26 114,25 136,37 158,40 180,47"/></svg>
+          </div>
+        </div>
+        <div className="satellite-badge"><img src="/insar-satellite-v2.png" alt="Sentinel-1 InSAR 卫星"/><span><b>SENTINEL-1</b><small>时序雷达观测</small></span></div>
+      </div>
+    </section>
+
+    <section className="section demo-section" aria-labelledby="demo-title">
+      <div className="demo-intro">
+        <div>
+          <span className="eyebrow">LIVE PRODUCT DEMO</span>
+          <h2 id="demo-title">海口城市地表形变公开示例</h2>
+          <p>这是一套可以直接操作的轻量数据：无需注册即可切换观测日期、点击监测点、查看完整时序并框选区域统计。</p>
+          <div className="demo-actions">
+            <Link className="button primary" href="/map?demo=haikou">立即体验完整分析 <span>↗</span></Link>
+            <Link className="text-link" href="/map?intent=upload">使用自己的 CSV →</Link>
+          </div>
+        </div>
+        <div className="demo-visual" style={{backgroundImage:"linear-gradient(110deg,rgba(5,20,43,.12),rgba(5,20,43,.7)),url(/case-city-insar.png)"}}>
+          <span>PUBLIC SAMPLE</span>
+          <strong>空间分布与时间序列<br/>在同一视图联动</strong>
+          <small>数据仅用于网页功能演示，不代表工程安全结论。</small>
+        </div>
+      </div>
+      <div className="metric-strip demo-metric-strip">
+        {demoMetrics.map(([value,label]) => <article key={label}><b>{value}</b><span>{label}</span><small>网页公开示例</small></article>)}
+      </div>
+    </section>
+
+    <section className="section analysis-journey">
+      <div className="section-heading">
+        <div><span className="eyebrow">ONE ANALYSIS JOURNEY</span><h2>先找到问题，再理解变化</h2></div>
+        <p>产品围绕一条分析主线组织，不要求用户先理解复杂的 GIS 工具和 InSAR 字段。</p>
+      </div>
+      <div className="journey-grid">
+        {analysisSteps.map(([number,title,description]) => <article key={number}><span>{number}</span><h3>{title}</h3><p>{description}</p></article>)}
+      </div>
+    </section>
+
+    <section className="cta-section compact-home-cta grid-surface">
+      <span className="eyebrow">START ANALYSIS</span>
+      <h2>用一分钟完成第一次<br/>形变分析体验</h2>
+      <p>先体验公开数据，或直接导入包含经纬度、速率和时间序列的 CSV。</p>
+      <div><Link className="button light" href="/map?demo=haikou">体验示例数据</Link><Link className="button line-light" href="/map?intent=upload">上传我的数据</Link></div>
+    </section>
+  </PageShell>;
+}
