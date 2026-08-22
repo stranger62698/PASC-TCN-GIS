@@ -17,6 +17,8 @@ type DatasetMeta = {
   mapping?: Record<string, unknown>;
   qualityReport?: Record<string, unknown>;
   processStatus?: "uploaded" | "mapped" | "validated" | "converted";
+  importDecision?: "recommended" | "keep-all";
+  recommendedFilter?: { coherenceMin: number } | null;
 };
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024;
@@ -105,7 +107,23 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const items = await listMetas(prefix);
       if (items.reduce((sum, item) => sum + (Number(item.size) || 0), 0) + size > MAX_USER_BYTES) return json(response, { error: "当前账户已超过 5 GB 私有数据容量限制" }, 413);
       const name = String(input.name || "未命名数据集").slice(0, 160);
-      const meta: DatasetMeta = { id, name, size, chunks, uploadedAt: now, updatedAt: now, analysisReady: Boolean(input.analysisReady), status: input.analysisReady ? "ready" : "archived", schemaStatus: "pending", version: items.filter((item) => item.name === name).length + 1, parentId: input.parentId, processStatus: "uploaded" };
+      const hasValidatedImport = Boolean(input.mapping && input.qualityReport);
+      const recommendedFilter = input.recommendedFilter && Number.isFinite(Number(input.recommendedFilter.coherenceMin))
+        ? { coherenceMin: Math.max(0, Math.min(1, Number(input.recommendedFilter.coherenceMin))) }
+        : null;
+      const meta: DatasetMeta = {
+        id, name, size, chunks, uploadedAt: now, updatedAt: now,
+        analysisReady: Boolean(input.analysisReady),
+        status: input.analysisReady ? "ready" : "archived",
+        schemaStatus: hasValidatedImport ? "validated" : "pending",
+        version: items.filter((item) => item.name === name).length + 1,
+        parentId: input.parentId,
+        mapping: input.mapping,
+        qualityReport: input.qualityReport,
+        processStatus: hasValidatedImport ? "validated" : "uploaded",
+        importDecision: input.importDecision === "recommended" ? "recommended" : "keep-all",
+        recommendedFilter,
+      };
       await put(`${prefix}meta/${id}.json`, JSON.stringify(meta), { access: "private", addRandomSuffix: false, contentType: "application/json" });
       return json(response, { ok: true, item: meta });
     }
@@ -114,7 +132,17 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const current = await readBlobJson<DatasetMeta>(pathname);
       if (!current) return json(response, { error: "数据集不存在" }, 404);
       const input = bodyJson(request) as Partial<DatasetMeta>;
-      const next: DatasetMeta = { ...current, name: String(input.name || current.name).trim().slice(0, 160) || current.name, schemaStatus: input.schemaStatus === "validated" ? "validated" : current.schemaStatus, mapping: input.mapping ?? current.mapping, qualityReport: input.qualityReport ?? current.qualityReport, processStatus: input.processStatus ?? current.processStatus, updatedAt: new Date().toISOString() };
+      const next: DatasetMeta = {
+        ...current,
+        name: String(input.name || current.name).trim().slice(0, 160) || current.name,
+        schemaStatus: input.schemaStatus === "validated" ? "validated" : current.schemaStatus,
+        mapping: input.mapping ?? current.mapping,
+        qualityReport: input.qualityReport ?? current.qualityReport,
+        processStatus: input.processStatus ?? current.processStatus,
+        importDecision: input.importDecision === "recommended" || input.importDecision === "keep-all" ? input.importDecision : current.importDecision,
+        recommendedFilter: input.recommendedFilter === null ? null : input.recommendedFilter ?? current.recommendedFilter,
+        updatedAt: new Date().toISOString(),
+      };
       await put(pathname, JSON.stringify(next), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
       return json(response, { ok: true, item: next });
     }

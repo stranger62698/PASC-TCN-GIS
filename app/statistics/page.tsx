@@ -1,1 +1,5 @@
-import { ContentPage } from "../components/ContentPages"; export default function Page(){return <ContentPage type="statistics"/>}
+import { StatisticsWorkspace } from "../components/StatisticsWorkspace";
+
+export default function Page(){
+  return <StatisticsWorkspace/>;
+}

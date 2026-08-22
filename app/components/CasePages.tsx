@@ -1,11 +1,66 @@
 "use client";
+
 import Link from "next/link";
 import { useState } from "react";
-import { cases, type CaseStudy } from "../data/site";
+import type { CaseStudy } from "../data/site";
+import { cases } from "../data/site";
 import { PageHero, PageShell } from "./SiteShell";
 
-function CaseVisual({accent,image}:{accent:string;image?:string}){return <div className="case-visual full" style={{"--case-accent":accent} as React.CSSProperties}><div className={`case-map ${image?"case-map-photo":""}`} style={image?{backgroundImage:`linear-gradient(180deg,transparent 48%,rgba(7,26,56,.28)),url(${image})`}:undefined}><i className="heat h1"/><i className="heat h2"/><i className="heat h3"/>{[1,2,3,4,5].map(n=><b className={`point p${n}`} key={n}/>)}</div><div className="case-scale"><span>−30</span><i/><span>+30 mm/yr</span></div></div>}
+function CaseVisual({ item, full = false }: { item: CaseStudy; full?: boolean }) {
+  return (
+    <div className={`case-visual${full ? " full" : ""}`} style={{ "--case-accent": item.accent } as React.CSSProperties}>
+      <div className="case-map" style={{ backgroundImage: `linear-gradient(rgba(7,26,56,.08),rgba(7,26,56,.14)),url(${item.image})` }}>
+        <span className="point p1" /><span className="point p2" /><span className="point p3" />
+        <span className="point p4" /><span className="point p5" /><span className="point p6" />
+      </div>
+      <div className="case-scale"><span>沉降</span><i /><span>稳定</span><i /><span>抬升</span></div>
+      <div className="case-metrics">{item.metrics.map(([label, value]) => <span key={label}><small>{label}</small><b>{value}</b></span>)}</div>
+    </div>
+  );
+}
 
-export function ShowcasePage(){const [active,setActive]=useState(cases[0]);return <PageShell><PageHero eyebrow="CASE DECK · APPLICATIONS" title="典型 InSAR 应用案例" description="以卫星视角持续观察城市与关键基础设施，让隐蔽、缓慢的地表变化成为可追踪的风险线索。"/><section className="section case-deck showcase-section"><div className="case-tabs">{cases.map(item=><button className={active.key===item.key?"active":""} onClick={()=>setActive(item)} key={item.key}>{item.label}</button>)}</div><article className="case-feature"><div><span className="eyebrow">{active.kicker}</span><h2>{active.title}</h2><p>{active.description}</p><div className="tag-list">{active.tags.map(t=><span key={t}>{t}</span>)}</div><Link className="button primary" href={`/showcase/${active.key}`}>查看完整案例 <span>↗</span></Link></div><div><CaseVisual accent={active.accent} image={active.image}/><div className="case-metrics">{active.metrics.map(([k,v])=><span key={k}><small>{k}</small><b>{v}</b></span>)}</div></div></article><div className="case-list">{cases.map((item,index)=><Link href={`/showcase/${item.key}`} key={item.key}><span>0{index+1}</span><div><small>{item.kicker}</small><h3>{item.title}</h3><p>{item.description}</p></div><b>↗</b></Link>)}</div></section></PageShell>}
+function ScenarioFlow({ item }: { item: CaseStudy }) {
+  return (
+    <section className="scenario-flow">
+      <header><span className="eyebrow">SCENARIO WORKFLOW</span><h2>从业务问题到可核查结果</h2><p>案例按实际使用流程组织，不重复罗列产品功能。</p></header>
+      <div className="scenario-flow-grid">
+        {item.workflow.map(([title, description], index) => <article key={title}><b>{String(index + 1).padStart(2, "0")}</b><h3>{title}</h3><p>{description}</p></article>)}
+      </div>
+      <p className="scenario-boundary"><b>案例边界</b>{item.demoNote}</p>
+    </section>
+  );
+}
 
-export function CaseDetailPage({item}:{item:CaseStudy}){return <PageShell><PageHero eyebrow={item.kicker} title={item.title} description={item.description}/><section className="section detail-story"><div className="story-intro"><div><span className="eyebrow">PROJECT BRIEF</span><h2>用连续时序补足传统巡查的空间盲区</h2></div><p>通过多时相 SAR 影像反演地表形变，形成从区域普查、重点形变识别到单点趋势核查的完整链路。案例数据为界面演示，后续可由真实项目接口原位替换。</p></div><div className="case-metrics large">{item.metrics.map(([k,v])=><span key={k}><small>{k}</small><b>{v}</b></span>)}</div><CaseVisual accent={item.accent} image={item.image}/><div className="detail-grid"><article><span>01</span><h3>空间筛查</h3><p>按速度、累计形变量与相干性组织监测点，识别重点形变的空间聚集特征。</p></article><article><span>02</span><h3>时间序列</h3><p>点击地图点位查看完整观测期曲线、线性拟合趋势和 CSV 形变模式。</p></article><article><span>03</span><h3>成果交付</h3><p>将地图、曲线、统计和案例说明组合为适合汇报与工程沟通的 WebGIS 成果。</p></article></div><div className="story-action"><h2>在交互地图中查看点位分析</h2><Link className="button primary" href="/map">进入形变地图 ↗</Link></div></section></PageShell>}
+export function ShowcasePage() {
+  const [activeKey, setActiveKey] = useState(cases[0].key);
+  const active = cases.find((item) => item.key === activeKey) ?? cases[0];
+  return (
+    <PageShell>
+      <PageHero eyebrow="CASE DECK" title="InSAR 在真实场景中怎么用" description="围绕城市、滑坡与公路三个场景，展示数据如何进入产品、如何完成分析，以及结果能支持什么判断。" />
+      <section className="section showcase-section phase-eight-showcase">
+        <div className="case-tabs" role="tablist" aria-label="应用场景">
+          {cases.map((item) => <button key={item.key} role="tab" aria-selected={item.key === active.key} className={item.key === active.key ? "active" : ""} onClick={() => setActiveKey(item.key)}>{item.label}</button>)}
+        </div>
+        <article className="case-feature" style={{ "--case-accent": active.accent } as React.CSSProperties}>
+          <div><span className="eyebrow">{active.kicker}</span><h2>{active.title}</h2><p>{active.description}</p><div className="tag-list">{active.tags.map((tag) => <span key={tag}>{tag}</span>)}</div><Link className="button primary" href={`/showcase/${active.key}`}>查看完整案例流程 ↗</Link></div>
+          <CaseVisual item={active} />
+        </article>
+        <ScenarioFlow item={active} />
+      </section>
+    </PageShell>
+  );
+}
+
+export function CaseDetailPage({ item }: { item: CaseStudy }) {
+  return (
+    <PageShell>
+      <PageHero eyebrow={item.kicker} title={item.title} description={item.description} />
+      <section className="section phase-eight-showcase">
+        <div className="story-intro"><div><span className="eyebrow">APPLICATION CONTEXT</span><h2>以场景问题组织分析</h2></div><p>这里呈现的重点不是算法名词，而是监测数据如何经过质量筛选、时空分析和证据整理，形成可以继续核查的业务线索。</p></div>
+        <CaseVisual item={item} full />
+        <ScenarioFlow item={item} />
+        <div className="story-action"><div><span className="eyebrow">TRY THE PRODUCT</span><h2>{item.key === "city" ? "在公开数据中复现这条流程" : "继续查看可交互的产品能力"}</h2></div><Link className="button primary" href={item.key === "city" ? "/map?demo=haikou" : "/map"}>{item.key === "city" ? "体验公开示例" : "进入形变地图"} ↗</Link></div>
+      </section>
+    </PageShell>
+  );
+}
