@@ -2,6 +2,12 @@
 
 这是面向生产展示的 PASC-TCN 与 InSAR WebGIS 一体化项目，可在 Edge、Chrome 等现代浏览器中使用。公开仓库仅包含运行时代码、接口契约、测试与有界演示数据；基线模型、论文复现实验、大型研究数据和私有模型权重不属于用户端依赖。页面支持导入海口 InSAR CSV（`FID,xpos,ypos,DYYYYMMDD...,Pattern`）、自动剔除无效坐标、计算研究区外包范围、定位 OSM/Esri 底图，以及点选查看时间序列。
 
+## 在线部署
+
+- WebGIS 生产地址：https://pasc-tcn-gis.vercel.app
+- 公开源码：https://github.com/stranger62698/PASC-TCN-GIS
+
+Vercel 发布物提供静态 WebGIS、地图浏览、PASC-TCN 有界演示结果和前端兼容性检查。实时上传推理不包含在静态发布物中；启用该功能必须单独部署私有 Python/Torch 推理服务，通过仅服务端可见的 PASC_SERVICE_BASE_URL 与 PASC_SERVICE_API_KEY 接入，并在私有位置提供哈希校验的模型包。未配置时前端按既有契约失败关闭。
 ## 在另一台设备继续修改
 
 复制整个项目文件夹（不要只复制单个网页文件），至少需要 `app/`、`public/`、`db/`、`.openai/hosting.json`、`package.json`、`pnpm-lock.yaml`、`vite.config.ts` 和 `tsconfig.json`。安装 Node.js 22.13 以上版本后运行：
