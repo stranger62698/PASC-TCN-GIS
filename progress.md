@@ -318,3 +318,11 @@ Phase C is complete. No acceptance threshold, supported minimum, /v1/infer endpo
 - Snapshot API attempt 1 stopped at the first blob with HTTP 409 because the repository was empty; retry will bootstrap main and then replace the tree without retaining the bootstrap file.
 
 - GitHub accepted all 195 blobs; tree assembly failed locally on generic-list JSON conversion. Retry will reuse content SHAs and upload only changed planning/manifest files.
+
+- P2 complete: public GitHub main verified with 195 files, no bootstrap residue, no private/baseline paths, and correct PASC-TCN-GIS metadata; P3 Vercel authentication started.
+
+- Vercel login PASS for fengyaowu78-2739/fyw; pasc-tcn-gis is not an existing project, so creation can proceed without touching prior deployments.
+
+- P3 complete: fyw/pasc-tcn-gis created, GitHub source connected, production deployment Ready at https://pasc-tcn-gis.vercel.app, and root/map/showcase/demo-manifest routes returned HTTP 200; P4 private inference handoff started.
+
+- P4 complete: production inference POST fails closed with HTTP 404, static output contains no inference endpoint, private Vercel/OIDC state is ignored, and README documents the private Python/Torch handoff.

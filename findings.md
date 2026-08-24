@@ -491,3 +491,26 @@
 - All 195 tracked file blobs were accepted by GitHub before local tree JSON assembly failed.
 - GitHub blob identifiers are standard Git content SHA-1 values, so the uploaded objects can be reused without retransmitting unchanged files.
 - The retry uses plain arrays and local git hash-object values, then uploads only the planning/manifests changed by this error record.
+## GitHub snapshot publication verified
+
+- Public repository stranger62698/PASC-TCN-GIS now has main as its default branch and contains a non-truncated 195-file production tree.
+- The temporary bootstrap file is absent from the final tree.
+- Remote path audit found no private model bundle, checkpoint, environment file, baseline model, paper-only reproducible experiment, node_modules, dist, or .next output.
+- Remote package metadata identifies pasc-tcn-gis and the README identifies PASC-TCN-GIS.
+## Vercel authentication
+
+- Vercel device authorization completed for account fengyaowu78-2739 in scope fyw.
+- Existing projects do not include pasc-tcn-gis, so a new project can be created without renaming or mutating the prior lanjifyw-insar-webgis deployment.
+- The project-local .vercel state remains Git-ignored.
+## Vercel production deployment
+
+- New Vercel project fyw/pasc-tcn-gis was created and linked locally; its Git source is explicitly connected to stranger62698/PASC-TCN-GIS rather than the prior origin remote.
+- Production deployment dpl_D1gaf8Af6jyzpHvHGsz2yR9MM4q9 completed with status Ready and stable alias https://pasc-tcn-gis.vercel.app.
+- The configured static build succeeded on Vercel. Root, /map, /showcase, and the bounded showcase manifest all returned HTTP 200.
+- The project-local .vercel metadata and generated .env.local remain ignored and are not public source.
+## Private inference boundary verified
+
+- Production POST /api/pasc/infer returns HTTP 404 and the static output contains no PASC inference endpoint.
+- This is the intended fail-closed state until a private Python/Torch service, API key, and hash-verified model bundle are configured.
+- Generated .env.local and .vercel project metadata are matched by Git ignore rules and remain outside the public repository.
+- README now records the public production URL, source URL, and private inference requirements.
