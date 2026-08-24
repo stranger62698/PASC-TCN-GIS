@@ -304,3 +304,13 @@ Phase C is complete. No acceptance threshold, supported minimum, /v1/infer endpo
 - Public boundary audit PASS: no baseline/paper/training research entry points, no tracked file at or above 10 MB, private assets remain excluded, Vercel local state is ignored, and package/README metadata now identify PASC-TCN-GIS.
 
 - Deployment metadata verification PASS: production build, 26/26 Node tests, and both bounded demo validations succeeded; P1 complete and P2 started.
+
+- GitHub repository creation succeeded; initial HTTPS push failed with connection reset and will be retried using per-command HTTP/1.1.
+
+- GitHub HTTP/1.1 push retry also failed because github.com:443 was unreachable; next transport check is existing non-interactive SSH authentication.
+
+- GitHub transport diagnosis: SSH reachable but unauthenticated; REST API healthy; target repository remains empty; system Git selected as the final history-preserving push alternative.
+
+- GitHub smart-HTTP blocked after three distinct transport attempts; repository exists but is empty. Awaiting approval for a snapshot-only REST API publication that would omit prior commit history.
+
+- User approved snapshot-only GitHub API publication and Vercel login; P2 continues with a new root commit while preserving the validated public/private file boundary.

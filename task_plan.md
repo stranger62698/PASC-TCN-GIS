@@ -339,6 +339,24 @@ Phase G complete
 
 | Focused Python rerun used `D:\Anaconda\envs\tsl\python.exe`, but the installed environment path is `D:\Anaconda\env\tsl\python.exe` | 1 | Correct the path and rerun the same focused suite |
 
+
+| Publication planning apply_patch was blocked by the workspace deny-read ACL helper | 1 | Used the established exact UTF-8 fallback and kept the edit scoped to planning records |
+
+
+| First push to the new GitHub repository was reset during HTTPS transfer | 1 | Kept the successfully created repository and retried once with per-command HTTP/1.1 transport |
+
+
+| HTTP/1.1 GitHub push retry could not connect to github.com port 443 | 2 | Checked existing non-interactive SSH authentication before choosing a different transport |
+
+
+| GitHub SSH transport was reachable but no SSH public key is configured | 1 | Did not alter user SSH credentials and tested the separate system Git implementation |
+
+
+| System Git also could not reach the GitHub smart-HTTP endpoint on port 443 | 3 | Stopped repeating history-preserving pushes and obtained approval for snapshot-only GitHub API publication |
+
+
+| Snapshot authorization record command contained wrapper-sensitive newline escapes | 1 | Replaced embedded escape tokens with character constants before retrying |
+
 ## Notes
 - Six classes and colors are frozen by v4.
 - 40 epochs remain experimental; 39 is unsupported; 248 is native.
@@ -369,13 +387,13 @@ Phase G complete
 - [x] Reconfirm that only the production PASC-TCN runtime, WebGIS integration, tests, and bounded demo data are public
 - [x] Exclude baseline models, paper-only materials, large research data, training/reproduction scripts, private weights, and secrets
 - [x] Refresh release manifests and create a deployment-metadata commit
-- **Status:** in_progress
+- **Status:** complete
 
 ### Publish P2: GitHub Hosting
-- [ ] Create public repository stranger62698/PASC-TCN-GIS
+- [x] Create public repository stranger62698/PASC-TCN-GIS
 - [ ] Push the validated production candidate to main
 - [ ] Verify repository visibility, default branch, commit, and public file boundary
-- **Status:** pending
+- **Status:** in_progress
 
 ### Publish P3: Vercel Frontend
 - [ ] Authenticate Vercel and create/link project pasc-tcn-gis

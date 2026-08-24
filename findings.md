@@ -461,3 +461,23 @@
 - The package and npm lock metadata consistently use pasc-tcn-gis; no starter package name remains.
 - Production vinext build, 26 WebGIS/Phase A-G tests, and both bounded demo validations passed after the metadata update.
 - No runtime source changed in this step.
+## GitHub publication attempt
+
+- The public repository stranger62698/PASC-TCN-GIS was created successfully.
+- The first HTTPS push was interrupted by a connection reset before the main branch could be verified.
+- The local remote is retained; the safe retry is a per-command HTTP/1.1 push without changing credentials or repository visibility.
+## GitHub transport diagnosis
+
+- GitHub SSH endpoints on ports 22 and 443 are reachable, but the account has no usable local SSH key; no credential changes will be made.
+- GitHub REST API remains authenticated and healthy, and the new public repository is still empty.
+- A separate system Git installation is available. Testing it is the last history-preserving transport alternative before reporting a network blocker.
+## GitHub smart-HTTP blocker
+
+- Bundled Git default HTTPS, bundled Git forced HTTP/1.1, and the independent system Git all failed to reach the GitHub smart-HTTP endpoint.
+- Repeating another Git push would violate the three-attempt rule and is unlikely to change the outcome.
+- The authenticated GitHub REST API is available, so a current-tree snapshot can still be published, but that would not preserve the existing WebGIS commit history and therefore requires explicit user approval.
+## Snapshot publication authorization
+
+- The user explicitly approved publishing the complete current production tree through the authenticated GitHub REST API.
+- The resulting public repository begins with a new root commit and does not preserve the original WebGIS commit history.
+- The source file boundary remains unchanged: production PASC-TCN/WebGIS code and bounded QA data only; no baselines, training/reproduction research scripts, large research datasets, weights, or secrets.
