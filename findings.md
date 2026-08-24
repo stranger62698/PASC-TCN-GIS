@@ -481,3 +481,8 @@
 - The user explicitly approved publishing the complete current production tree through the authenticated GitHub REST API.
 - The resulting public repository begins with a new root commit and does not preserve the original WebGIS commit history.
 - The source file boundary remains unchanged: production PASC-TCN/WebGIS code and bounded QA data only; no baselines, training/reproduction research scripts, large research datasets, weights, or secrets.
+## Empty-repository API initialization
+
+- GitHub returned HTTP 409 when creating the first Git blob because the new repository had no branch or initial commit.
+- No production file was published by that failed call.
+- The compatible sequence is a minimal Contents API bootstrap on main, followed by a complete Git tree commit whose tree omits the bootstrap file.

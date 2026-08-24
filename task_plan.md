@@ -357,6 +357,9 @@ Phase G complete
 
 | Snapshot authorization record command contained wrapper-sensitive newline escapes | 1 | Replaced embedded escape tokens with character constants before retrying |
 
+
+| GitHub rejected blob creation while the repository had no initial ref | 1 | Initialize main through the Contents API, then replace the bootstrap tree with the complete production snapshot |
+
 ## Notes
 - Six classes and colors are frozen by v4.
 - 40 epochs remain experimental; 39 is unsupported; 248 is native.
