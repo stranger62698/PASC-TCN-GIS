@@ -1,0 +1,16 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "regions": ["iad1"],
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 60,
+      "includeFiles": "{src/**,.private-model-bundles/**}",
+      "excludeFiles": "{tests/**,tools/**,phase_c_results/**,phase_g_results/**,**/__pycache__/**}"
+    }
+  },
+  "rewrites": [
+    { "source": "/health", "destination": "/api/index" },
+    { "source": "/v1/:path*", "destination": "/api/index" }
+  ]
+}

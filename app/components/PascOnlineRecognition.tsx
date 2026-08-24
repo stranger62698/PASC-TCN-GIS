@@ -2,7 +2,7 @@
 
 import type { PascPreprocessingState } from "../types/pasc";
 import type { PascOnlineFilter, PascOnlineRunState } from "../lib/pasc-online";
-import { PHASE_E_MAX_POINTS } from "../lib/pasc-online";
+import { PASC_AUTO_CLASSIFY_MAX_POINTS, PHASE_E_MAX_POINTS } from "../lib/pasc-online";
 
 type PascOnlineRecognitionProps = {
   totalPoints: number;
@@ -32,7 +32,7 @@ export function PascOnlineRecognition({
   onFilter,
 }: PascOnlineRecognitionProps) {
   const hasResults = runState.status === "success";
-  const overLimit = totalPoints > PHASE_E_MAX_POINTS;
+  const overLimit = candidatePoints > PASC_AUTO_CLASSIFY_MAX_POINTS;
   const blocked = !mappingConfirmed || blockingIssues.length > 0 || candidatePoints === 0 || overLimit;
   const busy = runState.status === "running";
   const confirmedState = preprocessingState === "raw" || preprocessingState === "already_smoothed";
@@ -40,15 +40,15 @@ export function PascOnlineRecognition({
     { key: "upload", label: "上传与映射", detail: mappingConfirmed ? `${totalPoints.toLocaleString()} 点已载入` : "等待确认字段映射", state: stageState(mappingConfirmed) },
     { key: "confirm", label: "单位 / 符号 / 平滑", detail: confirmedState ? (preprocessingState === "raw" ? "raw · 服务端执行 SG" : "already_smoothed · 不重复平滑") : "需要显式确认", state: stageState(confirmedState, mappingConfirmed && !confirmedState) },
     { key: "compat", label: "能力分级", detail: `${candidatePoints.toLocaleString()} 个 ≥40 期候选`, state: stageState(candidatePoints > 0 && !blockingIssues.length, blockingIssues.length > 0 || overLimit) },
-    { key: "infer", label: "安全识别", detail: busy ? "Python 服务正在推理" : hasResults ? `${runState.summary?.predicted ?? 0} 点完成` : "等待启动", state: busy ? "running" : stageState(hasResults, blocked) },
+    { key: "infer", label: "自动分批识别", detail: busy ? `${runState.processedPoints.toLocaleString()} / ${runState.totalPoints.toLocaleString()} 点 · ${runState.completedBatches} / ${runState.totalBatches} 批` : hasResults ? `${runState.summary?.predicted ?? 0} 点完成` : `确认导入后自动开始 · 每批 ≤${PHASE_E_MAX_POINTS}`, state: busy ? "running" : stageState(hasResults, blocked) },
     { key: "map", label: "地图结果", detail: hasResults ? "六类固定色已应用" : "保留当前地图", state: stageState(hasResults) },
   ] as const;
 
   return (
-    <section className="pasc-online-card" aria-label="PASC-TCN 小数据在线识别">
+    <section className="pasc-online-card" aria-label="PASC-TCN CSV 自动分类">
       <header>
-        <div><small>PHASE E · SYNCHRONOUS</small><h3>小数据在线识别</h3></div>
-        <span>{totalPoints.toLocaleString()} / {PHASE_E_MAX_POINTS} 点</span>
+        <div><small>BOUNDED PRIVATE INFERENCE</small><h3>CSV 自动分类</h3></div>
+        <span>{candidatePoints.toLocaleString()} 候选 · {Math.ceil(candidatePoints / PHASE_E_MAX_POINTS).toLocaleString()} 批</span>
       </header>
       <ol className="pasc-online-stages">
         {stages.map((stage, index) => (
@@ -59,7 +59,7 @@ export function PascOnlineRecognition({
         ))}
       </ol>
 
-      {overLimit && <div className="pasc-online-notice is-blocked" role="alert"><b>超出 Phase E 同步边界</b><span>当前数据为 {totalPoints.toLocaleString()} 点；超过 {PHASE_E_MAX_POINTS} 点需进入 Phase F 任务化，本阶段不会自动提交。</span></div>}
+      {overLimit && <div className="pasc-online-notice is-blocked" role="alert"><b>超出浏览器自动识别边界</b><span>当前有 {candidatePoints.toLocaleString()} 个候选点；自动分批最多处理 {PASC_AUTO_CLASSIFY_MAX_POINTS.toLocaleString()} 点，更大数据需进入可恢复任务流程。</span></div>}
       {!overLimit && blockingIssues.length > 0 && <div className="pasc-online-notice is-blocked" role="alert"><b>仍有确认项</b><span>{blockingIssues[0]}</span></div>}
       {!overLimit && mappingConfirmed && candidatePoints === 0 && <div className="pasc-online-notice" role="status"><b>普通 WebGIS 可继续使用</b><span>当前没有达到 40 个有效期的点，不会发送 PASC 请求。</span></div>}
 
@@ -75,9 +75,9 @@ export function PascOnlineRecognition({
 
       <div className="pasc-online-actions">
         <button className="pasc-online-run" disabled={blocked || busy} onClick={onRun}>
-          {busy ? "正在执行预处理与推理…" : runState.status === "error" ? "重试在线识别" : hasResults ? "重新识别当前数据" : "开始在线识别"}
+          {busy ? "正在自动执行预处理与分类…" : runState.status === "error" ? "重试自动分类" : hasResults ? "重新分类当前数据" : "自动分类待启动"}
         </button>
-        <small>同源代理 · 服务密钥不进入浏览器 · API 失败不清空数据</small>
+        <small>验证并导入后自动开始 · 同源代理 · 服务密钥不进入浏览器 · API 失败不清空数据 · 任一批失败不更新地图</small>
       </div>
 
       {hasResults && (

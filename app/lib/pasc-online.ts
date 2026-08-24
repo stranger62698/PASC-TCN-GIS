@@ -1,6 +1,6 @@
 import type { InsarPoint } from "../data/site";
-import type { PascPreprocessingState, PascValueSource } from "../types/pasc";
-import { PASC_CLASSES, PASC_ZSCORE_EPSILON } from "./pasc";
+import type { PascPreprocessingState, PascValueSource } from "../types/pasc.js";
+import { PASC_CLASSES, PASC_ZSCORE_EPSILON } from "./pasc.js";
 import {
   PASC_CONTRACT_VERSION,
   PASC_MODEL_VERSION,
@@ -9,9 +9,10 @@ import {
   type PascPointResult,
   type PascSpatialApplicability,
   type PascTemporalApplicability,
-} from "../types/pasc";
+} from "../types/pasc.js";
 
 export const PHASE_E_MAX_POINTS = 500;
+export const PASC_AUTO_CLASSIFY_MAX_POINTS = 10_000;
 export const PHASE_E_MAX_BODY_BYTES = 8 * 1024 * 1024;
 export const PHASE_E_DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -116,6 +117,10 @@ export type PascOnlineRunState = {
   summary: PascOnlineResponse["summary"] | null;
   serviceVersion: string | null;
   buildHash: string | null;
+  processedPoints: number;
+  totalPoints: number;
+  completedBatches: number;
+  totalBatches: number;
 };
 
 export type PascOnlineFilter = "lowConfidence" | "limitedReference";
@@ -158,6 +163,23 @@ export function buildPascOnlineRequest(
         : {}),
     })),
   };
+}
+
+export function buildPascOnlineRequestBatches(
+  points: InsarPoint[],
+  datasetName: string,
+  preprocessingState: PascPreprocessingState | undefined,
+): PascOnlineRequest[] {
+  const candidates = points.filter(point => (point.effectiveEpochCount ?? point.series.length) >= 40);
+  if (candidates.length > PASC_AUTO_CLASSIFY_MAX_POINTS) {
+    throw new Error(`自动识别最多处理 ${PASC_AUTO_CLASSIFY_MAX_POINTS.toLocaleString()} 个候选点；当前 ${candidates.length.toLocaleString()} 点需要 Phase F 任务化。`);
+  }
+  if (!candidates.length) return [buildPascOnlineRequest(points, datasetName, preprocessingState)];
+  const requests: PascOnlineRequest[] = [];
+  for (let index = 0; index < candidates.length; index += PHASE_E_MAX_POINTS) {
+    requests.push(buildPascOnlineRequest(candidates.slice(index, index + PHASE_E_MAX_POINTS), datasetName, preprocessingState));
+  }
+  return requests;
 }
 
 function dateField(value: string) {
@@ -368,7 +390,10 @@ export async function runPascOnlineProxy(
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
-    const preprocessed = await responseJson(preprocessedResponse);
+    const preprocessedText = await preprocessedResponse.text();
+    let preprocessed: unknown;
+    try { preprocessed = JSON.parse(preprocessedText) as unknown; }
+    catch { throw new PascProxyError("PASC_PHASE_E_UPSTREAM_INVALID", "PASC-TCN 服务返回了无效 JSON。", 502); }
     if (!preprocessedResponse.ok) throw upstreamError(preprocessedResponse.status, preprocessed);
     const inferenceResponse = await fetchImpl(endpoint("v1/infer"), {
       method: "POST",
@@ -376,7 +401,10 @@ export async function runPascOnlineProxy(
         "content-type": "application/json",
         authorization: `Bearer ${options.serviceApiKey}`,
       },
-      body: JSON.stringify({ contractVersion: PASC_CONTRACT_VERSION, preprocessed }),
+      // Keep the service-produced JSON bytes lexically stable. Parsing and
+      // re-stringifying in JavaScript can change Python float exponents and
+      // invalidate the service-owned HMAC artifact.
+      body: `{"contractVersion":${JSON.stringify(PASC_CONTRACT_VERSION)},"preprocessed":${preprocessedText}}`,
       signal: controller.signal,
     });
     const inferred = await responseJson(inferenceResponse);

@@ -7,7 +7,7 @@ import { AnalysisProvider, colorForMode, deformationModeOrder, normalizedMode, u
 import { interpretRegionalAnalysis, type RegionalAnalysisInput, type RegionalInterpretation } from "../lib/ai-analysis";
 import { trackEvent } from "../lib/analytics";
 import { inspectCsv, parseMappedCsv, parseQgisRamp, stageVelocity, type CsvInspection, type CsvMapping, type DatasetParseResult, type RenderAttribute, type RenderStyle } from "../lib/insar-v2";
-import { buildPascOnlineRequest, filterPascOnlinePoints, mergePascOnlineResults, onlineErrorMessage, type PascOnlineFilter, type PascOnlineRunState } from "../lib/pasc-online";
+import { buildPascOnlineRequestBatches, filterPascOnlinePoints, mergePascOnlineResults, onlineErrorMessage, type PascOnlineFilter, type PascOnlineRunState } from "../lib/pasc-online";
 import { parsePascMapPreview, pascMapLevelForZoom, type PascPublicJob } from "../lib/pasc-job-client";
 import { PascAnalysisPanel } from "./PascAnalysisPanel";
 import { PascCompatibilityCheck } from "./PascCompatibilityCheck";
@@ -35,7 +35,7 @@ type PointInsight = {
     explanation: string[];
 };
 
-const emptyPascOnlineRun: PascOnlineRunState = { status: "idle", error: "", completedAt: null, summary: null, serviceVersion: null, buildHash: null };
+const emptyPascOnlineRun: PascOnlineRunState = { status: "idle", error: "", completedAt: null, summary: null, serviceVersion: null, buildHash: null, processedPoints: 0, totalPoints: 0, completedBatches: 0, totalBatches: 0 };
 
 type AnomalySummary = {
     total: number;
@@ -237,6 +237,7 @@ function MapWorkspaceView() {
     const [pascOnlineRun, setPascOnlineRun] = useState<PascOnlineRunState>(emptyPascOnlineRun);
     const [jobPreviewId, setJobPreviewId] = useState("");
     const jobPreviewLevel = useRef("");
+    const pascRunId = useRef(0);
     const restoreRequested = useRef(false), restoredContextKey = useRef("");
     const fileRef = useRef<HTMLInputElement>(null), qgisRef = useRef<HTMLInputElement>(null), riskCount = useMemo(() => points.filter(p => Math.abs(p.velocity) >= 3).length, [points]), qualityCount = useMemo(() => points.filter(p => (p.coherence > 0 && p.coherence < coherenceThreshold) || p.missingRate > .2).length, [points, coherenceThreshold]), periodCount = Math.max(1, points[0]?.series.length || 1), currentDate = points[0]?.dates?.[Math.min(timeIndex, periodCount - 1)] || "—";
     const renderStyle: RenderStyle = useMemo(() => ({ attribute, min: styleMin, max: styleMax, interval, timeIndex, rangeStart, rangeEnd, colors }), [attribute, styleMin, styleMax, interval, timeIndex, rangeStart, rangeEnd, colors]);
@@ -311,7 +312,7 @@ function MapWorkspaceView() {
         setStatus("上传自己的数据：请确认 CSV 字段要求，然后选择本地文件。");
     } }, []);
     const saveAnalysisMeta = async (id: string, nextMapping: CsvMapping, result: DatasetParseResult) => { await fetch(`/api/datasets/${id}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mapping: nextMapping, qualityReport: result.quality, schemaStatus: "validated", processStatus: "validated" }) }).catch(() => null); };
-    const applyResult = (result: DatasetParseResult, label: string, preserveAnalysis = false) => { setPascOnlineRun(emptyPascOnlineRun); setPoints(result.points); setSelected(null); setDatasetTitle(result.datasetTitle); setTimeIndex(result.periods - 1); setRangeStart(0); setRangeEnd(result.periods - 1); setCompareIds([]); setCurveIds([]); setBoxPoints([]); setActiveFilter("none"); setRightTab("point"); if (!preserveAnalysis) updateAnalysis({ selectedPointId: null, selectedRegion: null, selectedRegionStats: null }); setParseReport(result); setDataReady(true); setStatus(`${label} · ${result.points.length.toLocaleString()} 点 · ${result.periods} 期 · 模式字段 ${result.modeField} · 过滤 ${result.invalid} 条`); trackEvent("dataset_loaded", { dataset_type: privateDatasetId ? "private" : label.includes("公开示例") ? "demo" : "local", point_count: result.points.length, period_count: result.periods, invalid_count: result.invalid }); };
+    const applyResult = (result: DatasetParseResult, label: string, preserveAnalysis = false) => { pascRunId.current += 1; setPascOnlineRun(emptyPascOnlineRun); setPoints(result.points); setSelected(null); setDatasetTitle(result.datasetTitle); setTimeIndex(result.periods - 1); setRangeStart(0); setRangeEnd(result.periods - 1); setCompareIds([]); setCurveIds([]); setBoxPoints([]); setActiveFilter("none"); setRightTab("point"); if (!preserveAnalysis) updateAnalysis({ selectedPointId: null, selectedRegion: null, selectedRegionStats: null }); setParseReport(result); setDataReady(true); setStatus(`${label} · ${result.points.length.toLocaleString()} 点 · ${result.periods} 期 · 模式字段 ${result.modeField} · 过滤 ${result.invalid} 条`); trackEvent("dataset_loaded", { dataset_type: privateDatasetId ? "private" : label.includes("公开示例") ? "demo" : "local", point_count: result.points.length, period_count: result.periods, invalid_count: result.invalid }); };
     const loadShowcaseDemo = () => { setBusy("正在加载六类 Showcase Demo…"); fetch("/data/haikou-pasc-showcase.csv").then(response => { if (!response.ok) throw new Error("Showcase Demo 不可用"); return response.text(); }).then(text => { const found = inspectCsv(text), demoMapping: CsvMapping = { ...found.mapping, displacementUnit: "mm", velocityUnit: "mm/year", signConvention: "toward_satellite_positive", preprocessingState: "already_smoothed" }, result = parseMappedCsv(text, "海口 PASC Showcase.csv", demoMapping, false); result.datasetTitle = "海口 PASC-TCN 248 期 Showcase Demo"; setPrivateDatasetId(""); applyResult(result, "海口 PASC Showcase Demo"); setStatus(`Showcase Demo · ${result.points.length.toLocaleString()} 点 · 248 期 · 每类 500 点；仅用于六类界面覆盖，不代表科学类别比例`); }).catch(error => setStatus(error instanceof Error ? error.message : "Showcase Demo 加载失败")).finally(() => setBusy("")); };
     useEffect(() => { const params = new URLSearchParams(window.location.search); restoreRequested.current = params.get("restore") === "analysis"; const previewJobId = params.get("job"); if (previewJobId) { jobPreviewLevel.current = ""; setJobPreviewId(previewJobId); setStatus("正在读取 Phase F 多级地图预览…"); return; } const privateId = params.get("dataset"); if (privateId) {
         setPrivateDatasetId(privateId);
@@ -398,7 +399,8 @@ function MapWorkspaceView() {
         if (privateDatasetId)
             saveAnalysisMeta(privateDatasetId, mapping, result);
         setMappingOpen(false);
-        setReportOpen(true);
+        setReportOpen(false);
+        void runPascOnlineRecognition(result.points, result.datasetTitle, mapping.preprocessingState);
     }
     catch (e) {
         trackEvent("dataset_upload_fail", { source: "map_local", reason: "mapping_or_parse_failed" });
@@ -467,37 +469,67 @@ function MapWorkspaceView() {
         updateAnalysis({ selectedPointId: null, selectedRegion: chosen.length ? { bounds, pointIds: chosen.map(point => point.id), label: "异常点筛选结果", source: "anomaly" } : null });
         setStatus(chosen.length ? `发现 ${chosen.length.toLocaleString()} 个异常监测点；已排除 ${anomalyDiscovery.summary.excludedLowQuality.toLocaleString()} 个低质量点。` : "当前数据未筛选出符合既定规则的异常监测点。" );
     };
-    const runPascOnlineRecognition = async () => {
+    const runPascOnlineRecognition = async (
+        sourcePoints: InsarPoint[] = points,
+        sourceTitle: string = datasetTitle,
+        sourcePreprocessing: CsvMapping["preprocessingState"] = mapping?.preprocessingState,
+    ) => {
+        const runId = ++pascRunId.current;
         try {
-            const request = buildPascOnlineRequest(points, datasetTitle, mapping?.preprocessingState);
-            setPascOnlineRun({ ...emptyPascOnlineRun, status: "running" });
+            const requests = buildPascOnlineRequestBatches(sourcePoints, sourceTitle, sourcePreprocessing);
+            const sourceById = new Map(sourcePoints.map(point => [point.id, point]));
+            const classified = new Map<string, InsarPoint>();
+            const summary = { points: 0, predicted: 0, lowConfidence: 0, limitedReference: 0 };
+            let serviceVersion: string | null = null;
+            let buildHash: string | null = null;
+            const totalPoints = requests.reduce((total, request) => total + request.points.length, 0);
+            setPascOnlineRun({ ...emptyPascOnlineRun, status: "running", totalPoints, totalBatches: requests.length });
             setRightTab("pasc");
-            setStatus(`正在通过安全代理识别 ${request.points.length.toLocaleString()} 个 PASC 候选点…`);
-            const response = await fetch("/api/pasc/infer", {
-                method: "POST",
-                credentials: "include",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(request),
-            });
-            const body = await response.json().catch(() => null);
-            if (!response.ok) throw new Error(onlineErrorMessage(body));
-            const merged = mergePascOnlineResults(points, body);
-            setPoints(merged.points);
-            setSelected(current => current ? merged.points.find(point => point.id === current.id) ?? null : null);
-            setBoxPoints(current => current.map(point => merged.points.find(item => item.id === point.id) ?? point));
+            for (let index = 0; index < requests.length; index += 1) {
+                if (runId !== pascRunId.current) return;
+                const request = requests[index];
+                setStatus(`正在自动识别第 ${index + 1} / ${requests.length} 批 · ${request.points.length.toLocaleString()} 个候选点…`);
+                const response = await fetch("/api/pasc/infer", {
+                    method: "POST",
+                    credentials: "include",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(request),
+                });
+                const body = await response.json().catch(() => null);
+                if (!response.ok) throw new Error(onlineErrorMessage(body));
+                if (runId !== pascRunId.current) return;
+                const batchPoints = request.points.map(item => sourceById.get(item.pointId)).filter(Boolean) as InsarPoint[];
+                const merged = mergePascOnlineResults(batchPoints, body);
+                if (serviceVersion && serviceVersion !== merged.response.serviceVersion) throw new Error("分批识别返回了不一致的服务版本；地图结果未更新。");
+                if (buildHash && buildHash !== merged.response.modelPackage.buildHash) throw new Error("分批识别返回了不一致的模型包；地图结果未更新。");
+                serviceVersion = merged.response.serviceVersion;
+                buildHash = merged.response.modelPackage.buildHash;
+                merged.points.forEach(point => classified.set(point.id, point));
+                summary.points += merged.response.summary.points;
+                summary.predicted += merged.response.summary.predicted;
+                summary.lowConfidence += merged.response.summary.lowConfidence;
+                summary.limitedReference += merged.response.summary.limitedReference;
+                setPascOnlineRun({
+                    status: "running", error: "", completedAt: null, summary: { ...summary }, serviceVersion, buildHash,
+                    processedPoints: summary.predicted, totalPoints, completedBatches: index + 1, totalBatches: requests.length,
+                });
+            }
+            if (runId !== pascRunId.current) return;
+            const mergedPoints = sourcePoints.map(point => classified.get(point.id) ?? point);
+            setPoints(mergedPoints);
+            setSelected(current => current ? mergedPoints.find(point => point.id === current.id) ?? null : null);
+            setBoxPoints(current => current.map(point => classified.get(point.id) ?? point));
             setAttribute("mode");
             setVisible(current => ({ ...current, points: true }));
             setPascOnlineRun({
-                status: "success",
-                error: "",
-                completedAt: new Date().toISOString(),
-                summary: merged.response.summary,
-                serviceVersion: merged.response.serviceVersion,
-                buildHash: merged.response.modelPackage.buildHash,
+                status: "success", error: "", completedAt: new Date().toISOString(), summary,
+                serviceVersion, buildHash, processedPoints: summary.predicted, totalPoints,
+                completedBatches: requests.length, totalBatches: requests.length,
             });
-            setStatus(`PASC 在线识别完成 · ${merged.response.summary.predicted.toLocaleString()} 点 · 低置信度 ${merged.response.summary.lowConfidence.toLocaleString()} · 空间受限 ${merged.response.summary.limitedReference.toLocaleString()} · 地图已切换六类固定色`);
+            setStatus(`PASC 自动识别完成 · ${summary.predicted.toLocaleString()} 点 · 低置信度 ${summary.lowConfidence.toLocaleString()} · 空间受限 ${summary.limitedReference.toLocaleString()} · 地图已切换六类固定色`);
         } catch (error) {
-            const message = error instanceof Error ? error.message : "在线识别失败；当前地图数据与已有结果已保留。";
+            if (runId !== pascRunId.current) return;
+            const message = error instanceof Error ? error.message : "自动识别失败；当前地图数据与已有结果已保留。";
             setPascOnlineRun(current => ({ ...current, status: "error", error: message }));
             setStatus(message);
         }
@@ -835,7 +867,7 @@ function MapWorkspaceView() {
                                 runState={pascOnlineRun}
                                 lowConfidenceCount={pascLowConfidenceCount}
                                 limitedReferenceCount={pascLimitedReferenceCount}
-                                onRun={runPascOnlineRecognition}
+                                onRun={() => void runPascOnlineRecognition()}
                                 onFilter={applyPascResultFilter}
                             />
                             <PascCompatibilityCheck summary={parseReport?.compatibility ?? null} />

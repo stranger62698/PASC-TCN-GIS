@@ -363,6 +363,12 @@ Phase G complete
 
 | Snapshot blob upload completed but ConvertTo-Json rejected the generic tree-entry list | 2 | Reuse uploaded blobs by content SHA, use a plain PowerShell array, and upload only changed planning/manifest blobs |
 
+
+| Operations planning apply_patch was blocked by the workspace deny-read ACL helper | 1 | Used the established exact UTF-8 fallback for planning records only |
+
+
+| Direct view_image access to the clipboard temp path was blocked by the Windows sandbox ACL helper | 1 | Use the visible attached image already supplied in the conversation and source/API evidence; do not copy user temp data unnecessarily |
+
 ## Notes
 - Six classes and colors are frozen by v4.
 - 40 epochs remain experimental; 39 is unsupported; 248 is native.
@@ -411,4 +417,28 @@ Phase G complete
 - [x] Preserve the private model bundle and service credentials outside GitHub and Vercel static output
 - [x] Document the remaining private Python/Torch service requirements for live inference
 - [x] Confirm the public frontend fails closed until a private inference service is configured
+- **Status:** complete
+### Operations O1: Authentication Diagnosis
+- [x] Inspect the reported registration/login failure and reproduce the live API response
+- [x] Audit Vercel authentication function dependencies, environment variables, and persistence backend
+- [x] Identify the smallest safe fix without exposing credentials or weakening authentication
+- **Status:** complete
+
+### Operations O2: Authentication Remediation
+- [x] Implement and test the authorized authentication repair
+- [x] Configure required Vercel resources/secrets and redeploy
+- [x] Verify registration, login, session, and private-data isolation in production
+- **Status:** complete
+
+### Operations O3: Private PASC-TCN Inference Design
+- [x] Inventory the private model bundle, Torch runtime, service entrypoint, and hosting constraints
+- [x] Package and launch the private inference service without publishing weights or secrets
+- [x] Connect a same-origin production proxy and verify health/inference/rollback behavior
+- **Status:** complete
+
+### Operations O4: CSV Automatic Classification
+- [x] Audit the current CSV upload/mapping/confirmation flow and the 500-point Phase E boundary
+- [x] Implement automatic classification after a valid CSV is confirmed, including large-file job routing
+- [x] Preserve validation, unit/sign/preprocessing confirmations, progress, failure retention, and honest applicability labels
+- [x] Verify a representative compliant CSV reaches classified map results in production
 - **Status:** complete
