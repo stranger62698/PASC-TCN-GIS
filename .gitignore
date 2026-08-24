@@ -51,3 +51,11 @@ yarn-error.log*
 /*.zip
 /*.tar.gz
 /tsconfig.tsbuildinfo
+
+# Python service
+__pycache__/
+*.py[cod]
+.pytest_cache/
+pasc-tcn-service/.venv/
+pasc-tcn-service/.private-model-bundles/
+/build/tests/

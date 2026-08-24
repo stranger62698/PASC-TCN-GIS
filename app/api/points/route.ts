@@ -17,7 +17,7 @@ export async function GET() {
       type: "Feature",
       id,
       geometry: { type: "Point", coordinates: [lon, lat] },
-      properties: { FID: id, velocity, displacement, Pattern: pattern, unit: "mm/yr", observation_count: 210, first_date: "2017-03-22", last_date: "2025-05-03" },
+      properties: { FID: id, velocity, displacement, Pattern: pattern, unit: "mm/yr", observation_count: 248, first_date: "2017-03-22", last_date: "2025-05-03" },
     })),
   }, { headers: { "Cache-Control": "public, max-age=60" } });
 }

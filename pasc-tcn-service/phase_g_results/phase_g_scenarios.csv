@@ -1,0 +1,9 @@
+scenario,category,pointCount,effectiveEpochs,temporalApplicability,spatialApplicability,classAgreementVsNative,maximumProbabilityDeltaVsNative,meanConfidence,meanSpatialReliability,meanSpatialGate,maximumGapDays,normalizedSeriesMaxAbsDiff,physicalRawMaxAbsDiff,physicalScaledMaxAbsDiff,accuracyEvaluated
+native_248_reference,reference,3,248,native_248,full_reference,1.0,0.0,0.951415479183197,0.6559558113416036,0.35052429387966794,12,,,,False
+external_golden_shanghai,external_region,1,248,native_248,limited_reference,0.0,0.5530789569020271,0.5673529505729675,0.0,0.0,12,,,,False
+external_batch_shanghai,external_region,3,248,native_248,limited_reference,0.6666666666666666,0.5530789569020271,0.8425657351811727,0.0,0.0,12,0.0,0.0,0.0,False
+unit_cm_equivalent,unit_equivalence,3,248,native_248,full_reference,1.0,1.4901161193847656e-08,0.951415479183197,0.6559557716051737,0.350524274011453,12,3.5762786865234375e-07,7.62939453125e-06,8.344650268554688e-07,False
+sign_positive_equivalent,sign_equivalence,3,248,native_248,full_reference,1.0,0.0,0.951415479183197,0.6559558113416036,0.35052429387966794,12,0.0,0.0,0.0,False
+sampled_160,sampling_difference,3,160,experimental_adapted_to_248,full_reference,1.0,0.002392120659351349,0.9512538313865662,0.6559998194376627,0.3508702317873637,24,,,,False
+sampled_80,sampling_difference,3,80,experimental_adapted_to_248,full_reference,1.0,0.031245887279510498,0.9407111406326294,0.656047542889913,0.3521536240975062,48,,,,False
+sampled_40,sampling_difference,3,40,experimental_adapted_to_248,full_reference,1.0,0.47098594903945923,0.7192127903302511,0.656303862730662,0.34693193187316257,84,,,,False

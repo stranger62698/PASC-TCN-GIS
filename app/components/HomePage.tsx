@@ -4,8 +4,8 @@ import Link from "next/link";
 import { PageShell } from "./SiteShell";
 
 const demoMetrics = [
-  ["4,073", "有效监测点"],
-  ["210 期", "时序观测"],
+  ["3,094", "Spatial Demo 监测点"],
+  ["248 期", "原生时序观测"],
   ["2017.03—2025.05", "观测时间"],
   ["5 类", "已标注形变模式"],
 ];

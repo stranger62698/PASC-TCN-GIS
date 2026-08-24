@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { RenderAttribute } from "./insar";
+import type { RenderAttribute } from "./insar-v2";
+import { PASC_CLASSES, pascColor, pascDisplayName } from "./pasc";
 
 export type AnalysisTimeRange = {
   startIndex: number;
@@ -11,7 +12,7 @@ export type AnalysisTimeRange = {
 };
 
 export type AnalysisFilters = {
-  active: "none" | "velocity" | "coherence" | "anomaly";
+  active: "none" | "velocity" | "coherence" | "anomaly" | "pascLowConfidence" | "pascLimitedSpatial";
   velocityMax: number | null;
   coherenceMin: number | null;
   resultCount: number;
@@ -124,38 +125,18 @@ export function useAnalysisContext() {
   return value;
 }
 
-export const deformationModeOrder = ["稳定", "线性沉降", "加速沉降", "阶段形变", "局部抬升", "周期形变", "未分类"] as const;
+export const deformationModeOrder = PASC_CLASSES.map(item => item.nameZh);
 
-export const deformationModeColors: Record<string, string> = {
-  "稳定": "#24a685",
-  "线性沉降": "#f59e0b",
-  "加速沉降": "#e94b4b",
-  "阶段形变": "#7c5ce5",
-  "局部抬升": "#1677ff",
-  "周期形变": "#06b6d4",
-  "未分类": "#94a3b8",
-};
-
-const aliases: Record<string, string> = {
-  stable: "稳定",
-  linear: "线性沉降",
-  piecewise: "阶段形变",
-  accelerating: "加速沉降",
-  uplift: "局部抬升",
-  seasonal: "周期形变",
-  "0": "稳定",
-  "1": "线性沉降",
-  "2": "加速沉降",
-  "3": "阶段形变",
-  "4": "局部抬升",
-  "5": "周期形变",
-};
+export const deformationModeColors: Record<string, string> = Object.fromEntries(
+  PASC_CLASSES.map(item => [item.nameZh, item.color]),
+);
+deformationModeColors["Stepwise（旧版，待确认）"] = "#4D4D4D";
+deformationModeColors["未分类"] = "#94a3b8";
 
 export function normalizedMode(mode: string) {
-  const clean = (mode || "未分类").trim();
-  return aliases[clean.toLowerCase()] || (deformationModeColors[clean] ? clean : "未分类");
+  return pascDisplayName(mode);
 }
 
 export function colorForMode(mode: string) {
-  return deformationModeColors[normalizedMode(mode)];
+  return pascColor(mode);
 }

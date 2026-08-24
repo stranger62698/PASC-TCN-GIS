@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pasc-tcn-service"
+version = "0.3.0"
+description = "Hash-verified PASC-TCN inference service and durable Phase F job consumer"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24,<3"]
+
+[project.optional-dependencies]
+inference = ["torch>=2.0,<3"]
+
+[project.scripts]
+pasc-tcn-service = "pasc_tcn_service.__main__:main"
+pasc-tcn-consumer = "pasc_tcn_service.job_consumer:run_forever"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pasc_tcn_service = ["assets/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

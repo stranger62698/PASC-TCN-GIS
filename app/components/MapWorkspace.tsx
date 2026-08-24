@@ -6,16 +6,25 @@ import { demoDates, demoPoints, type InsarPoint } from "../data/site";
 import { AnalysisProvider, colorForMode, deformationModeOrder, normalizedMode, useAnalysisContext, type AnalysisMapView, type SelectedRegionStats } from "../lib/analysis-context";
 import { interpretRegionalAnalysis, type RegionalAnalysisInput, type RegionalInterpretation } from "../lib/ai-analysis";
 import { trackEvent } from "../lib/analytics";
-import { inspectCsv, parseMappedCsv, parseQgisRamp, stageVelocity, type CsvInspection, type CsvMapping, type DatasetParseResult, type RenderAttribute, type RenderStyle } from "../lib/insar";
+import { inspectCsv, parseMappedCsv, parseQgisRamp, stageVelocity, type CsvInspection, type CsvMapping, type DatasetParseResult, type RenderAttribute, type RenderStyle } from "../lib/insar-v2";
+import { buildPascOnlineRequest, filterPascOnlinePoints, mergePascOnlineResults, onlineErrorMessage, type PascOnlineFilter, type PascOnlineRunState } from "../lib/pasc-online";
+import { parsePascMapPreview, pascMapLevelForZoom, type PascPublicJob } from "../lib/pasc-job-client";
+import { PascAnalysisPanel } from "./PascAnalysisPanel";
+import { PascCompatibilityCheck } from "./PascCompatibilityCheck";
+import { PascPatternLegend } from "./PascPatternLegend";
+import { PascOnlineRecognition } from "./PascOnlineRecognition";
+import { PascRegionStats } from "./PascRegionStats";
+
 const MapCanvas = dynamic(() => import("./WebGisMap"), { ssr: false, loading: () => <div className="map-loading">正在初始化 WebGIS 地图…</div> });
 const defaultColors = ["#e94b4b", "#ff8a34", "#eee3b1", "#0a9c93", "#1677ff"];
 const attributeNames: Record<RenderAttribute, string> = { velocity: "年均速率", displacement: "当前期累计形变", stageVelocity: "阶段速率", mode: "形变模式", coherence: "相干性", missing: "缺测率" };
 const fieldLabels: {
-    key: Exclude<keyof CsvMapping, "timeCols">;
+    key: keyof Pick<CsvMapping, "lon" | "lat" | "velocity" | "id" | "mode" | "modeSource" | "confidence" | "coherence" | "location">;
     label: string;
     required?: boolean;
-}[] = [{ key: "lon", label: "经度", required: true }, { key: "lat", label: "纬度", required: true }, { key: "velocity", label: "平均速率", required: true }, { key: "id", label: "点位编号" }, { key: "mode", label: "形变模式（优先 label）" }, { key: "modeSource", label: "模式来源 / 模型名称" }, { key: "confidence", label: "模式置信度" }, { key: "coherence", label: "相干性 / 精度" }, { key: "location", label: "研究区名称" }];
+}[] = [{ key: "lon", label: "经度", required: true }, { key: "lat", label: "纬度", required: true }, { key: "velocity", label: "平均速率（可选）" }, { key: "id", label: "点位编号" }, { key: "mode", label: "形变模式（优先 PASC label）" }, { key: "modeSource", label: "模式来源 / 模型名称" }, { key: "confidence", label: "模式置信度" }, { key: "coherence", label: "相干性 / 精度" }, { key: "location", label: "研究区名称" }];
 const axisDate = (value: string) => { const digits = (value || "").replace(/\D/g, ""); return digits.length >= 6 ? `${digits.slice(0, 4)}.${digits.slice(4, 6)}` : value; };
+const stageLabelsForPreview = (level: string) => level === "map_level_0" ? "概览层" : level === "map_level_1" ? "区域层" : "细节层";
 type PointInsight = {
     status: string;
     recentVelocity: number | null;
@@ -25,6 +34,8 @@ type PointInsight = {
     confidenceLabel: string;
     explanation: string[];
 };
+
+const emptyPascOnlineRun: PascOnlineRunState = { status: "idle", error: "", completedAt: null, summary: null, serviceVersion: null, buildHash: null };
 
 type AnomalySummary = {
     total: number;
@@ -75,12 +86,12 @@ function buildPointInsight(point: InsarPoint, coherenceThreshold: number): Point
     const qualityConcern = point.coherence > 0 && point.coherence < coherenceThreshold;
     let status = "缓慢变化";
     if (qualityConcern) status = "质量需关注";
-    else if (modeLabel === "稳定") status = "总体稳定";
-    else if (modeLabel === "线性沉降") status = "持续沉降";
-    else if (modeLabel === "加速沉降") status = "持续形变";
-    else if (modeLabel === "局部抬升") status = "持续抬升";
-    else if (modeLabel === "阶段形变") status = "阶段变化";
-    else if (modeLabel === "周期形变") status = "周期变化";
+    else if (modeLabel === "稳定型") status = "总体稳定";
+    else if (modeLabel === "线性型") status = "线性变化";
+    else if (modeLabel === "分段型") status = "阶段变化";
+    else if (modeLabel === "减速型") status = "减速变化";
+    else if (modeLabel === "加速型") status = "加速变化";
+    else if (modeLabel === "未定义型") status = "模式未定义";
     else if ((recentVelocity ?? point.velocity) < -1) status = "持续沉降";
     else if ((recentVelocity ?? point.velocity) > 1) status = "持续抬升";
 
@@ -221,8 +232,11 @@ function MapWorkspaceView() {
         name: string;
         file?: File;
     } | null>(null), [parseReport, setParseReport] = useState<DatasetParseResult | null>(null), [privateDatasetId, setPrivateDatasetId] = useState(""), [leftWidth, setLeftWidth] = useState(270), [rightWidth, setRightWidth] = useState(430), [leftCollapsed, setLeftCollapsed] = useState(false), [rightCollapsed, setRightCollapsed] = useState(false), [timeIndex, setTimeIndex] = useState(0), [rangeStart, setRangeStart] = useState(0), [rangeEnd, setRangeEnd] = useState(1), [attribute, setAttributeState] = useState<RenderAttribute>("velocity"), [styleMin, setStyleMin] = useState(-30), [styleMax, setStyleMax] = useState(30), [interval, setInterval] = useState(15), [colors, setColors] = useState(defaultColors), [threshold, setThreshold] = useState(-10), [coherenceThreshold, setCoherenceThreshold] = useState(.75), [selectionMode, setSelectionMode] = useState<"single" | "compare" | "compareBox" | "box">("single"), [compareIds, setCompareIds] = useState<string[]>([]), [curveIds, setCurveIds] = useState<string[]>([]), [boxPoints, setBoxPoints] = useState<InsarPoint[]>([]), [busy, setBusy] = useState(""), [dataReady, setDataReady] = useState(false);
-    const [leftTab, setLeftTab] = useState<"data" | "layers" | "filters">("data"), [rightTab, setRightTab] = useState<"point" | "region" | "ai">("point"), [activeFilter, setActiveFilter] = useState<"none" | "velocity" | "coherence" | "anomaly">("none");
+    const [leftTab, setLeftTab] = useState<"data" | "layers" | "filters">("data"), [rightTab, setRightTab] = useState<"point" | "region" | "pasc" | "ai">("point"), [activeFilter, setActiveFilter] = useState<"none" | "velocity" | "coherence" | "anomaly" | "pascLowConfidence" | "pascLimitedSpatial">("none");
     const [aiStatus, setAiStatus] = useState<"idle" | "loading" | "success" | "error">("idle"), [aiResult, setAiResult] = useState<RegionalInterpretation | null>(null), [aiError, setAiError] = useState(""), [evidenceOpen, setEvidenceOpen] = useState(false);
+    const [pascOnlineRun, setPascOnlineRun] = useState<PascOnlineRunState>(emptyPascOnlineRun);
+    const [jobPreviewId, setJobPreviewId] = useState("");
+    const jobPreviewLevel = useRef("");
     const restoreRequested = useRef(false), restoredContextKey = useRef("");
     const fileRef = useRef<HTMLInputElement>(null), qgisRef = useRef<HTMLInputElement>(null), riskCount = useMemo(() => points.filter(p => Math.abs(p.velocity) >= 3).length, [points]), qualityCount = useMemo(() => points.filter(p => (p.coherence > 0 && p.coherence < coherenceThreshold) || p.missingRate > .2).length, [points, coherenceThreshold]), periodCount = Math.max(1, points[0]?.series.length || 1), currentDate = points[0]?.dates?.[Math.min(timeIndex, periodCount - 1)] || "—";
     const renderStyle: RenderStyle = useMemo(() => ({ attribute, min: styleMin, max: styleMax, interval, timeIndex, rangeStart, rangeEnd, colors }), [attribute, styleMin, styleMax, interval, timeIndex, rangeStart, rangeEnd, colors]);
@@ -232,7 +246,7 @@ function MapWorkspaceView() {
         const chosen = points.filter(point => {
             const lowQuality = point.missingRate > .2 || (point.coherence > 0 && point.coherence < coherenceThreshold);
             if (lowQuality) { summary.excludedLowQuality++; return false; }
-            const mode = normalizedMode(point.mode), clearSubsidence = point.velocity <= -3, accelerating = mode === "加速沉降", pattern = mode === "阶段形变";
+            const mode = normalizedMode(point.mode), clearSubsidence = point.velocity <= -3, accelerating = mode === "加速型", pattern = mode === "分段型";
             if (clearSubsidence) summary.clearSubsidence++;
             if (accelerating) summary.accelerating++;
             if (pattern) summary.pattern++;
@@ -252,12 +266,16 @@ function MapWorkspaceView() {
         modes: boxPoints.reduce((acc, point) => { const mode = normalizedMode(point.mode); acc[mode] = (acc[mode] || 0) + 1; return acc; }, {} as Record<string, number>),
     } : null, [boxPoints, coherenceThreshold, timeIndex]);
     const compareStats = useMemo(() => compared.length ? { avgVelocity: compared.reduce((s, p) => s + p.velocity, 0) / compared.length, avgCurrent: compared.reduce((s, p) => s + (p.series[Math.min(timeIndex, p.series.length - 1)] ?? p.displacement), 0) / compared.length, avgCoherence: compared.reduce((s, p) => s + p.coherence, 0) / compared.length } : null, [compared, timeIndex]);
+    const pascCandidateCount = parseReport?.compatibility.pascCandidatePoints ?? points.filter(point => (point.effectiveEpochCount ?? point.series.length) >= 40).length;
+    const pascBlockingIssues = (parseReport?.compatibility.issues ?? []).filter(issue => issue.severity === "error" || issue.severity === "confirmation").map(issue => issue.message);
+    const pascLowConfidenceCount = points.filter(point => point.pasc?.lowConfidence).length;
+    const pascLimitedReferenceCount = points.filter(point => point.pasc?.spatialApplicability === "limited_reference").length;
     const filteredPointCount = activeFilter !== "none" || analysis.selectedRegion ? boxPoints.length : points.length;
     const contextRegionStats = useMemo<SelectedRegionStats | null>(() => boxStats ? { pointCount: boxPoints.length, averageVelocity: boxStats.avg, maximumDisplacement: boxStats.max, qualityCount: boxStats.quality, modeCounts: boxStats.modes, averageDisplacement: boxStats.averageCurrent, averageCoherence: boxStats.averageCoherence, minimumVelocity: boxStats.minVelocity, maximumVelocity: boxStats.maxVelocity, velocityHistogram: buildVelocityHistogram(boxPoints) } : null, [boxStats, boxPoints]);
     const regionalAiInput = useMemo<RegionalAnalysisInput | null>(() => {
         if (!boxStats || !boxPoints.length) return null;
         const modeSources = [...new Set(boxPoints.map(point => point.modeSource?.trim()).filter(Boolean) as string[])];
-        const descriptions = { none: "未启用额外筛选", velocity: `速率 ≤ ${threshold} mm/yr`, coherence: `相干性 < ${coherenceThreshold.toFixed(2)}`, anomaly: "明显沉降 / 加速沉降 / 阶段形变，已排除低质量点" } as const;
+        const descriptions = { none: "未启用额外筛选", velocity: `速率 ≤ ${threshold} mm/yr`, coherence: `相干性 < ${coherenceThreshold.toFixed(2)}`, anomaly: "明显沉降 / 加速沉降 / 阶段形变，已排除低质量点", pascLowConfidence: "PASC 低置信度结果", pascLimitedSpatial: "PASC 空间适用性有限结果" } as const;
         return {
             datasetName: datasetTitle,
             regionLabel: analysis.selectedRegion?.label || (activeFilter === "none" ? "自定义矩形区域" : "当前筛选结果"),
@@ -279,7 +297,7 @@ function MapWorkspaceView() {
     useEffect(() => {
         if (!dataReady || (restoreRequested.current && !restoredContextKey.current)) return;
         const dates = points[0]?.dates || [], start = Math.min(rangeStart, Math.max(0, dates.length - 1)), end = Math.min(rangeEnd, Math.max(0, dates.length - 1));
-        const descriptions = { none: "未启用", velocity: `速率 ≤ ${threshold} mm/yr`, coherence: `相干性 < ${coherenceThreshold.toFixed(2)}`, anomaly: "明显沉降 / 加速沉降 / 阶段形变，已排除低质量点" } as const;
+        const descriptions = { none: "未启用", velocity: `速率 ≤ ${threshold} mm/yr`, coherence: `相干性 < ${coherenceThreshold.toFixed(2)}`, anomaly: "明显沉降 / 加速沉降 / 阶段形变，已排除低质量点", pascLowConfidence: "PASC 低置信度结果", pascLimitedSpatial: "PASC 空间适用性有限结果" } as const;
         updateAnalysis({ datasetId: privateDatasetId || "demo-haikou", datasetName: datasetTitle, timeRange: { startIndex: start, endIndex: end, startDate: dates[start] || "—", endDate: dates[end] || "—" }, filters: { active: activeFilter, velocityMax: activeFilter === "velocity" ? threshold : null, coherenceMin: activeFilter === "coherence" || activeFilter === "anomaly" ? coherenceThreshold : null, resultCount: filteredPointCount, description: descriptions[activeFilter] }, activeColorMode: attribute, selectedPointId: selected?.id || null, selectedRegionStats: contextRegionStats });
     }, [privateDatasetId, datasetTitle, points, rangeStart, rangeEnd, activeFilter, threshold, coherenceThreshold, filteredPointCount, attribute, selected?.id, contextRegionStats, updateAnalysis, dataReady]);
     const handleMapViewChange = useCallback((mapView: AnalysisMapView) => {
@@ -292,23 +310,49 @@ function MapWorkspaceView() {
         setGuideOpen(true);
         setStatus("上传自己的数据：请确认 CSV 字段要求，然后选择本地文件。");
     } }, []);
-    const saveAnalysisMeta = async (id: string, nextMapping: CsvMapping, result: DatasetParseResult) => { await fetch(`/api/private-datasets?id=${id}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mapping: nextMapping, qualityReport: result.quality, schemaStatus: "validated", processStatus: "validated" }) }).catch(() => null); };
-    const applyResult = (result: DatasetParseResult, label: string, preserveAnalysis = false) => { setPoints(result.points); setSelected(null); setDatasetTitle(result.datasetTitle); setTimeIndex(result.periods - 1); setRangeStart(0); setRangeEnd(result.periods - 1); setCompareIds([]); setCurveIds([]); setBoxPoints([]); setActiveFilter("none"); setRightTab("point"); if (!preserveAnalysis) updateAnalysis({ selectedPointId: null, selectedRegion: null, selectedRegionStats: null }); setParseReport(result); setDataReady(true); setStatus(`${label} · ${result.points.length.toLocaleString()} 点 · ${result.periods} 期 · 模式字段 ${result.modeField} · 过滤 ${result.invalid} 条`); trackEvent("dataset_loaded", { dataset_type: privateDatasetId ? "private" : label.includes("公开示例") ? "demo" : "local", point_count: result.points.length, period_count: result.periods, invalid_count: result.invalid }); };
-    useEffect(() => { const params = new URLSearchParams(window.location.search); restoreRequested.current = params.get("restore") === "analysis"; const privateId = params.get("dataset"); if (privateId) {
+    const saveAnalysisMeta = async (id: string, nextMapping: CsvMapping, result: DatasetParseResult) => { await fetch(`/api/datasets/${id}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mapping: nextMapping, qualityReport: result.quality, schemaStatus: "validated", processStatus: "validated" }) }).catch(() => null); };
+    const applyResult = (result: DatasetParseResult, label: string, preserveAnalysis = false) => { setPascOnlineRun(emptyPascOnlineRun); setPoints(result.points); setSelected(null); setDatasetTitle(result.datasetTitle); setTimeIndex(result.periods - 1); setRangeStart(0); setRangeEnd(result.periods - 1); setCompareIds([]); setCurveIds([]); setBoxPoints([]); setActiveFilter("none"); setRightTab("point"); if (!preserveAnalysis) updateAnalysis({ selectedPointId: null, selectedRegion: null, selectedRegionStats: null }); setParseReport(result); setDataReady(true); setStatus(`${label} · ${result.points.length.toLocaleString()} 点 · ${result.periods} 期 · 模式字段 ${result.modeField} · 过滤 ${result.invalid} 条`); trackEvent("dataset_loaded", { dataset_type: privateDatasetId ? "private" : label.includes("公开示例") ? "demo" : "local", point_count: result.points.length, period_count: result.periods, invalid_count: result.invalid }); };
+    const loadShowcaseDemo = () => { setBusy("正在加载六类 Showcase Demo…"); fetch("/data/haikou-pasc-showcase.csv").then(response => { if (!response.ok) throw new Error("Showcase Demo 不可用"); return response.text(); }).then(text => { const found = inspectCsv(text), demoMapping: CsvMapping = { ...found.mapping, displacementUnit: "mm", velocityUnit: "mm/year", signConvention: "toward_satellite_positive", preprocessingState: "already_smoothed" }, result = parseMappedCsv(text, "海口 PASC Showcase.csv", demoMapping, false); result.datasetTitle = "海口 PASC-TCN 248 期 Showcase Demo"; setPrivateDatasetId(""); applyResult(result, "海口 PASC Showcase Demo"); setStatus(`Showcase Demo · ${result.points.length.toLocaleString()} 点 · 248 期 · 每类 500 点；仅用于六类界面覆盖，不代表科学类别比例`); }).catch(error => setStatus(error instanceof Error ? error.message : "Showcase Demo 加载失败")).finally(() => setBusy("")); };
+    useEffect(() => { const params = new URLSearchParams(window.location.search); restoreRequested.current = params.get("restore") === "analysis"; const previewJobId = params.get("job"); if (previewJobId) { jobPreviewLevel.current = ""; setJobPreviewId(previewJobId); setStatus("正在读取 Phase F 多级地图预览…"); return; } const privateId = params.get("dataset"); if (privateId) {
         setPrivateDatasetId(privateId);
         setBusy("正在读取账户私有数据…");
-        fetch("/api/private-datasets?op=list", { credentials: "include" }).then(async (response) => { if (!response.ok)
-            throw new Error("请先登录后再打开私有数据集"); const list = await response.json(), meta = (list.items || []).find((item: any) => item.id === privateId); if (!meta)
-            throw new Error("当前账户中不存在该数据集"); const chunks: ArrayBuffer[] = []; for (let i = 0; i < meta.chunks; i++) {
-            const part = await fetch(`/api/private-datasets?op=chunk&id=${privateId}&index=${i}`, { credentials: "include" });
-            if (!part.ok)
-                throw new Error(`读取第 ${i + 1} 个私有分块失败`);
-            chunks.push(await part.arrayBuffer());
-        } const text = await new Blob(chunks, { type: "text/csv" }).text(), found = inspectCsv(text), saved = meta.mapping as CsvMapping | undefined, nextMapping = saved?.lon ? { ...found.mapping, ...saved } : found.mapping, result = parseMappedCsv(text, meta.name, nextMapping, true); setInspection(found); setMapping(nextMapping); applyResult(result, meta.name, restoreRequested.current); if (!saved?.lon)
+        fetch("/api/datasets", { credentials: "include" }).then(async (response) => { if (!response.ok)
+            throw new Error("请先登录后再打开私有数据集"); const list = await response.json(), meta = (list.items || []).find((item: { id: string; name: string; mapping?: CsvMapping }) => item.id === privateId); if (!meta)
+            throw new Error("当前账户中不存在该数据集"); const source = await fetch(`/api/datasets/${privateId}/source`, { credentials: "include" });
+            if (!source.ok)
+                throw new Error("读取私有原始 CSV 失败");
+            const text = await source.text(), found = inspectCsv(text), saved = meta.mapping as CsvMapping | undefined, nextMapping = saved?.lon ? { ...found.mapping, ...saved } : found.mapping, result = parseMappedCsv(text, meta.name, nextMapping, true); setInspection(found); setMapping(nextMapping); applyResult(result, meta.name, restoreRequested.current); if (!saved?.lon)
             await saveAnalysisMeta(privateId, nextMapping, result); }).catch(e => setStatus(e instanceof Error ? e.message : "私有数据读取失败")).finally(() => setBusy(""));
         return;
     } fetch("/data/haikou-insar.csv").then(r => { if (!r.ok)
-        throw new Error(); return r.text(); }).then(text => { const found = inspectCsv(text), result = parseMappedCsv(text, "海口示例数据.csv", found.mapping, false); result.datasetTitle = "海口公开示例 · 时序 InSAR"; applyResult(result, "海口公开示例", restoreRequested.current); }).catch(() => setStatus("演示数据 · 可选择本地 CSV")); }, []);
+        throw new Error(); return r.text(); }).then(text => { const found = inspectCsv(text), demoMapping: CsvMapping = { ...found.mapping, displacementUnit: "mm", velocityUnit: "mm/year", signConvention: "toward_satellite_positive", preprocessingState: "already_smoothed" }, result = parseMappedCsv(text, "海口示例数据.csv", demoMapping, false); result.datasetTitle = "海口 PASC-TCN 248 期 Spatial Demo"; applyResult(result, "海口 PASC Spatial Demo", restoreRequested.current); }).catch(() => setStatus("演示数据 · 可选择本地 CSV")); }, []);
+    useEffect(() => {
+        if (!jobPreviewId) return;
+        const zoom = analysis.mapView?.zoom ?? 9, level = pascMapLevelForZoom(zoom);
+        if (jobPreviewLevel.current === level) return;
+        jobPreviewLevel.current = level;
+        const controller = new AbortController();
+        setBusy(`正在加载 ${level === "map_level_0" ? "500 点概览" : level === "map_level_1" ? "2,000 点区域" : "5,000 点细节"}抽样…`);
+        Promise.all([
+            fetch(`/v1/jobs/${encodeURIComponent(jobPreviewId)}`, { credentials: "include", cache: "no-store", signal: controller.signal }),
+            fetch(`/v1/jobs/${encodeURIComponent(jobPreviewId)}/map?zoom=${zoom}`, { credentials: "include", cache: "no-store", signal: controller.signal }),
+        ]).then(async ([jobResponse, mapResponse]) => {
+            const jobBody = await jobResponse.json().catch(() => null) as { job?: PascPublicJob; error?: { message?: string } } | null;
+            if (!jobResponse.ok || !jobBody?.job) throw new Error(jobBody?.error?.message || "任务状态读取失败。");
+            const mapBody = await mapResponse.json().catch(() => null) as { error?: { message?: string } } | null;
+            if (!mapResponse.ok) throw new Error(mapBody?.error?.message || "任务地图预览读取失败。");
+            const preview = parsePascMapPreview(mapBody);
+            if (preview.jobId !== jobPreviewId) throw new Error("任务地图标识不匹配。");
+            setPrivateDatasetId(jobBody.job.datasetId); setPoints(preview.points); setSelected(null); setDatasetTitle(`${jobBody.job.datasetName} · Phase F 抽样预览`);
+            setTimeIndex(0); setRangeStart(0); setRangeEnd(0); setCompareIds([]); setCurveIds([]); setBoxPoints([]); setActiveFilter("none"); setRightTab("pasc");
+            setAttributeState("mode"); setVisible(current => ({ ...current, points: true })); setInspection(null); setMapping(null); setParseReport(null); setDataReady(true);
+            setStatus(`Phase F ${stageLabelsForPreview(level)} · 当前 ${preview.points.length.toLocaleString()} 个确定性抽样点 / 共 ${preview.totalPredictedPoints.toLocaleString()} 个识别结果；缩放地图会切换层级，不加载全量数据。`);
+        }).catch(error => {
+            if (error instanceof DOMException && error.name === "AbortError") return;
+            jobPreviewLevel.current = ""; setDataReady(true); setStatus(`${error instanceof Error ? error.message : "任务地图预览读取失败。"} 当前地图数据已保留。`);
+        }).finally(() => { if (!controller.signal.aborted) setBusy(""); });
+        return () => controller.abort();
+    }, [jobPreviewId, analysis.mapView?.zoom]);
     useEffect(() => {
         if (!isAnalysisReady || !dataReady || !restoreRequested.current || restoredContextKey.current) return;
         const currentDatasetId = privateDatasetId || "demo-haikou";
@@ -423,6 +467,49 @@ function MapWorkspaceView() {
         updateAnalysis({ selectedPointId: null, selectedRegion: chosen.length ? { bounds, pointIds: chosen.map(point => point.id), label: "异常点筛选结果", source: "anomaly" } : null });
         setStatus(chosen.length ? `发现 ${chosen.length.toLocaleString()} 个异常监测点；已排除 ${anomalyDiscovery.summary.excludedLowQuality.toLocaleString()} 个低质量点。` : "当前数据未筛选出符合既定规则的异常监测点。" );
     };
+    const runPascOnlineRecognition = async () => {
+        try {
+            const request = buildPascOnlineRequest(points, datasetTitle, mapping?.preprocessingState);
+            setPascOnlineRun({ ...emptyPascOnlineRun, status: "running" });
+            setRightTab("pasc");
+            setStatus(`正在通过安全代理识别 ${request.points.length.toLocaleString()} 个 PASC 候选点…`);
+            const response = await fetch("/api/pasc/infer", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(request),
+            });
+            const body = await response.json().catch(() => null);
+            if (!response.ok) throw new Error(onlineErrorMessage(body));
+            const merged = mergePascOnlineResults(points, body);
+            setPoints(merged.points);
+            setSelected(current => current ? merged.points.find(point => point.id === current.id) ?? null : null);
+            setBoxPoints(current => current.map(point => merged.points.find(item => item.id === point.id) ?? point));
+            setAttribute("mode");
+            setVisible(current => ({ ...current, points: true }));
+            setPascOnlineRun({
+                status: "success",
+                error: "",
+                completedAt: new Date().toISOString(),
+                summary: merged.response.summary,
+                serviceVersion: merged.response.serviceVersion,
+                buildHash: merged.response.modelPackage.buildHash,
+            });
+            setStatus(`PASC 在线识别完成 · ${merged.response.summary.predicted.toLocaleString()} 点 · 低置信度 ${merged.response.summary.lowConfidence.toLocaleString()} · 空间受限 ${merged.response.summary.limitedReference.toLocaleString()} · 地图已切换六类固定色`);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "在线识别失败；当前地图数据与已有结果已保留。";
+            setPascOnlineRun(current => ({ ...current, status: "error", error: message }));
+            setStatus(message);
+        }
+    };
+    const applyPascResultFilter = (filter: PascOnlineFilter) => {
+        const chosen = filterPascOnlinePoints(points, filter);
+        const active = filter === "lowConfidence" ? "pascLowConfidence" : "pascLimitedSpatial";
+        const label = filter === "lowConfidence" ? "PASC 低置信度结果" : "PASC 空间适用性有限结果";
+        setSelectionMode("single"); setActiveFilter(active); setAttribute("mode"); setBoxPoints(chosen); setSelected(null); setCompareIds([]); setCurveIds([]); setRightTab("region");
+        updateAnalysis({ selectedPointId: null, selectedRegion: chosen.length ? { bounds: pointBounds(chosen), pointIds: chosen.map(point => point.id), label, source: "filter" } : null });
+        setStatus(`${label} · ${chosen.length.toLocaleString()} 点 · 已使用 PASC 六类固定色`);
+    };
     const runAiInterpretation = async () => {
         if (!regionalAiInput) { trackEvent("ai_analysis_fail", { reason: "missing_region_context" }); setAiStatus("error"); setAiError("请先在“区域分析”中框选区域，或运行“发现异常”建立分析对象。"); return; }
         trackEvent("ai_analysis_start", { point_count: regionalAiInput.pointCount, selection_source: regionalAiInput.selectionSource });
@@ -502,6 +589,7 @@ function MapWorkspaceView() {
                                 <span>{points.length.toLocaleString()} 个有效点 · 当前 {currentDate}</span>
                                 <button onClick={() => fileRef.current?.click()}>＋ 字段映射导入 CSV</button>
                                 <button onClick={() => setGuideOpen(true)}>查看 CSV 数据规范</button>
+                                <button onClick={loadShowcaseDemo}>加载六类 Showcase Demo</button>
                                 {parseReport && <button onClick={() => setReportOpen(true)}>查看导入与质量报告</button>}
                             </div>
                             <div className="context-note">
@@ -628,6 +716,7 @@ function MapWorkspaceView() {
                         <button role="tab" aria-selected={rightTab === "point"} className={rightTab === "point" ? "active" : ""} onClick={() => setRightTab("point")}>点位分析</button>
                         <button role="tab" aria-selected={rightTab === "region"} className={rightTab === "region" ? "active" : ""} onClick={() => setRightTab("region")}>区域分析</button>
                         <button role="tab" aria-selected={rightTab === "ai"} className={rightTab === "ai" ? "active" : ""} onClick={() => setRightTab("ai")}>AI 解读</button>
+                        <button role="tab" aria-selected={rightTab === "pasc"} className={rightTab === "pasc" ? "active" : ""} onClick={() => setRightTab("pasc")}>PASC</button>
                     </div>
 
                     {rightTab === "point" && (
@@ -735,6 +824,27 @@ function MapWorkspaceView() {
                         </div>
                     )}
 
+                    {rightTab === "pasc" && (
+                        <div className="workspace-tab-panel pasc-workspace-tab" role="tabpanel">
+                            <PascOnlineRecognition
+                                totalPoints={points.length}
+                                candidatePoints={pascCandidateCount}
+                                mappingConfirmed={Boolean(parseReport && mapping)}
+                                preprocessingState={mapping?.preprocessingState}
+                                blockingIssues={pascBlockingIssues}
+                                runState={pascOnlineRun}
+                                lowConfidenceCount={pascLowConfidenceCount}
+                                limitedReferenceCount={pascLimitedReferenceCount}
+                                onRun={runPascOnlineRecognition}
+                                onFilter={applyPascResultFilter}
+                            />
+                            <PascCompatibilityCheck summary={parseReport?.compatibility ?? null} />
+                            <PascAnalysisPanel point={selected} />
+                            <PascRegionStats points={boxPoints.length ? boxPoints : points} />
+                            <PascPatternLegend />
+                        </div>
+                    )}
+
                     {rightTab === "ai" && (
                         <div className="workspace-tab-panel ai-analysis-tab" role="tabpanel">
                             <section className="ai-context-panel phase-five-ai-panel">
@@ -801,6 +911,12 @@ function MapWorkspaceView() {
                         <button className="dialog-close" onClick={() => setMappingOpen(false)}>×</button><span className="eyebrow">FIELD MAPPING</span><h2>CSV 字段映射向导</h2>
                         <p>确认系统识别结果。带 * 的字段必须指定；日期列按列名自动识别。</p>
                         <div className="mapping-grid">{fieldLabels.map(field => <label key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><select value={mapping[field.key]} onChange={e => setMapping({ ...mapping, [field.key]: e.target.value })}><option value="">— 不使用 —</option>{inspection.headers.map(h => <option value={h} key={h}>{h}</option>)}</select></label>)}</div>
+                        <div className="pasc-mapping-confirmations">
+                            <label><span>形变单位 *</span><select value={mapping.displacementUnit ?? "unknown"} onChange={e => setMapping({ ...mapping, displacementUnit: e.target.value as CsvMapping["displacementUnit"] })}><option value="unknown">待确认</option><option value="mm">mm</option><option value="cm">cm</option><option value="m">m</option></select></label>
+                            <label><span>速率单位</span><select value={mapping.velocityUnit ?? "unknown"} onChange={e => setMapping({ ...mapping, velocityUnit: e.target.value as CsvMapping["velocityUnit"] })}><option value="unknown">待确认 / 未提供</option><option value="mm/year">mm/year</option><option value="cm/year">cm/year</option><option value="m/year">m/year</option></select></label>
+                            <label><span>形变正负号 *</span><select value={mapping.signConvention ?? "unknown"} onChange={e => setMapping({ ...mapping, signConvention: e.target.value as CsvMapping["signConvention"] })}><option value="unknown">待确认</option><option value="toward_satellite_positive">朝卫星为正</option><option value="away_from_satellite_positive">远离卫星为正</option></select></label>
+                            <label><span>预处理状态 *</span><select value={mapping.preprocessingState ?? "unknown"} onChange={e => setMapping({ ...mapping, preprocessingState: e.target.value as CsvMapping["preprocessingState"] })}><option value="unknown">待确认</option><option value="raw">raw</option><option value="already_smoothed">already_smoothed</option></select></label>
+                        </div>
                         <div className="mapping-dates"><b>累计形变日期列</b><span>已识别 {mapping.timeCols.length} 列</span><small>{mapping.timeCols.slice(0, 6).join("、")}{mapping.timeCols.length > 6 ? " …" : ""}</small></div>
                         {inspection.warnings.length > 0 && <ul className="mapping-warnings">{inspection.warnings.map(w => <li key={w}>{w}</li>)}</ul>}
                         <div className="dialog-actions"><button className="button ghost" onClick={() => setMappingOpen(false)}>取消</button><button className="button primary" onClick={confirmMapping}>验证并导入</button></div>
@@ -822,7 +938,7 @@ function MapWorkspaceView() {
                 <div className="config-backdrop" onMouseDown={() => setGuideOpen(false)}>
                     <section className="config-dialog csv-guide" onMouseDown={e => e.stopPropagation()}>
                         <button className="dialog-close" onClick={() => setGuideOpen(false)}>×</button><span className="eyebrow">CSV SCHEMA</span><h2>CSV 数据规范</h2>
-                        <div className="schema-grid"><article><b>必须字段</b><p>经纬度、点速率，以及至少 2 个日期累计形变列。</p></article><article><b>模式与质量</b><p>模式优先 label；支持 Pattern/mode/0—5 类别列。可选提供 mode_source、confidence 和 coherence。</p></article><article><b>研究区标题</b><p>优先读取 project_name/area/region/city/研究区；否则使用文件名，不再写死“海口”。</p></article><article><b>大文件</b><p>本地快速分析建议 ≤300 MB；登录后的私有数据采用分块对象存储。</p></article></div>
+                        <div className="schema-grid"><article><b>能力字段</b><p>经纬度必需；velocity 可缺失，有至少 2 个真实日期值时按最小二乘计算。40 期仅为实验门槛。</p></article><article><b>PASC 六分类</b><p>固定 Stable、Linear、Piecewise、Decelerating、Accelerating、Undefined；Stepwise 只标 legacy。</p></article><article><b>确认项</b><p>单位、符号和 raw / already_smoothed 必须明确确认，禁止按数值猜测。</p></article><article><b>本阶段边界</b><p>Phase A 只做兼容性与离线结果展示，不执行 Adapter、SG 或在线推理。</p></article></div>
                         <div className="csv-example"><code>point_id,longitude,latitude,velocity,label,mode_source,confidence,coherence,D20200101,D20200113</code></div>
                         <div className="dialog-actions"><button className="button ghost" onClick={() => setGuideOpen(false)}>继续体验示例</button><button className="button primary" onClick={() => { setGuideOpen(false); fileRef.current?.click(); }}>选择本地 CSV</button></div>
                     </section>

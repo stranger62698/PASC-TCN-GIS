@@ -6,6 +6,9 @@ const out = new URL("../static-dist/", import.meta.url);
 const base = "/lanjifyw-insar";
 await copyFile(new URL("data/haikou-insar.csv", out), new URL("haikou-insar.csv", out));
 await rm(new URL("data/", out), { recursive: true, force: true });
+await copyFile(new URL("data/haikou-pasc-showcase.csv", out), new URL("haikou-pasc-showcase.csv", out));
+await copyFile(new URL("data/haikou-pasc-spatial.manifest.json", out), new URL("haikou-pasc-spatial.manifest.json", out));
+await copyFile(new URL("data/haikou-pasc-showcase.manifest.json", out), new URL("haikou-pasc-showcase.manifest.json", out));
 const outPath = fileURLToPath(out);
 const assetsPath = join(outPath, "assets");
 try {
@@ -26,6 +29,7 @@ for (const name of await readdir(outPath)) {
   const content = await readFile(path, "utf8");
   await writeFile(path, content
     .replaceAll('"/insar-satellite-v2.png"', `"${base}/insar-satellite-v2.png"`)
-    .replaceAll('"/data/haikou-insar.csv"', `"${base}/haikou-insar.csv"`), "utf8");
+    .replaceAll('"/data/haikou-insar.csv"', `"${base}/haikou-insar.csv"`)
+    .replaceAll('"/data/haikou-pasc-showcase.csv"', `"${base}/haikou-pasc-showcase.csv"`), "utf8");
 }
 await writeFile(join(outPath, ".nojekyll"), "", "utf8");

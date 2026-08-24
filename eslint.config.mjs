@@ -36,6 +36,31 @@ const eslintConfig = defineConfig([
       },
     },
   },
+  {
+    // Pre-existing repository debt remains visible as warnings; Phase A files are checked strictly by lint:phase-a.
+    files: [
+      "app/components/DatasetPage.tsx",
+      "app/components/InsarMap.tsx",
+      "app/components/MapWorkspace.tsx",
+      "app/components/WebGisMap.tsx",
+      "app/lib/insar.ts",
+      "static-src/shims/next-dynamic.tsx",
+      "tests/rendered-html.test.mjs",
+    ],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-unused-expressions": "warn",
+      "@typescript-eslint/no-unused-vars": "warn",
+      "jsx-a11y/no-autofocus": "warn",
+      "jsx-a11y/no-noninteractive-element-interactions": "warn",
+      "jsx-a11y/no-static-element-interactions": "warn",
+      "no-irregular-whitespace": "warn",
+      "no-useless-escape": "warn",
+      "react-hooks/immutability": "warn",
+      "react-hooks/refs": "warn",
+      "react-hooks/set-state-in-effect": "warn",
+    },
+  },
 ]);
 
 export default eslintConfig;

@@ -1,0 +1,265 @@
+{
+  "phase": "G",
+  "contractVersion": "pasc-contract-v1",
+  "modelVersion": "pasc-tcn-haikou-v1",
+  "evaluationKind": "controlled_external_region_robustness_without_external_labels",
+  "frozenBoundary": {
+    "modelDefinitionChanged": false,
+    "trainingParametersChanged": false,
+    "physicalFeaturesChanged": false,
+    "productionSpatialMechanismChanged": false,
+    "userDataFit": false
+  },
+  "claims": {
+    "externalLabelsAvailable": false,
+    "externalAccuracyEvaluated": false,
+    "arbitraryCityHighAccuracyClaimed": false,
+    "allowedConclusion": "外区空间参考受限时，产品降级为探索性识别并提示人工判读。"
+  },
+  "requiredProductWording": [
+    "探索性识别结果",
+    "当前数据超出模型主要验证区域，",
+    "建议结合人工判读使用。"
+  ],
+  "branchEvidence": {
+    "coordinateShiftTemporalPhysicalInvariant": {
+      "normalizedSeriesMaxAbsDiff": 0.0,
+      "physicalRawMaxAbsDiff": 0.0,
+      "physicalScaledMaxAbsDiff": 0.0
+    },
+    "externalSpatialBranchSuppressed": true,
+    "interpretation": "坐标平移不改变时间序列与13维物理特征；固定海口参考不可用时空间可靠性和门控归零，输出主要依赖TCN时间分支与运动学物理特征。"
+  },
+  "unitAndSignEquivalence": {
+    "unit_cm_equivalent": {
+      "normalizedSeriesMaxAbsDiff": 3.5762786865234375e-07,
+      "physicalRawMaxAbsDiff": 7.62939453125e-06,
+      "physicalScaledMaxAbsDiff": 8.344650268554688e-07
+    },
+    "sign_positive_equivalent": {
+      "normalizedSeriesMaxAbsDiff": 0.0,
+      "physicalRawMaxAbsDiff": 0.0,
+      "physicalScaledMaxAbsDiff": 0.0
+    }
+  },
+  "orbitDifference": {
+    "status": "not_evaluable_from_current_contract",
+    "reason": "冻结输入契约不包含升降轨或视线几何字段，不能据此给出轨道差异的数值结论。",
+    "productAction": "保留人工元数据检查，不宣称轨道泛化能力。"
+  },
+  "selfNeighborhood": {
+    "mode": "diagnostics_only",
+    "predictionApplied": false,
+    "productionEligible": false,
+    "accuracyEvaluated": false,
+    "pointCount": 3,
+    "status": "evaluated_not_applied",
+    "supportedPointCount": 3,
+    "meanCandidateReliability": 0.26757060200154886,
+    "maximumCandidateReliability": 0.2960839249061802,
+    "meanNearestDistanceMeters": 87.91527503045897,
+    "maximumSupportCount": 2,
+    "warning": "Self-neighborhood仅为离线实验，未进入冻结模型预测，也不能替代外部标注精度验证。",
+    "inputConstruction": "synthetic_three_point_external_cluster_80m_spacing",
+    "syntheticCoordinates": true
+  },
+  "scenarios": [
+    {
+      "scenario": "native_248_reference",
+      "category": "reference",
+      "pointCount": 3,
+      "effectiveEpochs": [
+        248
+      ],
+      "temporalApplicability": [
+        "native_248"
+      ],
+      "spatialApplicability": [
+        "full_reference"
+      ],
+      "classAgreementVsNative": 1.0,
+      "maximumProbabilityDeltaVsNative": 0.0,
+      "meanConfidence": 0.951415479183197,
+      "meanSpatialReliability": 0.6559558113416036,
+      "meanSpatialGate": 0.35052429387966794,
+      "maximumGapDays": 12,
+      "preprocessingComparison": null,
+      "accuracyEvaluated": false
+    },
+    {
+      "scenario": "external_golden_shanghai",
+      "category": "external_region",
+      "pointCount": 1,
+      "effectiveEpochs": [
+        248
+      ],
+      "temporalApplicability": [
+        "native_248"
+      ],
+      "spatialApplicability": [
+        "limited_reference"
+      ],
+      "classAgreementVsNative": 0.0,
+      "maximumProbabilityDeltaVsNative": 0.5530789569020271,
+      "meanConfidence": 0.5673529505729675,
+      "meanSpatialReliability": 0.0,
+      "meanSpatialGate": 0.0,
+      "maximumGapDays": 12,
+      "preprocessingComparison": null,
+      "accuracyEvaluated": false
+    },
+    {
+      "scenario": "external_batch_shanghai",
+      "category": "external_region",
+      "pointCount": 3,
+      "effectiveEpochs": [
+        248
+      ],
+      "temporalApplicability": [
+        "native_248"
+      ],
+      "spatialApplicability": [
+        "limited_reference"
+      ],
+      "classAgreementVsNative": 0.6666666666666666,
+      "maximumProbabilityDeltaVsNative": 0.5530789569020271,
+      "meanConfidence": 0.8425657351811727,
+      "meanSpatialReliability": 0.0,
+      "meanSpatialGate": 0.0,
+      "maximumGapDays": 12,
+      "preprocessingComparison": {
+        "normalizedSeriesMaxAbsDiff": 0.0,
+        "physicalRawMaxAbsDiff": 0.0,
+        "physicalScaledMaxAbsDiff": 0.0
+      },
+      "accuracyEvaluated": false
+    },
+    {
+      "scenario": "unit_cm_equivalent",
+      "category": "unit_equivalence",
+      "pointCount": 3,
+      "effectiveEpochs": [
+        248
+      ],
+      "temporalApplicability": [
+        "native_248"
+      ],
+      "spatialApplicability": [
+        "full_reference"
+      ],
+      "classAgreementVsNative": 1.0,
+      "maximumProbabilityDeltaVsNative": 1.4901161193847656e-08,
+      "meanConfidence": 0.951415479183197,
+      "meanSpatialReliability": 0.6559557716051737,
+      "meanSpatialGate": 0.350524274011453,
+      "maximumGapDays": 12,
+      "preprocessingComparison": {
+        "normalizedSeriesMaxAbsDiff": 3.5762786865234375e-07,
+        "physicalRawMaxAbsDiff": 7.62939453125e-06,
+        "physicalScaledMaxAbsDiff": 8.344650268554688e-07
+      },
+      "accuracyEvaluated": false
+    },
+    {
+      "scenario": "sign_positive_equivalent",
+      "category": "sign_equivalence",
+      "pointCount": 3,
+      "effectiveEpochs": [
+        248
+      ],
+      "temporalApplicability": [
+        "native_248"
+      ],
+      "spatialApplicability": [
+        "full_reference"
+      ],
+      "classAgreementVsNative": 1.0,
+      "maximumProbabilityDeltaVsNative": 0.0,
+      "meanConfidence": 0.951415479183197,
+      "meanSpatialReliability": 0.6559558113416036,
+      "meanSpatialGate": 0.35052429387966794,
+      "maximumGapDays": 12,
+      "preprocessingComparison": {
+        "normalizedSeriesMaxAbsDiff": 0.0,
+        "physicalRawMaxAbsDiff": 0.0,
+        "physicalScaledMaxAbsDiff": 0.0
+      },
+      "accuracyEvaluated": false
+    },
+    {
+      "scenario": "sampled_160",
+      "category": "sampling_difference",
+      "pointCount": 3,
+      "effectiveEpochs": [
+        160
+      ],
+      "temporalApplicability": [
+        "experimental_adapted_to_248"
+      ],
+      "spatialApplicability": [
+        "full_reference"
+      ],
+      "classAgreementVsNative": 1.0,
+      "maximumProbabilityDeltaVsNative": 0.002392120659351349,
+      "meanConfidence": 0.9512538313865662,
+      "meanSpatialReliability": 0.6559998194376627,
+      "meanSpatialGate": 0.3508702317873637,
+      "maximumGapDays": 24,
+      "preprocessingComparison": null,
+      "accuracyEvaluated": false
+    },
+    {
+      "scenario": "sampled_80",
+      "category": "sampling_difference",
+      "pointCount": 3,
+      "effectiveEpochs": [
+        80
+      ],
+      "temporalApplicability": [
+        "experimental_adapted_to_248"
+      ],
+      "spatialApplicability": [
+        "full_reference"
+      ],
+      "classAgreementVsNative": 1.0,
+      "maximumProbabilityDeltaVsNative": 0.031245887279510498,
+      "meanConfidence": 0.9407111406326294,
+      "meanSpatialReliability": 0.656047542889913,
+      "meanSpatialGate": 0.3521536240975062,
+      "maximumGapDays": 48,
+      "preprocessingComparison": null,
+      "accuracyEvaluated": false
+    },
+    {
+      "scenario": "sampled_40",
+      "category": "sampling_difference",
+      "pointCount": 3,
+      "effectiveEpochs": [
+        40
+      ],
+      "temporalApplicability": [
+        "experimental_adapted_to_248"
+      ],
+      "spatialApplicability": [
+        "full_reference"
+      ],
+      "classAgreementVsNative": 1.0,
+      "maximumProbabilityDeltaVsNative": 0.47098594903945923,
+      "meanConfidence": 0.7192127903302511,
+      "meanSpatialReliability": 0.656303862730662,
+      "meanSpatialGate": 0.34693193187316257,
+      "maximumGapDays": 84,
+      "preprocessingComparison": null,
+      "accuracyEvaluated": false
+    }
+  ],
+  "generatedAt": "2026-08-24T11:13:38.531349+00:00",
+  "inputs": {
+    "fixture": "phase_d_inference_golden.json",
+    "bundle": {
+      "mode": "private_hash_verified_runtime",
+      "pathRecorded": false
+    },
+    "device": "cpu"
+  }
+}

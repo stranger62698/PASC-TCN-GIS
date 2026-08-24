@@ -3,7 +3,7 @@ import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { InsarPoint } from "../data/site";
 import { colorForMode, deformationModeOrder, normalizedMode, type AnalysisMapView } from "../lib/analysis-context";
-import { colorFor, renderValue, type RenderStyle } from "../lib/insar";
+import { colorFor, renderValue, type RenderStyle } from "../lib/insar-v2";
 
 type Visible={points:boolean;boundary:boolean;risk:boolean;quality:boolean};
 type SelectionMode="single"|"compare"|"compareBox"|"box";

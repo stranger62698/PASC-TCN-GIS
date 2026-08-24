@@ -11,7 +11,9 @@ import {
   type CsvMapping,
   type DatasetParseResult,
   type QualityReport,
-} from "../lib/insar";
+} from "../lib/insar-v2";
+import { PascCompatibilityCheck } from "./PascCompatibilityCheck";
+import { PascJobPanel } from "./PascJobPanel";
 import { PageHero, PageShell } from "./SiteShell";
 
 type ImportDecision = "recommended" | "keep-all";
@@ -31,13 +33,13 @@ type DatasetMeta = {
   qualityReport?: QualityReport;
   processStatus?: "uploaded" | "mapped" | "validated" | "converted";
   importDecision?: ImportDecision;
+  pointCount?: number;
   recommendedFilter?: { coherenceMin: number } | null;
 };
 type AccountInfo = { userId: string; email: string; roles: string[]; usedBytes: number; maxUserBytes: number; maxFileSize: number; isAdmin: boolean };
 type ImportStage = "idle" | "reading" | "mapping" | "quality" | "uploading" | "success" | "error";
 type Preflight = { file: File; text?: string; inspection?: CsvInspection; mapping?: CsvMapping; result?: DatasetParseResult; largeFile?: boolean; error?: string };
 
-const CHUNK = 4 * 1024 * 1024;
 const DIRECT_ANALYSIS_LIMIT = 300 * 1024 * 1024;
 const COHERENCE_LIMIT = 0.75;
 const lifecycle = [
@@ -47,7 +49,7 @@ const lifecycle = [
   ["04", "用户确认", "确认映射及推荐筛选后，再保存私有数据资产。"],
 ];
 const mappingFields: Array<[keyof Pick<CsvMapping, "lon" | "lat" | "velocity" | "coherence" | "mode">, string, boolean]> = [
-  ["lon", "经度", true], ["lat", "纬度", true], ["velocity", "形变速率", true], ["coherence", "相干性", false], ["mode", "形变模式", false],
+  ["lon", "经度", true], ["lat", "纬度", true], ["velocity", "形变速率", false], ["coherence", "相干性", false], ["mode", "形变模式", false],
 ];
 
 function formatBytes(value = 0) {
@@ -104,7 +106,7 @@ export function DatasetPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refresh = async () => {
-    const response = await fetch("/api/private-datasets?op=list", { credentials: "include", cache: "no-store" });
+    const response = await fetch("/api/datasets", { credentials: "include", cache: "no-store" });
     if (response.ok) {
       const data = await response.json();
       setItems((data.items || []).sort((a: DatasetMeta, b: DatasetMeta) => b.uploadedAt.localeCompare(a.uploadedAt)));
@@ -122,7 +124,7 @@ export function DatasetPage() {
   const quality = preflight?.result?.quality;
   const currentStep = stage === "mapping" || stage === "reading" ? 2 : stage === "quality" ? 3 : stage === "uploading" || stage === "success" ? 4 : 1;
   const lowRatio = quality?.validPoints ? quality.lowCoherence / quality.validPoints : 0;
-  const canConfirmMapping = Boolean(preflight?.mapping?.lon && preflight?.mapping?.lat && preflight?.mapping?.velocity && (preflight?.mapping?.timeCols.length || 0) >= 2);
+  const canConfirmMapping = Boolean(preflight?.mapping?.lon && preflight.mapping.lat && preflight.mapping.displacementUnit && preflight.mapping.displacementUnit !== "unknown" && (!preflight.mapping.velocity || (preflight.mapping.velocityUnit && preflight.mapping.velocityUnit !== "unknown")) && preflight.mapping.signConvention && preflight.mapping.signConvention !== "unknown" && preflight.mapping.preprocessingState && preflight.mapping.preprocessingState !== "unknown");
   const accountName = String(user?.name || user?.email || "访客");
   const usage = account ? Math.min(100, account.usedBytes / account.maxUserBytes * 100) : 0;
 
@@ -191,31 +193,51 @@ export function DatasetPage() {
   const uploadOriginal = async (choice: ImportDecision) => {
     if (!preflight?.file || !user) return;
     const file = preflight.file;
-    const id = crypto.randomUUID().replace(/-/g, "");
-    const chunks = Math.ceil(file.size / CHUNK);
     const parentId = replaceParent?.id;
+    let chunks = 0;
     setDecision(choice);
     setStage("uploading");
     setMessage(`正在保存原始文件 ${file.name}`);
     setProgress(0);
-    trackEvent("dataset_upload_start", { source: "private_storage", file_size_bytes: file.size, chunk_count: chunks, replaces_version: Boolean(parentId) });
-    localStorage.setItem("lanjifyw-upload-session", JSON.stringify({ id, name: file.name, size: file.size, chunks, parentId, startedAt: new Date().toISOString() }));
     try {
+      const started = await fetch("/api/uploads/start", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: file.name, size: file.size, contentType: file.type || "text/csv" }),
+      });
+      if (!started.ok) throw new Error((await started.json()).error || "无法创建上传会话");
+      const { datasetId, recommendedPartSize } = await started.json() as { datasetId: string; recommendedPartSize: number };
+      const partSize = Math.max(5 * 1024 * 1024, recommendedPartSize || 32 * 1024 * 1024);
+      chunks = Math.ceil(file.size / partSize);
+      trackEvent("dataset_upload_start", { source: "private_storage", file_size_bytes: file.size, chunk_count: chunks, replaces_version: Boolean(parentId) });
+      localStorage.setItem("lanjifyw-upload-session", JSON.stringify({ id: datasetId, name: file.name, size: file.size, chunks, parentId, startedAt: new Date().toISOString() }));
+      const parts: Array<{ partNumber: number; etag: string }> = [];
       for (let index = 0; index < chunks; index += 1) {
-        const body = await file.slice(index * CHUNK, Math.min(file.size, (index + 1) * CHUNK)).arrayBuffer();
-        const response = await fetch(`/api/private-datasets?op=chunk&id=${id}&index=${index}`, { method: "POST", body, credentials: "include", headers: { "Content-Type": "application/octet-stream" } });
+        const body = file.slice(index * partSize, Math.min(file.size, (index + 1) * partSize));
+        const response = await fetch(`/api/uploads/part?datasetId=${datasetId}&partNumber=${index + 1}`, { method: "PUT", body, credentials: "include", headers: { "Content-Type": "application/octet-stream" } });
         if (!response.ok) throw new Error((await response.json()).error || `第 ${index + 1} 个分块上传失败`);
+        parts.push(await response.json());
         setProgress(Math.round(((index + 1) / chunks) * 86));
       }
-      const done = await fetch(`/api/private-datasets?op=complete&id=${id}`, {
+      const done = await fetch("/api/uploads/complete", {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: file.name, size: file.size, chunks, parentId,
-          analysisReady: file.size <= DIRECT_ANALYSIS_LIMIT && Boolean(preflight.result),
-          mapping: preflight.mapping,
-          qualityReport: quality,
-          importDecision: choice,
-          recommendedFilter: choice === "recommended" ? { coherenceMin: COHERENCE_LIMIT } : null,
+          datasetId,
+          parts,
+          bbox: quality?.bbox,
+          pointCount: quality?.validPoints ?? 0,
+          fieldCount: preflight.inspection?.headers.length ?? 0,
+          metadata: {
+            parentId,
+            analysisReady: file.size <= DIRECT_ANALYSIS_LIMIT && Boolean(preflight.result),
+            mapping: preflight.mapping,
+            qualityReport: quality,
+            importDecision: choice,
+            recommendedFilter: choice === "recommended" ? { coherenceMin: COHERENCE_LIMIT } : null,
+            schemaStatus: preflight.result ? "validated" : "pending",
+            processStatus: preflight.result ? "validated" : "uploaded",
+          },
         }),
       });
       if (!done.ok) throw new Error((await done.json()).error || "数据集登记失败");
@@ -237,13 +259,13 @@ export function DatasetPage() {
     else setMessage("本地质检已完成。登录后可保存原始 CSV、字段映射和筛选偏好。浏览器未上传文件。\n");
   };
   const updateDataset = async (item: DatasetMeta, patch: Partial<DatasetMeta>) => {
-    const response = await fetch(`/api/private-datasets?id=${item.id}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
+    const response = await fetch(`/api/datasets/${item.id}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
     if (!response.ok) { setMessage("更新失败"); return; }
     setMessage("数据集信息已更新"); setRenaming(null); await refresh();
   };
   const remove = async (id: string) => {
     if (!confirm("确认删除这个私有数据集及其全部分块？此操作不可恢复。")) return;
-    const response = await fetch(`/api/private-datasets?id=${id}`, { method: "DELETE", credentials: "include" });
+    const response = await fetch(`/api/datasets/${id}`, { method: "DELETE", credentials: "include" });
     if (response.ok) { setMessage("数据集已删除"); await refresh(); } else setMessage("删除失败");
   };
   const signOut = async () => { await logout(); window.location.href = "/login"; };
@@ -276,7 +298,7 @@ export function DatasetPage() {
             <button className="button ghost" onClick={downloadTemplate}>下载 CSV 模板</button>
             {replaceParent && <button className="button ghost" onClick={resetImport}>取消新版本</button>}
             <input ref={fileRef} hidden type="file" accept=".csv,text/csv" onChange={(event) => prepareFile(event.target.files?.[0])}/>
-            <small>必需：经度、纬度、速率、至少 2 个累计形变时间列；可选：label、coherence、project_name。</small>
+            <small>必需：经度、纬度；速率可选，缺失时按逐点真实日期最小二乘计算。Level 2 需要至少 2 个时间值，Level 3 PASC 候选需要至少 40 个。</small>
           </div>}
 
           {stage === "mapping" && preflight?.inspection && preflight.mapping && <div className="field-recognition-panel">
@@ -284,13 +306,20 @@ export function DatasetPage() {
             <div className="recognition-grid">
               <article><span>经纬度</span><b>{preflight.mapping.lon && preflight.mapping.lat ? "已识别" : "需要确认"}</b><small>{preflight.mapping.lon || "—"} / {preflight.mapping.lat || "—"}</small></article>
               <article><span>时间序列</span><b>{preflight.mapping.timeCols.length} 期</b><small>{preflight.mapping.timeCols.slice(0, 2).join(" → ") || "未识别"}</small></article>
-              <article><span>形变速率</span><b>{preflight.mapping.velocity || "需要确认"}</b><small>必需字段</small></article>
+              <article><span>形变速率</span><b>{preflight.mapping.velocity || "未提供"}</b><small>可选；可由真实日期计算</small></article>
               <article><span>相干性</span><b>{preflight.mapping.coherence || "未提供"}</b><small>可选质量字段</small></article>
             </div>
             <h3>确认字段映射</h3>
             <div className="mapping-confirm-grid">
               {mappingFields.map(([field, label, required]) => <label key={field}><span>{label}{required && <i>必需</i>}</span><select value={preflight.mapping?.[field] || ""} onChange={(event) => updateMapping(field, event.target.value)}><option value="">{required ? "请选择字段" : "不使用"}</option>{preflight.inspection?.headers.map((header) => <option key={header} value={header}>{header}</option>)}</select></label>)}
             </div>
+            <div className="mapping-confirm-grid pasc-contract-confirm-grid">
+              <label><span>形变单位<i>必需</i></span><select value={preflight.mapping.displacementUnit ?? "unknown"} onChange={(event) => setPreflight({ ...preflight, mapping: { ...preflight.mapping!, displacementUnit: event.target.value as CsvMapping["displacementUnit"] } })}><option value="unknown">请选择</option><option value="mm">mm</option><option value="cm">cm</option><option value="m">m</option></select></label>
+              <label><span>速率单位{preflight.mapping.velocity && <i>必需</i>}</span><select value={preflight.mapping.velocityUnit ?? "unknown"} onChange={(event) => setPreflight({ ...preflight, mapping: { ...preflight.mapping!, velocityUnit: event.target.value as CsvMapping["velocityUnit"] } })}><option value="unknown">未提供 / 请选择</option><option value="mm/year">mm/year</option><option value="cm/year">cm/year</option><option value="m/year">m/year</option></select></label>
+              <label><span>形变正负号<i>必需</i></span><select value={preflight.mapping.signConvention ?? "unknown"} onChange={(event) => setPreflight({ ...preflight, mapping: { ...preflight.mapping!, signConvention: event.target.value as CsvMapping["signConvention"] } })}><option value="unknown">请选择</option><option value="toward_satellite_positive">朝卫星为正</option><option value="away_from_satellite_positive">远离卫星为正</option></select></label>
+              <label><span>预处理状态<i>必需</i></span><select value={preflight.mapping.preprocessingState ?? "unknown"} onChange={(event) => setPreflight({ ...preflight, mapping: { ...preflight.mapping!, preprocessingState: event.target.value as CsvMapping["preprocessingState"] } })}><option value="unknown">请选择</option><option value="raw">raw</option><option value="already_smoothed">already_smoothed</option></select></label>
+            </div>
+            <small className="mapping-contract-note">单位、正负号和预处理状态必须由用户确认，系统不按数值大小猜测。</small>
             <div className="time-field-confirm"><span>累计形变时间列</span><b>{preflight.mapping.timeCols.length} 个已选择</b><small>{preflight.mapping.timeCols.slice(0, 10).join("、")}{preflight.mapping.timeCols.length > 10 ? " …" : ""}</small></div>
             <details className="time-field-picker"><summary>手动增减时间字段</summary><div>{preflight.inspection.headers.map((header) => <label key={header}><input type="checkbox" checked={preflight.mapping?.timeCols.includes(header) || false} onChange={() => toggleTimeField(header)}/><span>{header}</span></label>)}</div></details>
             {preflight.inspection.warnings.length > 0 && <div className="dataset-inline-error">{preflight.inspection.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div>}
@@ -314,6 +343,7 @@ export function DatasetPage() {
               <article><span>无法解析时间字段</span><b>{quality.unparsedTimeColumns?.length || 0}</b><small>{quality.unparsedTimeColumns?.slice(0, 3).join("、") || "未发现"}</small></article>
               <article><span>速率离群值</span><b>{quality.outlierVelocity}</b><small>采用 IQR 统计提示</small></article>
             </div>
+            <PascCompatibilityCheck summary={quality.compatibility} />
             {quality.coherenceProvided && quality.lowCoherence > 0 ? <div className="recommendation-card">
               <div><span className="eyebrow">RECOMMENDATION</span><h3>检测到 {quality.lowCoherence} 个低相干点</h3><p>建议在地图分析中默认过滤相干性低于 {COHERENCE_LIMIT} 的点。该选择只保存为分析偏好，不会删除原始行。</p></div>
               <button className={`button ${decision === "recommended" ? "primary" : "ghost"}`} onClick={() => chooseDecision("recommended")}>应用推荐筛选</button>
@@ -331,11 +361,13 @@ export function DatasetPage() {
 
         <div className="product-checklist phase-six-flow"><span className="eyebrow">PRODUCT FLOW</span><h2>Phase 6 数据接入闭环</h2>{lifecycle.map(([number, title, description]) => <article key={number}><b>{number}</b><span>{title}</span><small>{description}</small></article>)}</div>
 
+        {user && <PascJobPanel datasets={items} />}
+
         {user && <div className="dataset-table private-table product-table">
           <div><b>数据集名称</b><b>流程状态</b><b>质检摘要</b><b>文件大小</b><b>操作</b></div>
           {items.length === 0 && <div className="empty-dataset">当前账户还没有保存的数据集。可以先上传海口示例 CSV 或自己的 InSAR 点数据。</div>}
           {items.map((item) => <div key={item.id}>
-            <span>{renaming === item.id ? <input className="rename-input" value={renameValue} onChange={(event) => setRenameValue(event.target.value)} autoFocus/> : <strong>{item.name}</strong>}<small>v{item.version || 1} · {new Date(item.uploadedAt).toLocaleString("zh-CN")} · {item.id.slice(0, 8)}</small></span>
+            <span>{renaming === item.id ? <input className="rename-input" value={renameValue} onChange={(event) => setRenameValue(event.target.value)}/> : <strong>{item.name}</strong>}<small>v{item.version || 1} · {new Date(item.uploadedAt).toLocaleString("zh-CN")} · {item.id.slice(0, 8)}</small></span>
             <span><i className={item.analysisReady ? "ready" : "archived"}>{item.processStatus || "uploaded"}</i><small>{item.mapping ? "字段映射已保存" : "待字段映射"}</small></span>
             <span><b>{item.qualityReport ? `${item.qualityReport.invalid} 无效行` : "待质检"}</b><small>{item.qualityReport ? `缺测 ${(item.qualityReport.missingRate * 100).toFixed(1)}% · 低相干 ${item.qualityReport.lowCoherence} · ${item.importDecision === "recommended" ? "推荐筛选" : "保留全部"}` : "尚未生成报告"}</small></span>
             <span>{formatBytes(item.size)}<small>{item.chunks} 个分块 · {item.analysisReady ? "可在线分析" : "仅归档"}</small></span>
