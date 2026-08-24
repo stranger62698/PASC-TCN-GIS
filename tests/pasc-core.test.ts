@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { inspectCsv, parseMappedCsv, type CsvMapping } from "../app/lib/insar-v2";
 import { analyzePascDateColumns, parsePascDateHeader } from "../app/lib/pasc-schema";
 import {
+  PASC_AUTO_CLASSIFY_MAX_POINTS,
   PHASE_E_MAX_POINTS,
   PascProxyError,
   buildPascOnlineRequest,
+  buildPascOnlineRequestBatches,
   filterPascOnlinePoints,
   mergePascOnlineResults,
   runPascOnlineProxy,
@@ -169,6 +172,25 @@ test("Phase E request keeps ordinary WebGIS points below 40 out of inference", (
   );
 });
 
+test("automatic CSV classification splits 3,000 eligible points into bounded requests", () => {
+  const source = Array.from({ length: 3_000 }, (_, index) => phaseEPoint(`batch-${index}`));
+  const requests = buildPascOnlineRequestBatches([...source, phaseEPoint("ordinary", 39)], "three-thousand.csv", "raw");
+  assert.deepEqual(requests.map(request => request.points.length), [500, 500, 500, 500, 500, 500]);
+  assert.deepEqual(requests.flatMap(request => request.points.map(point => point.pointId)), source.map(point => point.id));
+  assert.throws(
+    () => buildPascOnlineRequestBatches(Array.from({ length: PASC_AUTO_CLASSIFY_MAX_POINTS + 1 }, (_, index) => phaseEPoint(`too-large-${index}`)), "too-large.csv", "raw"),
+    /Phase F/,
+  );
+});
+
+test("production inference proxy is session-protected and keeps service configuration server-side", () => {
+  const source = readFileSync("api/pasc/infer.ts", "utf8");
+  assert.match(source, /getRequestUser\(request\.headers\.cookie\)/);
+  assert.match(source, /process\.env\.PASC_SERVICE_BASE_URL/);
+  assert.match(source, /process\.env\.PASC_SERVICE_API_KEY/);
+  assert.doesNotMatch(source, /NEXT_PUBLIC|request\.body\.serviceBaseUrl|request\.body\.serviceApiKey/);
+});
+
 test("Phase E canonical points become the existing Python preprocess contract", () => {
   const request = buildPascOnlineRequest([phaseEPoint("P-1")], "small.csv", "already_smoothed");
   const payload = toPascServicePayload(request) as {
@@ -190,13 +212,16 @@ test("Phase E canonical points become the existing Python preprocess contract", 
 
 test("Phase E proxy uses only configured upstream and hides the service key", async () => {
   const request = { ...buildPascOnlineRequest([phaseEPoint("P-1")], "small.csv", "raw"), serviceBaseUrl: "https://attacker.invalid" };
-  const calls: Array<{ url: string; authorization: string | null }> = [];
+  const calls: Array<{ url: string; authorization: string | null; body: string }> = [];
   const output = { contractVersion: "pasc-contract-v1", operation: "inference_only", points: [] };
   const fetchImpl: typeof fetch = async (input, init) => {
     const url = String(input);
     const headers = new Headers(init?.headers);
-    calls.push({ url, authorization: headers.get("authorization") });
-    return new Response(JSON.stringify(calls.length === 1 ? { operation: "preprocess_only", integrity: { signed: true } } : output), {
+    const firstCall = calls.length === 0;
+    calls.push({ url, authorization: headers.get("authorization"), body: String(init?.body ?? "") });
+    return new Response(firstCall
+      ? '{"operation":"preprocess_only","epsilon":1e-07,"integrity":{"signed":true}}'
+      : JSON.stringify(output), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
@@ -213,6 +238,7 @@ test("Phase E proxy uses only configured upstream and hides the service key", as
   ]);
   assert.equal(calls[0].authorization, null);
   assert.equal(calls[1].authorization, `Bearer ${secret}`);
+  assert.match(calls[1].body, /"epsilon":1e-07/);
   assert.equal(JSON.stringify(result).includes(secret), false);
 });
 

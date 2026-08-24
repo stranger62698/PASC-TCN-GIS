@@ -514,3 +514,85 @@
 - This is the intended fail-closed state until a private Python/Torch service, API key, and hash-verified model bundle are configured.
 - Generated .env.local and .vercel project metadata are matched by Git ignore rules and remain outside the public repository.
 - README now records the public production URL, source URL, and private inference requirements.
+## Authentication and inference operations task
+
+- The user reports that production account registration/login is unavailable and asks how to implement the separately hosted private model service.
+- Diagnosis must distinguish the static frontend, Vercel authentication functions, persistence resources, and the separate Python/Torch inference runtime.
+- Browser testing will be used only for the visible login flow; Vercel/GitHub CLI and local source inspection remain the primary semantic surfaces.
+## Reported authentication symptom
+
+- The attached registration page accepts username, email, and password input but displays the message 认证服务暂时不可用，请稍后重试.
+- This wording indicates the client reached its authentication error fallback; it does not by itself prove invalid user credentials.
+- Direct local reopening of the clipboard image was blocked by the sandbox ACL, but the attached image is already visible in the conversation and contains no additional diagnostic instructions.
+## Authentication dependency audit
+
+- The production Vercel project currently has zero configured environment variables.
+- server/auth.ts requires AUTH_SECRET with at least 32 characters to sign and validate session cookies.
+- User registration and login persistence call @vercel/blob private get/put operations under auth/users, which require a Blob store and its server-side token.
+- api/auth.ts intentionally converts unexpected storage/secret errors into the screenshot message 认证服务暂时不可用，请稍后重试.
+- Therefore the visible failure is consistent with deployment configuration being incomplete, not with an invalid email or password. Exact runtime confirmation remains pending a controlled live request and log inspection.
+## Authentication root cause confirmed
+
+- A controlled non-mutating login probe returned HTTP 500 with the same public fallback message as the screenshot.
+- Vercel runtime logs identify the exact cause: Vercel Blob found no credentials. No BLOB_READ_WRITE_TOKEN, VERCEL_OIDC_TOKEN plus store ID, or linked Blob store is available to the production function.
+- The project also lacks AUTH_SECRET, which would become the next failure when registration reaches session-token creation.
+- Current Vercel CLI supports create-store, list-stores, and token/store-ID options. The minimal repair is one project-linked private Blob store plus a generated 32+ byte AUTH_SECRET for production/preview/development, followed by redeployment.
+- Blob-store creation is a persistent external resource and may have plan/usage cost implications, so current official billing terms must be checked before mutation.
+
+## 2026-08-24 Auth deployment findings
+- Production auth failure is caused by missing Vercel Blob credentials; both registration and login fail in server/auth.ts while reading/writing auth/users/<sha256(email)>.json.
+- The Vercel project currently has no environment variables. After Blob is connected, AUTH_SECRET (minimum 32 characters) is also required to issue signed session cookies.
+- Official Vercel documentation says a project-created Blob store automatically adds BLOB_READ_WRITE_TOKEN; a private store can be created with vercel blob create-store <name> --access private.
+- Blob is available on all plans. Hobby includes limited free storage/operations/transfer and pauses Blob access after included limits are exceeded rather than charging overage.
+- Read-only local Vercel CLI inspection was blocked first by workspace ACL initialization, then the escalated shell did not inherit the CLI executable path. No Vercel resource was created or changed.
+
+## 2026-08-24 Private inference initial inventory
+- The WebGIS already contains a same-origin Phase E proxy implementation in app/api/pasc/infer/route.ts; it reads server-only PASC_SERVICE_BASE_URL and PASC_SERVICE_API_KEY, calls /v1/preprocess then authenticated /v1/infer, and enforces point/body/time limits.
+- The deployed Vercel project uses framework: null and outputDirectory: static-dist. The Next-style app/api/pasc/infer/route.ts is therefore not part of the current static deployment; a root Vercel Function bridge or a non-static framework deployment is required.
+- The proxy intentionally keeps the service URL/key out of browser code and requires an API key of at least 32 characters.
+
+- No root .private-model-bundles exists. pasc-tcn-service/.private-model-bundles exists but the targeted file listing returned no files, so the frozen private bundle is not currently present in this checkout.
+- No Dockerfile, compose file, or .dockerignore exists; container deployment packaging still needs to be added.
+- A project-local Vercel CLI exists at node_modules/.bin/vercel.cmd; earlier CLI failures were PATH-related, not a missing dependency.
+
+## 2026-08-24 Authorized remediation and automatic-classification gap
+- The user explicitly authorized repairing authentication and deploying the private model service.
+- The attached production screenshot shows a valid 3,000-point/248-epoch CSV reaches Level 3 compatibility, but the UI stops at manual preprocessing confirmation and says Phase F will not submit automatically.
+- The intended product behavior is: upload a compliant CSV, complete only unavoidable schema/unit/sign/preprocessing confirmations, then automatically run PASC-TCN classification and render classified map results.
+- The private bundle is present under `pasc-tcn-service/.private-model-bundles`; it is Git-ignored and must remain outside the public repository.
+- A project-local Vercel CLI is installed in `node_modules/.bin`; it needs the bundled Node runtime added to PATH before use.
+## 2026-08-24 Service and UI implementation evidence
+- The complete frozen bundle is available locally and ignored from Git: checkpoint (3,336,863 bytes), spatial reference (986,943 bytes), manifest, SHA256SUMS, model config, class catalog, scaler, calibration, and reference split.
+- `pasc-tcn-service` is a Python >=3.10 package with NumPy and optional Torch; its console entry points are `pasc-tcn-service` and `pasc-tcn-consumer`.
+- The service already exposes `/health`, `/v1/preprocess`, and authenticated `/v1/infer`, supports `PASC_DEVICE`, verifies bundle hashes, and enforces concurrency/queue limits.
+- The product gap is confirmed in code: `PascOnlineRecognition` marks every dataset above 500 points blocked, prints “本阶段不会自动提交”, and only invokes inference from a manual button.
+- A 3,000-point compliant CSV therefore cannot currently reach either synchronous inference or an automatically-created Phase F job from the map workflow, even though Phase F job APIs/components exist elsewhere.
+## 2026-08-24 Hosting decision evidence
+- Current Vercel Python Functions support Python 3.12-3.14, `pyproject.toml`/requirements dependencies, `BaseHTTPRequestHandler` entry points, and a 500 MB standard uncompressed bundle.
+- New Vercel projects created after 2026-06-30 are automatically eligible for Large Functions on Fluid Compute, up to 5 GB, which makes the Torch dependency feasible without altering the frozen model.
+- Hobby functions are limited to 60 seconds per invocation. Therefore the private service should keep each inference request bounded to the existing <=512-point contract; a 3,000-point browser workflow can safely sequence six <=500-point requests rather than send one oversized request.
+- The existing Python `Handler` implementation already matches Vercel’s recognized `BaseHTTPRequestHandler` pattern, so a thin Vercel adapter can reuse the validated `dispatch` code.
+- A separate Vercel project is the smallest deployable choice with the already-authenticated account: no additional hosting login is required, weights remain absent from public GitHub, and the bearer-key boundary remains intact.- The frontend project link is intact: project `pasc-tcn-gis`, project ID `prj_nt99glFmW5J6IIkaWcXvyCymRQk2`, team ID `team_MLsPrFNjf2NRbGn4P1JhsGJh`.- Bundled Node is `C:/Users/Administrator/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe`; it successfully runs the project-local Vercel CLI 59.1.4.
+- The authenticated Vercel identity remains `fengyaowu78-2739` in scope `fyw`.- No Blob store is currently connected to `pasc-tcn-gis`.
+- CLI 59.1.4 requires explicit `--access private`; `--yes` connects all environments by default, while repeated `--environment` can scope the connection.- Latest Ready production deployment before auth remediation: `pasc-tcn-80bt2agvj-fyw.vercel.app`.
+- Vercel `redeploy` rebuilds an existing deployment artifact with current environment configuration, avoiding accidental inclusion of local ignored/private files.- Auth-remediation production deployment is Ready at the stable alias `https://pasc-tcn-gis.vercel.app`; functions run in `iad1`, matching the private Blob region.- Production authentication persistence is operational: the synthetic registered user was stored as a private 339-byte Blob object.
+## 2026-08-24 Automatic classification implementation design
+- CSV imports already require a single `验证并导入` action for field mapping and the scientifically necessary displacement-unit, sign, and preprocessing-state confirmations.
+- The automatic trigger can safely start immediately from `confirmMapping` using the just-parsed points and confirmed mapping; no fragile state-watching effect is required.
+- Existing per-request contracts remain unchanged at 500 frontend points / 512 service points. A new batching helper will split up to 10,000 eligible points into sequential <=500-point requests and merge only after every batch succeeds.
+- Batch results must be staged off-map until the complete run passes, preserving the existing failure-retention guarantee. Service version/build hash must remain identical across all batches.
+- The UI should show total/batch progress, allow retry after failure, and remove the misleading 500-point hard block for the reported 3,000-point case.
+- The root Vercel proxy must authenticate with the existing signed session cookie and read only server-side `PASC_SERVICE_BASE_URL` and `PASC_SERVICE_API_KEY`.- Correct private-service secret name is `PASC_ARTIFACT_SIGNING_KEY` (not `PASC_PREPROCESSING_HMAC_KEY`); both it and `PASC_SERVICE_API_KEY` require at least 32 bytes.
+- The service has a minimal ASGI `application` and a pure `dispatch`, but its `/health` endpoint is implemented by the standalone server wrapper rather than `api.dispatch`; the Vercel adapter must provide health explicitly or route `/v1/models` as the health check.
+- `confirmMapping` has the freshly parsed points and confirmed mapping in scope, so it can call an argument-taking automatic runner immediately after import.
+- `buildPascOnlineRequest` should retain its 500-point single-request invariant for existing tests/security. A separate exported batching helper will provide the larger automatic workflow.- Created private Vercel project `fyw/pasc-tcn-private-service` with project ID `prj_916YnUkTJai1x4OeuirSXfsYGIvr`; it is not connected to public GitHub.
+- The official PyTorch CPU index provides a Python 3.12 x86_64 wheel for `torch 2.12.0+cpu`, closely matching the validated local 2.12 runtime without pulling CUDA libraries into the serverless bundle.- The working private deployment recipe must exclude the package `pyproject.toml` and use the pinned `requirements.txt`; the successful clean deployment contains 27 source files and a 264.45 MB Python function.- Vercel created a harmless service-local `.gitignore` containing only `.vercel` and `.env*`; keeping it documents and reinforces the private project-state boundary.- The deployed frontend now contains the nested root Vercel Function route `/api/pasc/infer`; remaining proxy issue is runtime initialization, not route absence.
+## 2026-08-24 Frontend proxy ESM repair
+- Vercel root functions execute transpiled local modules as Node ESM, so runtime-relative imports must retain .js extensions in emitted code.
+- TypeScript bundler resolution correctly maps those .js specifiers back to the .ts sources; lint, PASC tests, and the application build all pass.
+## 2026-08-24 Signed artifact production probe
+- The frontend session, same-origin proxy, API-key authorization, request conversion, and private `/v1/preprocess` endpoint are all working in production.
+- The remaining live inference blocker is isolated to cross-request preprocessing-artifact signature validation inside the private service.## 2026-08-24 Production inference completion
+- Preserving the raw Python preprocess response text when embedding the signed artifact into `/v1/infer` prevents JavaScript float exponent reserialization from invalidating the HMAC.
+- The repair is covered by a regression fixture whose `1e-07` spelling would change under JavaScript `JSON.stringify`.
+- A real 248-epoch public Showcase row now completes the entire production chain: auth session → frontend proxy → private preprocess → signed artifact → frozen Torch inference → six-class response.

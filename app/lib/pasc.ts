@@ -10,7 +10,7 @@ import {
   type PascRegionClassStat,
   type PascSpatialApplicability,
   type PascTemporalApplicability,
-} from "../types/pasc";
+} from "../types/pasc.js";
 
 export const PASC_TARGET_STEPS = 248;
 export const PASC_EXPERIMENTAL_MIN_STEPS = 40;

@@ -1,0 +1,15 @@
+.vercel/
+.env*
+.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+tests/
+tools/
+phase_c_results/
+phase_g_results/
+PHASE_*_COMPLETION_REPORT.md
+PHASE_*_FILE_MANIFEST.csv
+README.md
+pyproject.toml
