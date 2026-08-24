@@ -1,0 +1,64 @@
+{
+  "artifactVersion": "physics-scaler-v1",
+  "modelVersion": "pasc-tcn-haikou-v1",
+  "featureOrder": [
+    "total",
+    "slope",
+    "early_slope",
+    "late_slope",
+    "acceleration",
+    "rate_jump",
+    "curvature_rms",
+    "linear_residual",
+    "amplitude",
+    "monotonic_subsidence",
+    "late_early_ratio",
+    "velocity",
+    "coherence"
+  ],
+  "center": [
+    -63.964996337890625,
+    -8.14146614074707,
+    -7.276299953460693,
+    -7.185040473937988,
+    -0.041277118027210236,
+    148.2306671142578,
+    36.75532531738281,
+    5.767745018005371,
+    75.60000610351562,
+    0.5951417088508606,
+    0.8873493671417236,
+    -6.4817657470703125,
+    0.6355669498443604
+  ],
+  "scale": [
+    55.32749938964844,
+    7.578825950622559,
+    11.381746292114258,
+    11.533498764038086,
+    1.6051785945892334,
+    90.24764251708984,
+    9.139708518981934,
+    4.679878234863281,
+    49.46750259399414,
+    0.09412956237792969,
+    1.4975991249084473,
+    6.599137783050537,
+    0.2950817942619324
+  ],
+  "clip": [-8.0, 8.0],
+  "coherenceDefault": 0.5,
+  "zscoreEpsilon": 0.00001,
+  "source": {
+    "repository": "fyw0822",
+    "report": "results/08_full_area_prediction/PASC_TCN_full_area_inference_report.json",
+    "reportSha256": "26AC2302CD6566FD54A391AA9FB54EE382075BE0F8A3EFFBEAF49BE208C74ED5",
+    "featureImplementation": "code/run_spatial_physics_tcn_patent_prototype.py",
+    "featureImplementationSha256": "16E4DE4A65C8861647103DBAFB7758A5236761FAAB158657FE4ABFBE8D64186C"
+  },
+  "policy": {
+    "fitOnUserData": false,
+    "spatialApplicabilityEvaluated": false,
+    "inferenceAvailable": false
+  }
+}
