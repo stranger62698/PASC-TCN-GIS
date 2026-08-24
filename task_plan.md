@@ -360,6 +360,9 @@ Phase G complete
 
 | GitHub rejected blob creation while the repository had no initial ref | 1 | Initialize main through the Contents API, then replace the bootstrap tree with the complete production snapshot |
 
+
+| Snapshot blob upload completed but ConvertTo-Json rejected the generic tree-entry list | 2 | Reuse uploaded blobs by content SHA, use a plain PowerShell array, and upload only changed planning/manifest blobs |
+
 ## Notes
 - Six classes and colors are frozen by v4.
 - 40 epochs remain experimental; 39 is unsupported; 248 is native.

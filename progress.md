@@ -316,3 +316,5 @@ Phase C is complete. No acceptance threshold, supported minimum, /v1/infer endpo
 - User approved snapshot-only GitHub API publication and Vercel login; P2 continues with a new root commit while preserving the validated public/private file boundary.
 
 - Snapshot API attempt 1 stopped at the first blob with HTTP 409 because the repository was empty; retry will bootstrap main and then replace the tree without retaining the bootstrap file.
+
+- GitHub accepted all 195 blobs; tree assembly failed locally on generic-list JSON conversion. Retry will reuse content SHAs and upload only changed planning/manifest files.

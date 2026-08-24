@@ -486,3 +486,8 @@
 - GitHub returned HTTP 409 when creating the first Git blob because the new repository had no branch or initial commit.
 - No production file was published by that failed call.
 - The compatible sequence is a minimal Contents API bootstrap on main, followed by a complete Git tree commit whose tree omits the bootstrap file.
+## Snapshot tree assembly fallback
+
+- All 195 tracked file blobs were accepted by GitHub before local tree JSON assembly failed.
+- GitHub blob identifiers are standard Git content SHA-1 values, so the uploaded objects can be reused without retransmitting unchanged files.
+- The retry uses plain arrays and local git hash-object values, then uploads only the planning/manifests changed by this error record.
