@@ -1,6 +1,6 @@
-# LANJIFYW 澜迹 · 海口时序 InSAR WebGIS
+# PASC-TCN-GIS · LANJIFYW 澜迹 InSAR WebGIS
 
-这是可在 Edge、Chrome 等现代浏览器中使用的完整网站项目。页面支持导入海口 InSAR CSV（`FID,xpos,ypos,DYYYYMMDD...,Pattern`）、自动剔除无效坐标、计算研究区外包范围、定位 OSM/Esri 底图，以及点选查看时间序列。
+这是面向生产展示的 PASC-TCN 与 InSAR WebGIS 一体化项目，可在 Edge、Chrome 等现代浏览器中使用。公开仓库仅包含运行时代码、接口契约、测试与有界演示数据；基线模型、论文复现实验、大型研究数据和私有模型权重不属于用户端依赖。页面支持导入海口 InSAR CSV（`FID,xpos,ypos,DYYYYMMDD...,Pattern`）、自动剔除无效坐标、计算研究区外包范围、定位 OSM/Esri 底图，以及点选查看时间序列。
 
 ## 在另一台设备继续修改
 

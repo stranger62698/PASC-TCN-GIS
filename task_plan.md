@@ -365,3 +365,26 @@ Phase G complete
 - [x] Verify clean worktree, commit contents, and final commit identifiers
 - [x] Produce a concise release handoff
 - **Status:** complete
+### Publish P1: Public Repository Boundary
+- [x] Reconfirm that only the production PASC-TCN runtime, WebGIS integration, tests, and bounded demo data are public
+- [x] Exclude baseline models, paper-only materials, large research data, training/reproduction scripts, private weights, and secrets
+- [x] Refresh release manifests and create a deployment-metadata commit
+- **Status:** in_progress
+
+### Publish P2: GitHub Hosting
+- [ ] Create public repository stranger62698/PASC-TCN-GIS
+- [ ] Push the validated production candidate to main
+- [ ] Verify repository visibility, default branch, commit, and public file boundary
+- **Status:** pending
+
+### Publish P3: Vercel Frontend
+- [ ] Authenticate Vercel and create/link project pasc-tcn-gis
+- [ ] Connect the GitHub repository and deploy the validated static frontend
+- [ ] Verify the production URL and primary WebGIS/demo routes
+- **Status:** pending
+
+### Publish P4: Private Inference Handoff
+- [ ] Preserve the private model bundle and service credentials outside GitHub and Vercel static output
+- [ ] Document the remaining private Python/Torch service requirements for live inference
+- [ ] Confirm the public frontend fails closed until a private inference service is configured
+- **Status:** pending

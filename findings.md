@@ -444,3 +444,20 @@
 - The approved Phase A-G candidate was created as one atomic commit on `codex/pasc-phase-g` with message `feat: integrate PASC-TCN workflow through phase G`.
 - Planning closure and manifest hashes are folded into that same commit by amending only the newly created release commit; prior repository history remains untouched.
 - No push, tag, deployment, or remote mutation is part of this release-preparation task.
+## Publication boundary confirmed
+
+- The source research repository stranger62698/pasc-tcn is private and contains paper-only baselines, training/reproduction scripts, large research outputs, and PASC-TCN research materials.
+- The user confirmed the public product should retain only the production PASC-TCN/WebGIS path; baseline models are not product dependencies.
+- Public deployment therefore uses the already validated A-G runtime integration and excludes training/reproduction scripts, large research data, private weights, and secrets.
+- End users can browse the WebGIS and bounded demonstrations without research assets. Live prediction additionally requires a separately deployed private Python/Torch service and model bundle.
+## Public production candidate audit
+
+- No tracked path contains the second repository's baseline, BiLSTM, Transformer, paper workflow, training, or reproducible-experiment entry points.
+- No tracked file is 10 MB or larger. The bounded Phase C/G evidence and demonstration data remain product QA assets, not the source repository's large research datasets.
+- Private model bundles, checkpoints, environment files, build outputs, and Vercel local project state are not tracked. The sole broad private-path regex match was build/sites-vite-plugin.ts, which is ordinary source code rather than a generated build directory.
+- Repository metadata still used the starter package name; it was changed to pasc-tcn-gis and the README now states the public/private boundary.
+## Deployment-metadata verification
+
+- The package and npm lock metadata consistently use pasc-tcn-gis; no starter package name remains.
+- Production vinext build, 26 WebGIS/Phase A-G tests, and both bounded demo validations passed after the metadata update.
+- No runtime source changed in this step.

@@ -298,3 +298,9 @@ Phase C is complete. No acceptance threshold, supported minimum, /v1/infer endpo
 - Pre-commit manifest audit PASS: Phase F 36 entries, Phase G 18 entries, release 125 entries; diff check, text-control, untracked, and unstaged scans clean.
 
 - Release R4 complete: atomic Phase A-G commit created; closure records and refreshed manifests will be folded into the same new commit without touching earlier history. Push/tag/deploy intentionally not performed.
+
+- Publication authorized: proceed with a public PASC-TCN-GIS production repository, Vercel static frontend, and a private inference-service boundary; exclude baselines, paper-only artifacts, large research data, training/reproduction scripts, weights, and secrets.
+
+- Public boundary audit PASS: no baseline/paper/training research entry points, no tracked file at or above 10 MB, private assets remain excluded, Vercel local state is ignored, and package/README metadata now identify PASC-TCN-GIS.
+
+- Deployment metadata verification PASS: production build, 26/26 Node tests, and both bounded demo validations succeeded; P1 complete and P2 started.
