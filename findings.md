@@ -596,3 +596,12 @@
 - Preserving the raw Python preprocess response text when embedding the signed artifact into `/v1/infer` prevents JavaScript float exponent reserialization from invalidating the HMAC.
 - The repair is covered by a regression fixture whose `1e-07` spelling would change under JavaScript `JSON.stringify`.
 - A real 248-epoch public Showcase row now completes the entire production chain: auth session → frontend proxy → private preprocess → signed artifact → frozen Torch inference → six-class response.
+## 2026-08-25 ENVI CSV initial evidence
+- The supplied `500.csv` is UTF-8 without BOM, 42,022 bytes, 127 data rows, and 63 columns.
+- Its actual header contains 46 plain `YYYYMMDD` acquisition columns from `20180217` through `20230615`; it also has ENVI-style quality fields plus `xpos`, `ypos`, and `zpos`. The user reports other ENVI exports use `D_YYYYMMDD`, so both spellings must map to the same canonical date.
+- The current PASC date test covers `DYYYYMMDD` and slash dates but not `D_YYYYMMDD`. The dataset upload component has several unguarded `response.json()` calls, consistent with the screenshot exposing a plain-text/HTML server response as `Unexpected token`.## 2026-08-25 Root cause and implementation boundary
+- The production static Vercel app deploys the authenticated root function `/api/private-datasets`, which already supports list, chunk write/read, completion, patch, and delete using private Vercel Blob.
+- `DatasetPage` still calls obsolete Cloudflare-only `/api/uploads/*` and `/api/datasets/*` routes. `MapWorkspace` also uses `/api/datasets` and `/api/datasets/:id/source`. Those paths are absent from the static Vercel deployment, explaining the plain `The page could...` response and unsafe `response.json()` error.
+- The smallest correct production repair is client-side routing to `/api/private-datasets`: generate the dataset UUID in the browser, upload <=4 MiB chunks, complete with metadata, and reconstruct analysis-ready CSV bytes from authenticated chunk reads.
+- Chunk text must be decoded only after byte concatenation, because decoding each arbitrary byte slice independently can corrupt UTF-8 characters at chunk boundaries.
+- `parsePascDateHeader` accepts `YYYYMMDD`, `DYYYYMMDD`, and separated year-first dates, but not `D_YYYYMMDD`. Extending only its prefix grammar preserves all downstream canonical sorting, duplicate detection, real-date velocity, and PASC request conversion.

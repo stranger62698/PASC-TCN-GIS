@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { inspectCsv, parseMappedCsv, type CsvMapping } from "../app/lib/insar-v2";
 import { analyzePascDateColumns, parsePascDateHeader } from "../app/lib/pasc-schema";
+import { readPrivateDatasetResponse, readPrivateDatasetSource } from "../app/lib/private-datasets-client";
 import {
   PASC_AUTO_CLASSIFY_MAX_POINTS,
   PHASE_E_MAX_POINTS,
@@ -47,11 +48,62 @@ test("six PASC classes and colors are frozen", () => {
 
 test("date formats parse, sort, and identify duplicate canonical dates", () => {
   assert.equal(parsePascDateHeader("D20250103")?.canonical, "2025-01-03");
+  assert.equal(parsePascDateHeader("D_20250103")?.canonical, "2025-01-03");
   assert.equal(parsePascDateHeader("2025/1/3")?.canonical, "2025-01-03");
   assert.equal(parsePascDateHeader("2025-13-03"), null);
   const analysis = analyzePascDateColumns(["D20250103", "2024-12-22", "2025/01/03"], ["D20250103", "2024-12-22", "2025/01/03"]);
   assert.deepEqual(analysis.sorted.map(item => item.canonical), ["2024-12-22", "2025-01-03", "2025-01-03"]);
   assert.deepEqual(analysis.duplicateDates.map(item => item.canonical), ["2025-01-03"]);
+});
+
+test("ENVI D_YYYYMMDD columns become canonical PASC dates", () => {
+  const dateHeaders = Array.from({ length: 40 }, (_, index) => {
+    const date = new Date(Date.UTC(2020, 0, index + 1));
+    return `D_${date.toISOString().slice(0, 10).replaceAll("-", "")}`;
+  });
+  const csv = [
+    ["velocity", "coherence", "xpos", "ypos", ...dateHeaders].join(","),
+    ["-2.4", "0.82", "121.66", "39.73", ...dateHeaders.map((_, index) => String(-index / 10))].join(","),
+  ].join("\n");
+  const inspection = inspectCsv(csv);
+  assert.equal(inspection.mapping.timeCols.length, 40);
+  assert.equal(inspection.mapping.timeCols[0], "D_20200101");
+  const result = parseMappedCsv(csv, "envi.csv", {
+    ...inspection.mapping,
+    displacementUnit: "mm",
+    velocityUnit: "mm/year",
+    signConvention: "toward_satellite_positive",
+    preprocessingState: "already_smoothed",
+  });
+  assert.equal(result.points.length, 1);
+  assert.equal(result.points[0].dates?.[0], "2020-01-01");
+  assert.equal(result.points[0].dates?.at(-1), "2020-02-09");
+  assert.equal(result.compatibility.pascCandidatePoints, 1);
+});
+
+test("private dataset client hides non-JSON route responses and preserves UTF-8 across chunks", async () => {
+  await assert.rejects(
+    () => readPrivateDatasetResponse(new Response("The page could not be found", { status: 404 }), "上传失败"),
+    /生产接口不存在或尚未部署/,
+  );
+  const source = "xpos,ypos,D_20200101\n121.6,39.7,海口\n";
+  const bytes = new TextEncoder().encode(source);
+  const split = bytes.indexOf(new TextEncoder().encode("海")[0]) + 1;
+  const pieces = [bytes.slice(0, split), bytes.slice(split)];
+  let call = 0;
+  const fetchImpl: typeof fetch = async () => new Response(pieces[call++]);
+  assert.equal(await readPrivateDatasetSource("dataset-123", 2, fetchImpl), source);
+});
+
+test("production dataset clients no longer call undeployed Cloudflare upload routes", () => {
+  const datasetSource = readFileSync("app/components/DatasetPage.tsx", "utf8");
+  const mapSource = readFileSync("app/components/MapWorkspace.tsx", "utf8");
+  const source = `${datasetSource}\n${mapSource}`;
+  assert.doesNotMatch(source, /\/api\/uploads|\/api\/datasets/);
+  assert.match(source, /private-datasets-client/);
+  assert.match(datasetSource, /\/map\?dataset=/);
+  assert.match(datasetSource, /进入地图并自动分类/);
+  assert.match(mapSource, /runPascOnlineRecognition\(result\.points, meta\.name, nextMapping\.preprocessingState\)/);
 });
 
 test("39, 40, and 248 epoch boundaries remain explicit", () => {
