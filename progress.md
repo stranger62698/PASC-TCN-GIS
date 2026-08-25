@@ -416,3 +416,8 @@ Phase C is complete. No acceptance threshold, supported minimum, /v1/infer endpo
 - Import workflow now uses the deployed `/api/private-datasets` function, safe non-JSON errors, 4 MiB private chunks, byte-safe UTF-8 reconstruction, dataset-specific map routing, and automatic classification after private data load.
 - Full frontend gate PASS: 31/31 tests, both demo manifests, vinext production build, static Vite build, focused ESLint zero errors, and `git diff --check`.
 - Browser plugin validation attempts exited before browser startup because the trusted Node process reset twice; no UI state was changed. Production validation will therefore use authenticated HTTP/API probes after deployment.
+- GitHub publication PASS: `PASC-TCN-GIS/main` advanced by non-force fast-forward snapshot `5b69175e682585916774bef90db71ec707f42bb2`.
+- Vercel production deployment `dpl_B3yFS664jX5GT18RZerS8Cr7UBqv` is Ready and aliased to `https://pasc-tcn-gis.vercel.app`.
+- Production synthetic ENVI E2E PASS: authenticated private upload, byte-exact chunk read, 40 `D_YYYYMMDD` epochs, frozen-model classification, `modelExecuted=true`, `trainingPathAvailable=false`, and exact temporary dataset/account cleanup.
+- The supplied `500.csv` was parsed locally only; production upload was intentionally not performed because it would transmit user data without separate explicit authorization.
+- Final documentation-only snapshot push was retried twice but github.com:443 was temporarily unreachable. The validated code snapshot `5b69175e...` was already published successfully; only this final progress note remains local.

@@ -447,6 +447,6 @@ Phase G complete
 - [x] Reproduce the supplied `500.csv` import and inventory ENVI headers, encoding, row shape, and current parser behavior
 - [x] Accept `D_YYYYMMDD` as a date column by canonicalizing it to `YYYY-MM-DD` without changing source values
 - [x] Diagnose and repair the non-JSON import response so local CSV analysis does not depend on an unavailable server route
-- [ ] Add STAMPS/ENVI regression coverage, run full build/tests, and verify automatic PASC-TCN classification end to end
-- [ ] Publish the validated public code and redeploy Vercel without exposing private weights or secrets
-- **Status:** in_progress
+- [x] Add STAMPS/ENVI regression coverage, run full build/tests, and verify automatic PASC-TCN classification end to end
+- [x] Publish the validated public code and redeploy Vercel without exposing private weights or secrets
+- **Status:** complete
