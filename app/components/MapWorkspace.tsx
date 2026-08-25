@@ -9,6 +9,7 @@ import { trackEvent } from "../lib/analytics";
 import { inspectCsv, parseMappedCsv, parseQgisRamp, stageVelocity, type CsvInspection, type CsvMapping, type DatasetParseResult, type RenderAttribute, type RenderStyle } from "../lib/insar-v2";
 import { buildPascOnlineRequestBatches, filterPascOnlinePoints, mergePascOnlineResults, onlineErrorMessage, type PascOnlineFilter, type PascOnlineRunState } from "../lib/pasc-online";
 import { parsePascMapPreview, pascMapLevelForZoom, type PascPublicJob } from "../lib/pasc-job-client";
+import { listPrivateDatasets, patchPrivateDataset, readPrivateDatasetSource } from "../lib/private-datasets-client";
 import { PascAnalysisPanel } from "./PascAnalysisPanel";
 import { PascCompatibilityCheck } from "./PascCompatibilityCheck";
 import { PascPatternLegend } from "./PascPatternLegend";
@@ -311,19 +312,19 @@ function MapWorkspaceView() {
         setGuideOpen(true);
         setStatus("上传自己的数据：请确认 CSV 字段要求，然后选择本地文件。");
     } }, []);
-    const saveAnalysisMeta = async (id: string, nextMapping: CsvMapping, result: DatasetParseResult) => { await fetch(`/api/datasets/${id}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mapping: nextMapping, qualityReport: result.quality, schemaStatus: "validated", processStatus: "validated" }) }).catch(() => null); };
+    const saveAnalysisMeta = async (id: string, nextMapping: CsvMapping, result: DatasetParseResult) => { await patchPrivateDataset(id, { mapping: nextMapping, qualityReport: result.quality, schemaStatus: "validated", processStatus: "validated" }).catch(() => null); };
     const applyResult = (result: DatasetParseResult, label: string, preserveAnalysis = false) => { pascRunId.current += 1; setPascOnlineRun(emptyPascOnlineRun); setPoints(result.points); setSelected(null); setDatasetTitle(result.datasetTitle); setTimeIndex(result.periods - 1); setRangeStart(0); setRangeEnd(result.periods - 1); setCompareIds([]); setCurveIds([]); setBoxPoints([]); setActiveFilter("none"); setRightTab("point"); if (!preserveAnalysis) updateAnalysis({ selectedPointId: null, selectedRegion: null, selectedRegionStats: null }); setParseReport(result); setDataReady(true); setStatus(`${label} · ${result.points.length.toLocaleString()} 点 · ${result.periods} 期 · 模式字段 ${result.modeField} · 过滤 ${result.invalid} 条`); trackEvent("dataset_loaded", { dataset_type: privateDatasetId ? "private" : label.includes("公开示例") ? "demo" : "local", point_count: result.points.length, period_count: result.periods, invalid_count: result.invalid }); };
     const loadShowcaseDemo = () => { setBusy("正在加载六类 Showcase Demo…"); fetch("/data/haikou-pasc-showcase.csv").then(response => { if (!response.ok) throw new Error("Showcase Demo 不可用"); return response.text(); }).then(text => { const found = inspectCsv(text), demoMapping: CsvMapping = { ...found.mapping, displacementUnit: "mm", velocityUnit: "mm/year", signConvention: "toward_satellite_positive", preprocessingState: "already_smoothed" }, result = parseMappedCsv(text, "海口 PASC Showcase.csv", demoMapping, false); result.datasetTitle = "海口 PASC-TCN 248 期 Showcase Demo"; setPrivateDatasetId(""); applyResult(result, "海口 PASC Showcase Demo"); setStatus(`Showcase Demo · ${result.points.length.toLocaleString()} 点 · 248 期 · 每类 500 点；仅用于六类界面覆盖，不代表科学类别比例`); }).catch(error => setStatus(error instanceof Error ? error.message : "Showcase Demo 加载失败")).finally(() => setBusy("")); };
     useEffect(() => { const params = new URLSearchParams(window.location.search); restoreRequested.current = params.get("restore") === "analysis"; const previewJobId = params.get("job"); if (previewJobId) { jobPreviewLevel.current = ""; setJobPreviewId(previewJobId); setStatus("正在读取 Phase F 多级地图预览…"); return; } const privateId = params.get("dataset"); if (privateId) {
         setPrivateDatasetId(privateId);
         setBusy("正在读取账户私有数据…");
-        fetch("/api/datasets", { credentials: "include" }).then(async (response) => { if (!response.ok)
-            throw new Error("请先登录后再打开私有数据集"); const list = await response.json(), meta = (list.items || []).find((item: { id: string; name: string; mapping?: CsvMapping }) => item.id === privateId); if (!meta)
-            throw new Error("当前账户中不存在该数据集"); const source = await fetch(`/api/datasets/${privateId}/source`, { credentials: "include" });
-            if (!source.ok)
-                throw new Error("读取私有原始 CSV 失败");
-            const text = await source.text(), found = inspectCsv(text), saved = meta.mapping as CsvMapping | undefined, nextMapping = saved?.lon ? { ...found.mapping, ...saved } : found.mapping, result = parseMappedCsv(text, meta.name, nextMapping, true); setInspection(found); setMapping(nextMapping); applyResult(result, meta.name, restoreRequested.current); if (!saved?.lon)
-            await saveAnalysisMeta(privateId, nextMapping, result); }).catch(e => setStatus(e instanceof Error ? e.message : "私有数据读取失败")).finally(() => setBusy(""));
+        listPrivateDatasets<{ items?: Array<{ id: string; name: string; chunks: number; analysisReady: boolean; mapping?: CsvMapping }> }>().then(async (list) => { const meta = (list.items || []).find(item => item.id === privateId); if (!meta)
+            throw new Error("当前账户中不存在该数据集"); if (!meta.analysisReady)
+            throw new Error("该数据集仅完成私有归档，文件过大，暂不支持浏览器直接分析。");
+            const text = await readPrivateDatasetSource(privateId, meta.chunks), found = inspectCsv(text), saved = meta.mapping as CsvMapping | undefined, nextMapping = saved?.lon ? { ...found.mapping, ...saved } : found.mapping, result = parseMappedCsv(text, meta.name, nextMapping, true); setInspection(found); setMapping(nextMapping); applyResult(result, meta.name, restoreRequested.current); if (!saved?.lon)
+            await saveAnalysisMeta(privateId, nextMapping, result);
+            await runPascOnlineRecognition(result.points, meta.name, nextMapping.preprocessingState);
+        }).catch(e => setStatus(e instanceof Error ? e.message : "私有数据读取失败")).finally(() => setBusy(""));
         return;
     } fetch("/data/haikou-insar.csv").then(r => { if (!r.ok)
         throw new Error(); return r.text(); }).then(text => { const found = inspectCsv(text), demoMapping: CsvMapping = { ...found.mapping, displacementUnit: "mm", velocityUnit: "mm/year", signConvention: "toward_satellite_positive", preprocessingState: "already_smoothed" }, result = parseMappedCsv(text, "海口示例数据.csv", demoMapping, false); result.datasetTitle = "海口 PASC-TCN 248 期 Spatial Demo"; applyResult(result, "海口 PASC Spatial Demo", restoreRequested.current); }).catch(() => setStatus("演示数据 · 可选择本地 CSV")); }, []);

@@ -5,6 +5,14 @@ import { useEffect, useRef, useState } from "react";
 import { getSession, signOut as logout, type AuthUser } from "../lib/auth-client";
 import { trackEvent } from "../lib/analytics";
 import {
+  PRIVATE_DATASET_CHUNK_SIZE,
+  completePrivateDataset,
+  deletePrivateDataset,
+  listPrivateDatasets,
+  patchPrivateDataset,
+  uploadPrivateDatasetChunk,
+} from "../lib/private-datasets-client";
+import {
   inspectCsv,
   parseMappedCsv,
   type CsvInspection,
@@ -101,17 +109,19 @@ export function DatasetPage() {
   const [decision, setDecision] = useState<ImportDecision | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [importedDatasetId, setImportedDatasetId] = useState("");
   const [replaceParent, setReplaceParent] = useState<DatasetMeta | null>(null);
   const [report, setReport] = useState<DatasetMeta | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refresh = async () => {
-    const response = await fetch("/api/datasets", { credentials: "include", cache: "no-store" });
-    if (response.ok) {
-      const data = await response.json();
+    try {
+      const data = await listPrivateDatasets<{ items?: DatasetMeta[]; account?: AccountInfo }>();
       setItems((data.items || []).sort((a: DatasetMeta, b: DatasetMeta) => b.uploadedAt.localeCompare(a.uploadedAt)));
       setAccount(data.account || null);
-    } else if (response.status !== 401) setMessage("私有数据服务暂时不可用，请稍后重试");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "私有数据服务暂时不可用，请稍后重试");
+    }
   };
   useEffect(() => {
     getSession().then((current) => {
@@ -134,6 +144,7 @@ export function DatasetPage() {
     setDecision(null);
     setProgress(0);
     setMessage("");
+    setImportedDatasetId("");
     setReplaceParent(null);
     if (fileRef.current) fileRef.current.value = "";
   };
@@ -200,48 +211,29 @@ export function DatasetPage() {
     setMessage(`正在保存原始文件 ${file.name}`);
     setProgress(0);
     try {
-      const started = await fetch("/api/uploads/start", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename: file.name, size: file.size, contentType: file.type || "text/csv" }),
-      });
-      if (!started.ok) throw new Error((await started.json()).error || "无法创建上传会话");
-      const { datasetId, recommendedPartSize } = await started.json() as { datasetId: string; recommendedPartSize: number };
-      const partSize = Math.max(5 * 1024 * 1024, recommendedPartSize || 32 * 1024 * 1024);
+      const datasetId = crypto.randomUUID();
+      const partSize = PRIVATE_DATASET_CHUNK_SIZE;
       chunks = Math.ceil(file.size / partSize);
       trackEvent("dataset_upload_start", { source: "private_storage", file_size_bytes: file.size, chunk_count: chunks, replaces_version: Boolean(parentId) });
       localStorage.setItem("lanjifyw-upload-session", JSON.stringify({ id: datasetId, name: file.name, size: file.size, chunks, parentId, startedAt: new Date().toISOString() }));
-      const parts: Array<{ partNumber: number; etag: string }> = [];
       for (let index = 0; index < chunks; index += 1) {
         const body = file.slice(index * partSize, Math.min(file.size, (index + 1) * partSize));
-        const response = await fetch(`/api/uploads/part?datasetId=${datasetId}&partNumber=${index + 1}`, { method: "PUT", body, credentials: "include", headers: { "Content-Type": "application/octet-stream" } });
-        if (!response.ok) throw new Error((await response.json()).error || `第 ${index + 1} 个分块上传失败`);
-        parts.push(await response.json());
+        await uploadPrivateDatasetChunk(datasetId, index, body);
         setProgress(Math.round(((index + 1) / chunks) * 86));
       }
-      const done = await fetch("/api/uploads/complete", {
-        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          datasetId,
-          parts,
-          bbox: quality?.bbox,
-          pointCount: quality?.validPoints ?? 0,
-          fieldCount: preflight.inspection?.headers.length ?? 0,
-          metadata: {
-            parentId,
-            analysisReady: file.size <= DIRECT_ANALYSIS_LIMIT && Boolean(preflight.result),
-            mapping: preflight.mapping,
-            qualityReport: quality,
-            importDecision: choice,
-            recommendedFilter: choice === "recommended" ? { coherenceMin: COHERENCE_LIMIT } : null,
-            schemaStatus: preflight.result ? "validated" : "pending",
-            processStatus: preflight.result ? "validated" : "uploaded",
-          },
-        }),
+      await completePrivateDataset<{ ok: true; item: DatasetMeta }>(datasetId, {
+        name: file.name,
+        size: file.size,
+        chunks,
+        parentId,
+        analysisReady: file.size <= DIRECT_ANALYSIS_LIMIT && Boolean(preflight.result),
+        mapping: preflight.mapping,
+        qualityReport: quality,
+        importDecision: choice,
+        recommendedFilter: choice === "recommended" ? { coherenceMin: COHERENCE_LIMIT } : null,
       });
-      if (!done.ok) throw new Error((await done.json()).error || "数据集登记失败");
       setProgress(100);
+      setImportedDatasetId(datasetId);
       setStage("success");
       setMessage(parentId ? "新版本已保存，旧版本未被覆盖" : "数据已按当前账户私有保存");
       trackEvent("dataset_upload_success", { source: "private_storage", file_size_bytes: file.size, chunk_count: chunks, point_count: quality?.validPoints ?? null });
@@ -259,14 +251,15 @@ export function DatasetPage() {
     else setMessage("本地质检已完成。登录后可保存原始 CSV、字段映射和筛选偏好。浏览器未上传文件。\n");
   };
   const updateDataset = async (item: DatasetMeta, patch: Partial<DatasetMeta>) => {
-    const response = await fetch(`/api/datasets/${item.id}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
-    if (!response.ok) { setMessage("更新失败"); return; }
-    setMessage("数据集信息已更新"); setRenaming(null); await refresh();
+    try {
+      await patchPrivateDataset(item.id, patch as Record<string, unknown>);
+      setMessage("数据集信息已更新"); setRenaming(null); await refresh();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "更新失败"); }
   };
   const remove = async (id: string) => {
     if (!confirm("确认删除这个私有数据集及其全部分块？此操作不可恢复。")) return;
-    const response = await fetch(`/api/datasets/${id}`, { method: "DELETE", credentials: "include" });
-    if (response.ok) { setMessage("数据集已删除"); await refresh(); } else setMessage("删除失败");
+    try { await deletePrivateDataset(id); setMessage("数据集已删除"); await refresh(); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "删除失败"); }
   };
   const signOut = async () => { await logout(); window.location.href = "/login"; };
 
@@ -355,7 +348,7 @@ export function DatasetPage() {
           </div>}
 
           {stage === "uploading" && <div className="dataset-state-card loading"><span className="eyebrow">PRIVATE UPLOAD</span><h2>正在保存原始 CSV 与质检元数据</h2><p>{message}</p><div className="upload-progress"><i style={{ width: `${progress}%` }}/><span>{progress}%</span></div></div>}
-          {stage === "success" && <div className="dataset-state-card success"><span className="eyebrow">IMPORT COMPLETE</span><h2>数据接入完成</h2><p>{message}</p><div className="workflow-actions"><button className="button ghost" onClick={resetImport}>继续导入</button><Link className="button primary" href="/map">进入地图分析</Link></div></div>}
+          {stage === "success" && <div className="dataset-state-card success"><span className="eyebrow">IMPORT COMPLETE</span><h2>数据接入完成</h2><p>{message}</p><div className="workflow-actions"><button className="button ghost" onClick={resetImport}>继续导入</button><Link className="button primary" href={importedDatasetId ? `/map?dataset=${encodeURIComponent(importedDatasetId)}` : "/map"}>进入地图并自动分类</Link></div></div>}
           {stage === "error" && <div className="dataset-state-card error"><span className="eyebrow">IMPORT ERROR</span><h2>本次导入未完成</h2><p>{preflight?.error || "请检查文件后重试"}</p><button className="button primary" onClick={resetImport}>返回并重新选择</button></div>}
         </div>
 

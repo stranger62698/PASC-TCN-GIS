@@ -74,7 +74,7 @@ export function resolvePascField(headers: string[], semantic: PascSemanticField)
 
 export function parsePascDateHeader(value: string): PascParsedDateColumn | null {
   const original = value.trim();
-  let match = original.match(/^D?((?:19|20)\d{2})(\d{2})(\d{2})$/i);
+  let match = original.match(/^(?:D_?)?((?:19|20)\d{2})(\d{2})(\d{2})$/i);
   if (!match) match = original.match(/^((?:19|20)\d{2})[-_/.](\d{1,2})[-_/.](\d{1,2})$/);
   if (!match) return null;
   const year = Number(match[1]), month = Number(match[2]), day = Number(match[3]);
