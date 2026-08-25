@@ -462,5 +462,5 @@ Phase G complete
 - [x] Audit the authoritative 248-epoch adapter, real-date interpolation, 12-day cadence assumptions, and every 40-epoch gate
 - [x] Change the full-stack minimum from 40 to 20 without changing frozen classifier weights or hiding temporal domain shift
 - [x] Add 19/20/210-to-248/irregular-cadence regression coverage and run WebGIS/private-service verification
-- [ ] Publish GitHub and redeploy the frontend/private service with production checks
-- **Status:** in_progress
+- [x] Publish GitHub and redeploy the frontend/private service with production checks
+- **Status:** complete
