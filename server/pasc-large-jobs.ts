@@ -101,7 +101,7 @@ function validMapping(value: unknown): value is CsvMapping {
   if (!value || typeof value !== "object") return false;
   const mapping = value as Partial<CsvMapping>;
   return Boolean(
-    mapping.lon && mapping.lat && Array.isArray(mapping.timeCols) && mapping.timeCols.length >= 40
+    mapping.lon && mapping.lat && Array.isArray(mapping.timeCols) && mapping.timeCols.length >= 20
     && (mapping.displacementUnit === "mm" || mapping.displacementUnit === "cm" || mapping.displacementUnit === "m")
     && (mapping.signConvention === "toward_satellite_positive" || mapping.signConvention === "away_from_satellite_positive")
     && (mapping.preprocessingState === "raw" || mapping.preprocessingState === "already_smoothed"),
@@ -131,7 +131,7 @@ export async function createPascLargeJob(ownerId: string, datasetId: string, enq
   if (existing) return { job: existing, created: false };
   const dataset = await readPrivateJson<DatasetMeta>(datasetMetaPath(ownerId, datasetId));
   if (!dataset) throw new Error("私有数据集不存在。");
-  if (!validMapping(dataset.mapping)) throw new Error("请先确认经纬度、至少 40 个日期列、单位、正负号和预处理状态。");
+  if (!validMapping(dataset.mapping)) throw new Error("请先确认经纬度、至少 20 个日期列、单位、正负号和预处理状态。");
   if (!Number.isInteger(dataset.chunks) || dataset.chunks < 1 || dataset.chunks > 520) throw new Error("私有数据集分块信息无效。");
   if (!Number.isFinite(dataset.size) || dataset.size <= 0 || dataset.size > PASC_LARGE_MAX_SOURCE_BYTES) {
     throw new Error("当前后台分类支持不超过 256 MB 的已映射 CSV；请先按空间范围拆分更大的数据集。");

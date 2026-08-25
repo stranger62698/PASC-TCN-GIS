@@ -1,6 +1,6 @@
 import type { InsarPoint } from "../data/site";
 import type { PascPreprocessingState, PascValueSource } from "../types/pasc.js";
-import { PASC_CLASSES, PASC_ZSCORE_EPSILON } from "./pasc.js";
+import { PASC_CLASSES, PASC_EXPERIMENTAL_MIN_STEPS, PASC_ZSCORE_EPSILON } from "./pasc.js";
 import {
   PASC_CONTRACT_VERSION,
   PASC_MODEL_VERSION,
@@ -71,6 +71,8 @@ export type PascOnlineInferencePoint = {
     originalSpanDays: number;
     missingRate: number;
     maximumGapDays: number;
+    medianGapDays?: number;
+    cadenceStatus?: "sentinel_12_day_like" | "non_12_day_cadence";
     adapterApplied: boolean;
     noiseResidualStd: number | null;
     seriesMean: number;
@@ -143,8 +145,8 @@ export function buildPascOnlineRequest(
   if (preprocessingState !== "raw" && preprocessingState !== "already_smoothed") {
     throw new Error("必须确认 raw / already_smoothed 预处理状态后才能在线识别。");
   }
-  const candidates = points.filter(point => (point.effectiveEpochCount ?? point.series.length) >= 40);
-  if (!candidates.length) throw new Error("当前数据没有达到 40 个逐点有效期的 PASC 候选点；普通 WebGIS 仍可使用。");
+  const candidates = points.filter(point => (point.effectiveEpochCount ?? point.series.length) >= PASC_EXPERIMENTAL_MIN_STEPS);
+  if (!candidates.length) throw new Error("当前数据没有达到 20 个逐点有效期的 PASC 候选点；普通 WebGIS 仍可使用。");
   return {
     contractVersion: PASC_CONTRACT_VERSION,
     datasetName,
@@ -170,7 +172,7 @@ export function buildPascOnlineRequestBatches(
   datasetName: string,
   preprocessingState: PascPreprocessingState | undefined,
 ): PascOnlineRequest[] {
-  const candidates = points.filter(point => (point.effectiveEpochCount ?? point.series.length) >= 40);
+  const candidates = points.filter(point => (point.effectiveEpochCount ?? point.series.length) >= PASC_EXPERIMENTAL_MIN_STEPS);
   if (candidates.length > PASC_AUTO_CLASSIFY_MAX_POINTS) {
     throw new Error(`自动识别最多处理 ${PASC_AUTO_CLASSIFY_MAX_POINTS.toLocaleString()} 个候选点；当前 ${candidates.length.toLocaleString()} 点需要 Phase F 任务化。`);
   }
@@ -207,7 +209,7 @@ export function toPascServicePayload(value: unknown) {
     requireCondition(isFiniteNumber(point.longitude) && point.longitude >= -180 && point.longitude <= 180, "PASC_SCHEMA_UNRESOLVED", `${point.pointId} 经度无效。`);
     requireCondition(isFiniteNumber(point.latitude) && point.latitude >= -90 && point.latitude <= 90, "PASC_SCHEMA_UNRESOLVED", `${point.pointId} 纬度无效。`);
     requireCondition(Array.isArray(point.dates) && Array.isArray(point.displacementMm) && point.dates.length === point.displacementMm.length, "PASC_BAD_REQUEST", `${point.pointId} 日期和值长度不一致。`);
-    requireCondition(point.dates.length >= 40, "PASC_TOO_FEW_VALID_EPOCHS", `${point.pointId} 有效期少于 40。`);
+    requireCondition(point.dates.length >= PASC_EXPERIMENTAL_MIN_STEPS, "PASC_TOO_FEW_VALID_EPOCHS", `${point.pointId} 有效期少于 20。`);
     const row: Record<string, string | number> = {
       point_id: point.pointId,
       longitude: point.longitude,
@@ -269,7 +271,7 @@ export function mergePascOnlineResults(points: InsarPoint[], value: unknown): { 
   const response = value as PascOnlineResponse;
   requireCondition(response.contractVersion === PASC_CONTRACT_VERSION && response.modelVersion === PASC_MODEL_VERSION && response.operation === "inference_only" && Array.isArray(response.points), "PASC_PHASE_E_RESPONSE_INVALID", "推理响应版本或操作无效。");
   requireCondition(response.audit?.assetHashesVerified && response.audit?.modelExecuted && !response.audit?.userDataFit && !response.audit?.trainingPathAvailable, "PASC_PHASE_E_RESPONSE_INVALID", "推理审计信息无效。");
-  const candidateIds = new Set(points.filter(point => (point.effectiveEpochCount ?? point.series.length) >= 40).map(point => point.id));
+  const candidateIds = new Set(points.filter(point => (point.effectiveEpochCount ?? point.series.length) >= PASC_EXPERIMENTAL_MIN_STEPS).map(point => point.id));
   requireCondition(response.points.length === candidateIds.size, "PASC_PHASE_E_RESPONSE_INVALID", "推理响应点数与候选点数不一致。");
   const results = new Map<string, PascOnlineInferencePoint>();
   response.points.forEach(result => {
@@ -311,7 +313,7 @@ export function mergePascOnlineResults(points: InsarPoint[], value: unknown): { 
         missingRate: quality.missingRate,
         minimumGapDays: null,
         maximumGapDays: quality.maximumGapDays,
-        medianGapDays: null,
+        medianGapDays: Number.isFinite(Number(quality.medianGapDays)) ? Number(quality.medianGapDays) : null,
         seriesMean: quality.seriesMean,
         seriesStd: quality.seriesStd,
         noiseResidualStd: quality.noiseResidualStd,

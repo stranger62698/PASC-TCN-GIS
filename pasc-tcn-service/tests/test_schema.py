@@ -6,11 +6,11 @@ from datetime import date, timedelta
 from pasc_tcn_service.schema import parse_date_field, validate_payload
 
 
-def payload_for(count: int):
+def payload_for(count: int, *, interval_days=12):
     start = date(2020, 1, 1)
     record = {"fid": "p1", "xpos": 110.3, "ypos": 20.1}
     for index in range(count):
-        record["D" + (start + timedelta(days=index * 12)).strftime("%Y%m%d")] = -index
+        record["D" + (start + timedelta(days=index * interval_days)).strftime("%Y%m%d")] = -index
     return {
         "mapping": {"pointId": "fid", "longitude": "xpos", "latitude": "ypos"},
         "settings": {
@@ -35,10 +35,10 @@ class SchemaTests(unittest.TestCase):
             with self.subTest(source=source):
                 self.assertEqual(parse_date_field(source)[0], canonical)
 
-    def test_39_40_and_248_capability_states(self):
+    def test_19_20_and_248_capability_states(self):
         expected = {
-            39: ("unsupported", 39),
-            40: ("adapted_experimental", 40),
+            19: ("unsupported", 19),
+            20: ("adapted_experimental", 20),
             248: ("native_248", 248),
         }
         for count, (status, effective) in expected.items():
@@ -49,6 +49,10 @@ class SchemaTests(unittest.TestCase):
                 self.assertEqual(point["status"], status)
                 self.assertEqual(point["effectiveEpochs"], effective)
 
+    def test_248_non_12_day_cadence_is_experimental(self):
+        report = validate_payload(payload_for(248, interval_days=24))
+        point = report["compatibility"]["points"][0]
+        self.assertEqual(point["status"], "adapted_experimental")
     def test_aliases_and_mapping_methods(self):
         payload = payload_for(40)
         source = payload["records"][0]

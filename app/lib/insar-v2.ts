@@ -13,6 +13,7 @@ import {
 } from "../types/pasc.js";
 import {
   PASC_CLASSES,
+  PASC_EXPERIMENTAL_MIN_STEPS,
   PASC_ZSCORE_EPSILON,
   capabilityLevelFor,
   classifyEpochCount,
@@ -240,6 +241,14 @@ function pointQuality(series: number[], dates: string[], missingRate: number) {
   };
 }
 
+function classifyInputEpochs(validEpochs: number, medianGapDays: number | null) {
+  const classified = classifyEpochCount(validEpochs);
+  if (validEpochs === 248 && (medianGapDays === null || medianGapDays < 9 || medianGapDays > 15)) {
+    return { epochStatus: "experimental_20_to_247" as const, temporalApplicability: "experimental_adapted_to_248" as const };
+  }
+  return classified;
+}
+
 function parsePascResult(
   cells: string[],
   headers: string[],
@@ -322,6 +331,11 @@ function buildCompatibility(
   const minimum = epochs.length ? Math.min(...epochs) : 0;
   const maximum = epochs.length ? Math.max(...epochs) : 0;
   const classified = classifyEpochCount(minimum);
+  const native248Points = points.filter(point => point.temporalApplicability === "native_248").length;
+  const experimentalPoints = points.filter(point => point.temporalApplicability === "experimental_adapted_to_248").length;
+  const summaryClassification = classified.epochStatus === "native_248" && native248Points !== points.length
+    ? { epochStatus: "experimental_20_to_247" as const, temporalApplicability: "experimental_adapted_to_248" as const }
+    : classified;
   const issues: PascCompatibilityIssue[] = [];
   dates.failed.forEach(field => issues.push({ code: "PASC_DATE_PARSE_FAILED", severity: "error", message: `日期字段 ${field} 无法解析`, field }));
   if ((mapping.displacementUnit ?? "unknown") === "unknown" || (mapping.velocity && (mapping.velocityUnit ?? "unknown") === "unknown")) {
@@ -333,7 +347,7 @@ function buildCompatibility(
   if ((mapping.preprocessingState ?? "unknown") === "unknown") {
     issues.push({ code: "PASC_PREPROCESSING_STATE_REQUIRED", severity: "confirmation", message: "必须确认 raw / already_smoothed 状态。" });
   }
-  if (minimum < 40) issues.push({ code: "PASC_TOO_FEW_VALID_EPOCHS", severity: "warning", message: "少于 40 个逐点有效日期值时 PASC 不可用，普通 WebGIS 能力仍保留。" });
+  if (minimum < PASC_EXPERIMENTAL_MIN_STEPS) issues.push({ code: "PASC_TOO_FEW_VALID_EPOCHS", severity: "warning", message: "少于 20 个逐点有效日期值时 PASC 不可用，普通 WebGIS 能力仍保留。" });
   if (legacyCount) issues.push({ code: "PASC_LEGACY_STEPWISE_CONFIRMATION_REQUIRED", severity: "confirmation", message: `发现 ${legacyCount} 个旧版 Stepwise；未自动映射为 Piecewise。` });
   const capabilityCounts: Record<PascCapabilityLevel, number> = { 0: 0, 1: 0, 2: 0, 3: 0 };
   points.forEach(point => { capabilityCounts[point.capabilityLevel ?? capabilityLevelFor({ validCoordinates: true, validEpochs: point.series.length, hasVelocity: true })] += 1; });
@@ -344,16 +358,16 @@ function buildCompatibility(
   return {
     contractVersion: PASC_CONTRACT_VERSION,
     capabilityLevel: ([3, 2, 1, 0] as const).find(level => capabilityCounts[level] > 0) ?? 0,
-    epochStatus: classified.epochStatus,
-    temporalApplicability: classified.temporalApplicability,
+    epochStatus: summaryClassification.epochStatus,
+    temporalApplicability: summaryClassification.temporalApplicability,
     spatialApplicability,
     totalPoints: points.length,
     pascCandidatePoints: capabilityCounts[3],
     unsupportedPoints: points.length - capabilityCounts[3],
     minEffectiveEpochs: minimum,
     maxEffectiveEpochs: maximum,
-    native248Points: epochs.filter(value => value === 248).length,
-    experimentalPoints: epochs.filter(value => value >= 40 && value < 248).length,
+    native248Points,
+    experimentalPoints,
     invalidDateColumns: dates.failed,
     duplicateDates: dates.duplicateDates.map(group => group.canonical),
     velocitySources: countSources(points, "velocitySource"),
@@ -453,12 +467,17 @@ export function parseMappedCsv(text: string, fileName: string, mapping: CsvMappi
     const coherenceSource: PascValueSource = coherenceValue === null ? "not_available" : "provided";
     const coherence = coherenceValue === null ? 0 : clamp01(coherenceValue);
     const missingRate = dateFields.length ? missing / dateFields.length : 0;
+    const inputQuality = pointQuality(series, dates, missingRate);
+    const inputClassification = classifyInputEpochs(series.length, inputQuality.medianGapDays);
     const pasc = parsePascResult(cells, headers, id, series, dates, missingRate, velocitySource, coherenceSource);
     const pointWarnings = [
       ...(parsedMode.warning ? [parsedMode.warning] : []),
       ...(velocitySource === "not_available" ? ["未提供速率且时序不足，速率专题不可用。"] : []),
       ...(coherenceSource === "not_available" ? ["未提供 coherence；Phase A 不静默填模型默认值。"] : []),
-      ...(series.length < 40 ? ["有效期少于 40，PASC 不可用。"] : series.length < 248 ? ["40-247 期当前仅为 experimental minimum。"] : []),
+      ...(series.length < PASC_EXPERIMENTAL_MIN_STEPS ? ["有效期少于 20，PASC 不可用。"] : series.length < 248 ? [`${series.length}期将按真实日期插值至248期；20—39期仅供探索性判读，40期以上仍为实验性适配。`] : []),
+      ...(series.length >= PASC_EXPERIMENTAL_MIN_STEPS && inputQuality.medianGapDays !== null && (inputQuality.medianGapDays < 9 || inputQuality.medianGapDays > 15)
+        ? [`中位时相间隔为 ${inputQuality.medianGapDays.toFixed(1)} 天，偏离哨兵约 12 天节奏；会按真实日期插值，但属于时间域偏移。`]
+        : []),
     ];
     points.push({
       id,
@@ -481,7 +500,7 @@ export function parseMappedCsv(text: string, fileName: string, mapping: CsvMappi
       dates,
       capabilityLevel,
       effectiveEpochCount: series.length,
-      temporalApplicability: pasc?.temporalApplicability ?? classifyEpochCount(series.length).temporalApplicability,
+      temporalApplicability: pasc?.temporalApplicability ?? inputClassification.temporalApplicability,
       spatialApplicability: pasc?.spatialApplicability ?? "not_evaluated",
       pasc,
       warnings: [...pointWarnings, ...(pasc?.warnings ?? [])],

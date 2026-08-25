@@ -5,10 +5,10 @@ import { PascProbabilityBars } from "./PascProbabilityBars";
 
 const sourceLabel = { provided: "数据提供", calculated: "真实日期计算", default: "冻结默认值", not_available: "不可用" } as const;
 const temporalLabel = {
-  native_248: "native_248",
-  adapted_to_248: "adapted_to_248",
-  experimental_adapted_to_248: "experimental_adapted_to_248",
-  unsupported: "unsupported",
+  native_248: "原生248期",
+  adapted_to_248: "已适配至248期",
+  experimental_adapted_to_248: "已按真实日期插值至248期（实验性）",
+  unsupported: "不支持",
 } as const;
 
 export function PascAnalysisPanel({ point }: { point: InsarPoint | null }) {

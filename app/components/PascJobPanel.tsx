@@ -20,7 +20,7 @@ function readError(body: unknown, fallback: string) {
 }
 function eligible(dataset: DatasetOption) {
   const mapping = dataset.mapping;
-  return Boolean(mapping?.lon && mapping.lat && mapping.timeCols?.length >= 40 && ["mm", "cm", "m"].includes(String(mapping.displacementUnit)) && ["toward_satellite_positive", "away_from_satellite_positive"].includes(String(mapping.signConvention)) && ["raw", "already_smoothed"].includes(String(mapping.preprocessingState)));
+  return Boolean(mapping?.lon && mapping.lat && mapping.timeCols?.length >= 20 && ["mm", "cm", "m"].includes(String(mapping.displacementUnit)) && ["toward_satellite_positive", "away_from_satellite_positive"].includes(String(mapping.signConvention)) && ["raw", "already_smoothed"].includes(String(mapping.preprocessingState)));
 }
 
 export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
@@ -103,7 +103,7 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
           <button disabled={!selectedDatasetId || creating} onClick={createJob}>{creating ? "正在创建…" : "开始后台自动分类"}</button>
         </div>
       </header>
-      {!available.length && <div className="pasc-job-boundary"><b>尚不能创建任务</b><span>请先为私有数据集确认经纬度、至少 40 个日期列、单位、正负号和预处理状态。</span></div>}
+      {!available.length && <div className="pasc-job-boundary"><b>尚不能创建任务</b><span>请先为私有数据集确认经纬度、至少 20 个日期列、单位、正负号和预处理状态。</span></div>}
       {message && <div className="pasc-job-message" role="status">{message}</div>}
       <div className="pasc-job-layout">
         <aside className="pasc-job-list" aria-label="任务列表">

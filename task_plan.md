@@ -458,3 +458,9 @@ Phase G complete
 - [x] Add job, retry, ownership, result-map, and 21,610-point regression coverage; run full frontend/private-service verification
 - [x] Publish GitHub and deploy/verify production while keeping weights, keys, and user research data private
 - **Status:** complete
+### Operations O7: 20-Epoch Temporal Adapter Boundary
+- [x] Audit the authoritative 248-epoch adapter, real-date interpolation, 12-day cadence assumptions, and every 40-epoch gate
+- [x] Change the full-stack minimum from 40 to 20 without changing frozen classifier weights or hiding temporal domain shift
+- [x] Add 19/20/210-to-248/irregular-cadence regression coverage and run WebGIS/private-service verification
+- [ ] Publish GitHub and redeploy the frontend/private service with production checks
+- **Status:** in_progress

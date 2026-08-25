@@ -28,7 +28,7 @@ if _truthy(os.environ.get("PASC_REQUIRE_INFERENCE", "0")):
 
 
 class handler(BaseHTTPRequestHandler):
-    server_version = "PascTcnPrivateVercel/0.3"
+    server_version = "PascTcnPrivateVercel/0.4"
 
     def _handle(self):
         length = int(self.headers.get("content-length", "0"))

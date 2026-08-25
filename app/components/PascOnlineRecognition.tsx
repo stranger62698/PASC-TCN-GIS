@@ -41,7 +41,7 @@ export function PascOnlineRecognition({
   const stages = [
     { key: "upload", label: "上传与映射", detail: mappingConfirmed ? `${totalPoints.toLocaleString()} 点已载入` : "等待确认字段映射", state: stageState(mappingConfirmed) },
     { key: "confirm", label: "单位 / 符号 / 平滑", detail: confirmedState ? (preprocessingState === "raw" ? "raw · 服务端执行 SG" : "already_smoothed · 不重复平滑") : "需要显式确认", state: stageState(confirmedState, mappingConfirmed && !confirmedState) },
-    { key: "compat", label: "能力分级", detail: `${candidatePoints.toLocaleString()} 个 ≥40 期候选`, state: stageState(candidatePoints > 0 && !blockingIssues.length, blockingIssues.length > 0) },
+    { key: "compat", label: "能力分级", detail: `${candidatePoints.toLocaleString()} 个 ≥20 期候选`, state: stageState(candidatePoints > 0 && !blockingIssues.length, blockingIssues.length > 0) },
     { key: "infer", label: "自动分批识别", detail: busy ? `${runState.processedPoints.toLocaleString()} / ${runState.totalPoints.toLocaleString()} 点 · ${runState.completedBatches} / ${runState.totalBatches} 批` : hasResults ? `${runState.summary?.predicted ?? 0} 点完成` : overLimit ? `后台持久队列 · 每批 ≤${PHASE_E_MAX_POINTS}` : `确认导入后自动开始 · 每批 ≤${PHASE_E_MAX_POINTS}`, state: busy ? "running" : stageState(hasResults, blocked) },
     { key: "map", label: "地图结果", detail: hasResults ? "六类固定色已应用" : "保留当前地图", state: stageState(hasResults) },
   ] as const;
@@ -63,7 +63,7 @@ export function PascOnlineRecognition({
 
       {overLimit && <div className="pasc-online-notice" role="status"><b>已切换为后台大数据分类</b><span>当前 {candidatePoints.toLocaleString()} 个候选点将进入持久队列，按最多 {PHASE_E_MAX_POINTS} 点自动分批；关闭页面不会中断。</span><Link href="/datasets">打开任务进度模块 ↗</Link></div>}
       {!overLimit && blockingIssues.length > 0 && <div className="pasc-online-notice is-blocked" role="alert"><b>仍有确认项</b><span>{blockingIssues[0]}</span></div>}
-      {!overLimit && mappingConfirmed && candidatePoints === 0 && <div className="pasc-online-notice" role="status"><b>普通 WebGIS 可继续使用</b><span>当前没有达到 40 个有效期的点，不会发送 PASC 请求。</span></div>}
+      {!overLimit && mappingConfirmed && candidatePoints === 0 && <div className="pasc-online-notice" role="status"><b>普通 WebGIS 可继续使用</b><span>当前没有达到 20 个有效期的点，不会发送 PASC 请求。</span></div>}
 
       {runState.status === "error" && <div className="pasc-online-notice is-error" role="alert"><b>识别失败，地图已保留</b><span>{runState.error}</span></div>}
       {hasResults && runState.summary && (

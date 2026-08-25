@@ -22,6 +22,7 @@ sys.path.insert(0, str(SERVICE_ROOT / "src"))
 from pasc_tcn_service.contract import (
     CONTRACT_VERSION,
     FEATURE_NAMES,
+    MIN_EXPERIMENTAL_EPOCHS,
     MODEL_VERSION,
     SG_POLYORDER,
     SG_WINDOW,
@@ -188,7 +189,7 @@ def main() -> None:
         "architectureVersion": ARCHITECTURE_VERSION,
         "authoritativeSourceSha256": AUTHORITATIVE_SOURCE_SHA256,
         "targetSteps": TARGET_EPOCHS,
-        "minimumExperimentalSteps": 40,
+        "minimumExperimentalSteps": MIN_EXPERIMENTAL_EPOCHS,
         "minimumStatus": "experimental",
         "sgWindow": SG_WINDOW,
         "sgPolyorder": SG_POLYORDER,

@@ -268,7 +268,7 @@ function MapWorkspaceView() {
         modes: boxPoints.reduce((acc, point) => { const mode = normalizedMode(point.mode); acc[mode] = (acc[mode] || 0) + 1; return acc; }, {} as Record<string, number>),
     } : null, [boxPoints, coherenceThreshold, timeIndex]);
     const compareStats = useMemo(() => compared.length ? { avgVelocity: compared.reduce((s, p) => s + p.velocity, 0) / compared.length, avgCurrent: compared.reduce((s, p) => s + (p.series[Math.min(timeIndex, p.series.length - 1)] ?? p.displacement), 0) / compared.length, avgCoherence: compared.reduce((s, p) => s + p.coherence, 0) / compared.length } : null, [compared, timeIndex]);
-    const pascCandidateCount = parseReport?.compatibility.pascCandidatePoints ?? points.filter(point => (point.effectiveEpochCount ?? point.series.length) >= 40).length;
+    const pascCandidateCount = parseReport?.compatibility.pascCandidatePoints ?? points.filter(point => (point.effectiveEpochCount ?? point.series.length) >= 20).length;
     const pascBlockingIssues = (parseReport?.compatibility.issues ?? []).filter(issue => issue.severity === "error" || issue.severity === "confirmation").map(issue => issue.message);
     const pascLowConfidenceCount = points.filter(point => point.pasc?.lowConfidence).length;
     const pascLimitedReferenceCount = points.filter(point => point.pasc?.spatialApplicability === "limited_reference").length;
@@ -524,7 +524,7 @@ function MapWorkspaceView() {
     ) {
         const runId = ++pascRunId.current;
         try {
-            const candidateTotal = sourcePoints.filter(point => (point.effectiveEpochCount ?? point.series.length) >= 40).length;
+            const candidateTotal = sourcePoints.filter(point => (point.effectiveEpochCount ?? point.series.length) >= 20).length;
             if (candidateTotal > PASC_AUTO_CLASSIFY_MAX_POINTS) {
                 if (!sourceDatasetId) throw new Error(`当前 ${candidateTotal.toLocaleString()} 个候选点需要后台任务；请先登录并将 CSV 保存为私有数据集。`);
                 setStatus(`正在创建 ${candidateTotal.toLocaleString()} 点后台自动分类任务…`);
@@ -1029,7 +1029,7 @@ function MapWorkspaceView() {
                 <div className="config-backdrop" onMouseDown={() => setGuideOpen(false)}>
                     <section className="config-dialog csv-guide" onMouseDown={e => e.stopPropagation()}>
                         <button className="dialog-close" onClick={() => setGuideOpen(false)}>×</button><span className="eyebrow">CSV SCHEMA</span><h2>CSV 数据规范</h2>
-                        <div className="schema-grid"><article><b>能力字段</b><p>经纬度必需；velocity 可缺失，有至少 2 个真实日期值时按最小二乘计算。40 期仅为实验门槛。</p></article><article><b>PASC 六分类</b><p>固定 Stable、Linear、Piecewise、Decelerating、Accelerating、Undefined；Stepwise 只标 legacy。</p></article><article><b>确认项</b><p>单位、符号和 raw / already_smoothed 必须明确确认，禁止按数值猜测。</p></article><article><b>本阶段边界</b><p>Phase A 只做兼容性与离线结果展示，不执行 Adapter、SG 或在线推理。</p></article></div>
+                        <div className="schema-grid"><article><b>能力字段</b><p>经纬度必需；velocity 可缺失，有至少 2 个真实日期值时按最小二乘计算。20 期为扩展实验门槛；20—39 期仅供探索性判读。</p></article><article><b>PASC 六分类</b><p>固定 Stable、Linear、Piecewise、Decelerating、Accelerating、Undefined；Stepwise 只标 legacy。</p></article><article><b>确认项</b><p>单位、符号和 raw / already_smoothed 必须明确确认，禁止按数值猜测。</p></article><article><b>本阶段边界</b><p>Phase A 只做兼容性与离线结果展示，不执行 Adapter、SG 或在线推理。</p></article></div>
                         <div className="csv-example"><code>point_id,longitude,latitude,velocity,label,mode_source,confidence,coherence,D20200101,D20200113</code></div>
                         <div className="dialog-actions"><button className="button ghost" onClick={() => setGuideOpen(false)}>继续体验示例</button><button className="button primary" onClick={() => { setGuideOpen(false); fileRef.current?.click(); }}>选择本地 CSV</button></div>
                     </section>

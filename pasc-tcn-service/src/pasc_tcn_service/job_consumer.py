@@ -22,7 +22,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, BinaryIO, Callable, Iterable, Protocol
 
-from .contract import CONTRACT_VERSION
+from .contract import CONTRACT_VERSION, MIN_EXPERIMENTAL_EPOCHS
 from .errors import ServiceError
 from .inference import infer_payload
 from .preprocessing import preprocess_payload
@@ -543,7 +543,7 @@ class PascJobConsumer:
             not isinstance(mapping, dict)
             or not isinstance(settings, dict)
             or not isinstance(date_columns, list)
-            or len(date_columns) < 40
+            or len(date_columns) < MIN_EXPERIMENTAL_EPOCHS
         ):
             raise ConsumerError(
                 "PASC_JOB_MAPPING_REQUIRED",
@@ -649,14 +649,14 @@ class PascJobConsumer:
                         }
                     )
                     continue
-                if valid_dates < 40:
+                if valid_dates < MIN_EXPERIMENTAL_EPOCHS:
                     unsupported += 1
                     errors.append(
                         {
                             "row": row_number,
                             "pointId": point_id,
                             "code": "PASC_TOO_FEW_VALID_EPOCHS",
-                            "message": "逐点有效日期少于40。",
+                            "message": "逐点有效日期少于20。",
                         }
                     )
                     continue

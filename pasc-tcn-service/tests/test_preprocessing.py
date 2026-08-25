@@ -16,11 +16,11 @@ from pasc_tcn_service.preprocessing import (
 )
 
 
-def payload_for(count: int, *, state="already_smoothed", with_velocity=False):
+def payload_for(count: int, *, state="already_smoothed", with_velocity=False, interval_days=12):
     start = date(2020, 1, 1)
     record = {"fid": "p1", "xpos": 110.3, "ypos": 20.1}
     for index in range(count):
-        record["D" + (start + timedelta(days=index * 12)).strftime("%Y%m%d")] = -float(index)
+        record["D" + (start + timedelta(days=index * interval_days)).strftime("%Y%m%d")] = -float(index)
     mapping = {"pointId": "fid", "longitude": "xpos", "latitude": "ypos"}
     settings = {
         "displacementUnit": "mm",
@@ -64,6 +64,39 @@ class PreprocessingTests(unittest.TestCase):
         self.assertEqual(len(point["features"]["raw"]), 13)
         self.assertEqual(point["features"]["order"], list(FEATURE_NAMES))
 
+    def test_20_epochs_are_adapted_with_sparse_evidence_warning(self):
+        output = preprocess_payload(payload_for(20))
+        point = output["points"][0]
+        self.assertEqual(point["status"], "adapted_experimental")
+        self.assertEqual(point["quality"]["effectiveEpochs"], 20)
+        self.assertEqual(len(point["targetDates"]), 248)
+        self.assertIn(
+            "PASC_20_TO_39_EXPLORATORY",
+            {item["code"] for item in point["quality"]["warnings"]},
+        )
+
+    def test_210_epochs_are_automatically_interpolated_to_248(self):
+        output = preprocess_payload(payload_for(210))
+        point = output["points"][0]
+        self.assertEqual(point["status"], "adapted_experimental")
+        self.assertTrue(point["quality"]["adapterApplied"])
+        self.assertEqual(point["quality"]["effectiveEpochs"], 210)
+        self.assertEqual(len(point["targetDates"]), 248)
+        self.assertEqual(len(point["preprocessedSeriesMm"]), 248)
+        self.assertEqual(point["targetDates"][0][:10], "2020-01-01")
+        self.assertEqual(point["targetDates"][-1][:10], (date(2020, 1, 1) + timedelta(days=209 * 12)).isoformat())
+
+    def test_non_12_day_248_epochs_are_adapted_and_warned(self):
+        output = preprocess_payload(payload_for(248, interval_days=24))
+        point = output["points"][0]
+        self.assertEqual(point["status"], "adapted_experimental")
+        self.assertTrue(point["quality"]["adapterApplied"])
+        self.assertEqual(point["quality"]["medianGapDays"], 24.0)
+        self.assertEqual(point["quality"]["cadenceStatus"], "non_12_day_cadence")
+        self.assertIn(
+            "PASC_NON_SENTINEL_CADENCE",
+            {item["code"] for item in point["quality"]["warnings"]},
+        )
     def test_248_epochs_bypass_adapter_and_sg_when_already_smoothed(self):
         payload = payload_for(248)
         output = preprocess_payload(payload)
@@ -87,7 +120,7 @@ class PreprocessingTests(unittest.TestCase):
         self.assertEqual(point["velocity"]["valueMmPerYear"], 30.0)
 
     def test_unsupported_point_returns_reason_without_arrays(self):
-        output = preprocess_payload(payload_for(39))
+        output = preprocess_payload(payload_for(19))
         point = output["points"][0]
         self.assertEqual(point["status"], "unsupported")
         self.assertEqual(point["reason"]["code"], "PASC_TOO_FEW_VALID_EPOCHS")

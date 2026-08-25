@@ -64,7 +64,8 @@ def csv_bytes(include_bad=False, count=5):
         }
         row.update({date: str(-index - offset / 10) for offset, date in enumerate(DATES)})
         if not include_bad and index == 4:
-            row[DATES[-1]] = ""
+            for date_field in DATES[19:]:
+                row[date_field] = ""
         writer.writerow(row)
     return output.getvalue().encode("utf-8")
 

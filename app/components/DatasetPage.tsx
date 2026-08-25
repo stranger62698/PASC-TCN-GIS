@@ -291,7 +291,7 @@ export function DatasetPage() {
             <button className="button ghost" onClick={downloadTemplate}>下载 CSV 模板</button>
             {replaceParent && <button className="button ghost" onClick={resetImport}>取消新版本</button>}
             <input ref={fileRef} hidden type="file" accept=".csv,text/csv" onChange={(event) => prepareFile(event.target.files?.[0])}/>
-            <small>必需：经度、纬度；速率可选，缺失时按逐点真实日期最小二乘计算。Level 2 需要至少 2 个时间值，Level 3 PASC 候选需要至少 40 个。</small>
+            <small>必需：经度、纬度；速率可选，缺失时按逐点真实日期最小二乘计算。Level 2 需要至少 2 个时间值，Level 3 PASC 候选需要至少 20 个；20—39 期仅供探索性判读。</small>
           </div>}
 
           {stage === "mapping" && preflight?.inspection && preflight.mapping && <div className="field-recognition-panel">

@@ -29,7 +29,7 @@ export type PascTemporalApplicability =
   | "unsupported";
 export type PascSpatialApplicability = "full_reference" | "limited_reference" | "not_evaluated";
 export type PascPreprocessingState = "raw" | "already_smoothed" | "unknown";
-export type PascEpochStatus = "unsupported_39_or_less" | "experimental_40_to_247" | "native_248" | "adapted_over_248";
+export type PascEpochStatus = "unsupported_19_or_less" | "experimental_20_to_247" | "native_248" | "adapted_over_248";
 export type PascProbabilitySet = Record<PascClassName, number>;
 
 export type PascPointQuality = {

@@ -3,7 +3,7 @@ import type { PascCompatibilitySummary } from "../types/pasc";
 const temporalLabels = {
   native_248: "原生 248 期",
   adapted_to_248: "可适配至 248 期",
-  experimental_adapted_to_248: "实验性适配至 248 期",
+  experimental_adapted_to_248: "已按真实日期插值至 248 期（实验性）",
   unsupported: "PASC 不可用",
 } as const;
 const spatialLabels = {
@@ -29,11 +29,11 @@ export function PascCompatibilityCheck({ summary }: { summary: PascCompatibility
         <div><dt>空间适用性</dt><dd>{spatialLabels[summary.spatialApplicability]}</dd></div>
         <div><dt>248 期点</dt><dd>{summary.native248Points.toLocaleString()}</dd></div>
       </dl>
-      <div className="pasc-epoch-ruler" aria-label="39、40、248期门槛"><i /><span>39<br/><small>不支持</small></span><span>40<br/><small>实验门槛</small></span><span>248<br/><small>原生</small></span></div>
+      <div className="pasc-epoch-ruler" aria-label="19、20、248期门槛"><i /><span>19<br/><small>不支持</small></span><span>20<br/><small>实验门槛</small></span><span>248<br/><small>原生</small></span></div>
       {summary.issues.length > 0
         ? <ul>{summary.issues.map((issue, index) => <li className={issue.severity} key={`${issue.code}-${index}`}><b>{issue.code}</b><span>{issue.message}</span></li>)}</ul>
         : <p className="pasc-clear">协议预检查未发现阻断项。</p>}
-      <footer>确认映射、单位、符号与平滑状态后，Phase E 仅将 ≥40 期小数据候选点送往安全代理。</footer>
+      <footer>确认映射、单位、符号与平滑状态后，≥20 期候选点会按真实日期插值至 248 节点并送往安全代理；20—39 期仅供探索性判读。</footer>
     </section>
   );
 }

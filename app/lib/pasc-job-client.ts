@@ -60,7 +60,7 @@ export function parsePascMapPreview(value: unknown): { jobId: string; totalPredi
         originalEpochCount: Math.max(0, Math.floor(finite(quality.effectiveEpochs))), adaptedEpochCount: quality.adapterApplied === true ? 248 : null,
         startDate: typeof quality.originalStart === "string" ? quality.originalStart : null, endDate: typeof quality.originalEnd === "string" ? quality.originalEnd : null,
         spanDays: Number.isFinite(Number(quality.originalSpanDays)) ? Number(quality.originalSpanDays) : null, missingRate: finite(quality.missingRate), minimumGapDays: null,
-        maximumGapDays: Number.isFinite(Number(quality.maximumGapDays)) ? Number(quality.maximumGapDays) : null, medianGapDays: null,
+        maximumGapDays: Number.isFinite(Number(quality.maximumGapDays)) ? Number(quality.maximumGapDays) : null, medianGapDays: Number.isFinite(Number(quality.medianGapDays)) ? Number(quality.medianGapDays) : null,
         seriesMean: Number.isFinite(Number(quality.seriesMean)) ? Number(quality.seriesMean) : null, seriesStd: Number.isFinite(Number(quality.seriesStd)) ? Number(quality.seriesStd) : null,
         noiseResidualStd: Number.isFinite(Number(quality.noiseResidualStd)) ? Number(quality.noiseResidualStd) : null, zscoreEpsilon: 0.00001,
       },
