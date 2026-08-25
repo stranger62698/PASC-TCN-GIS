@@ -421,3 +421,23 @@ Phase C is complete. No acceptance threshold, supported minimum, /v1/infer endpo
 - Production synthetic ENVI E2E PASS: authenticated private upload, byte-exact chunk read, 40 `D_YYYYMMDD` epochs, frozen-model classification, `modelExecuted=true`, `trainingPathAvailable=false`, and exact temporary dataset/account cleanup.
 - The supplied `500.csv` was parsed locally only; production upload was intentionally not performed because it would transmit user data without separate explicit authorization.
 - Final documentation-only snapshot push was retried twice but github.com:443 was temporarily unreachable. The validated code snapshot `5b69175e...` was already published successfully; only this final progress note remains local.
+
+## 2026-08-25 Large task-classification repair
+- User reported a 21,610-point ENVI import reaches Level 3 but fails at the 10,000-candidate browser boundary before PASC results are produced.
+- Tool error: `apply_patch` remains blocked by the workspace ACL helper; used exact UTF-8 planning-file append after the required patch attempt failed.
+- Architecture audit isolated the production gap: the Phase F UI/routes are Cloudflare D1/R2 implementations, but the active Vercel deployment exposes only root functions backed by Vercel Blob; no production worker currently claims those jobs.
+- Official hosting research selected Vercel Queues push delivery (available on all plans) over Hobby Cron: durable messages can continue after the browser closes, while bounded inference remains on server CPU/Fluid Compute.
+- Added official `@vercel/queue` 0.5.0 and confirmed the SDK has a Node callback adapter compatible with the project's root Vercel Functions.
+## 2026-08-25 O6 implementation progress
+- Tool error: `apply_patch` remained blocked by the workspace ACL helper for all O6 edits. Every edit first attempted `apply_patch`, then used the established exact UTF-8 .NET write fallback inside the project.
+- Tool error: sandboxed shell startup also hit `apply deny-read ACLs`; scoped project reads/tests were rerun with approved escalation.
+- Tool error: one exact PowerShell replacement inserted literal `` `r`n `` text into MapWorkspace and one test import; both were detected immediately by `rg`/source inspection and corrected before any build.
+- Tool error: the first local Vercel build lacked project settings; `vercel build --yes` retrieved the linked preview settings. Its next attempt lacked child-process Node on PATH; rerunning with the bundled Node directory fixed it.
+- Tool error: a PowerShell-composed Vercel CLI path was invoked as a directory; the exact bundled `node.exe` command fixed it.
+- Tool error: the first two Vercel function builds surfaced a duplicate constant and then type-unsafe `delete` operations even though the CLI reported an output directory. Both TypeScript issues were fixed and the final build log is error-free.
+- Tool error: ESLint's removed `compact` formatter caused a formatter-only failure; rerunning with the default formatter confirmed no map errors (existing warnings remain).
+- Implemented owner-scoped `/api/pasc-jobs`, queue consumer `/api/pasc-large-worker`, Blob-backed job/request/result state, bounded retry/cancel/resume, and complete result loading into the original map.
+- Updated the data-center job module and map over-limit messaging so 21,610 points are no longer shown as an unsupported terminal boundary.
+- Regression PASS: 21,610 candidates -> 44 batches (500 x 43 + 110), all batches <=500.
+- Full WebGIS gate PASS: 32/32 tests and both demo validators. New-module strict ESLint PASS; MapWorkspace has zero errors and 15 pre-existing warnings.
+- Vercel production-equivalent build PASS with `api/pasc-large-worker` maxDuration 300 and `queue/v2beta` trigger for topic `pasc-large-jobs` present in `.vc-config.json`.

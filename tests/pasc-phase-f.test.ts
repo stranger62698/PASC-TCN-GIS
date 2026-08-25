@@ -11,6 +11,7 @@ import {
   type PascJobRow,
 } from "../app/lib/pasc-jobs";
 import { parsePascMapPreview, pascMapLevelForZoom } from "../app/lib/pasc-job-client";
+import { buildPascDurableRequestBatches } from "../app/lib/pasc-large";
 
 function jobRow(): PascJobRow {
   return {
@@ -120,6 +121,23 @@ test("Phase F client validates and converts a bounded map preview", () => {
   assert.equal(pascMapLevelForZoom(13), "map_level_2");
   assert.throws(() => parsePascMapPreview({ contractVersion: "bad", points: [] }));
 });
+test("Large InSAR classification splits 21,610 candidates into 44 bounded batches", () => {
+  const dates = Array.from({ length: 46 }, (_, index) => `2020-01-${String(index % 28 + 1).padStart(2, "0")}`);
+  const points = Array.from({ length: 21610 }, (_, index) => ({
+    id: `P-${index + 1}`, name: `Point ${index + 1}`, lon: 110 + index / 1_000_000, lat: 20,
+    velocity: 0, velocitySource: "calculated" as const, displacement: 0, coherence: 0,
+    coherenceSource: "not_available" as const, missingRate: 0, mode: "未分类", modeSource: "",
+    modeConfidence: null, updated: dates.at(-1) || "", series: dates.map(() => 0), dates,
+    effectiveEpochCount: 46, temporalApplicability: "experimental_adapted_to_248" as const,
+    spatialApplicability: "not_evaluated" as const, warnings: [],
+  }));
+  const batches = buildPascDurableRequestBatches(points, "21610.csv", "raw");
+  assert.equal(batches.length, 44);
+  assert.equal(batches[0].points.length, 500);
+  assert.equal(batches.at(-1)?.points.length, 110);
+  assert.equal(batches.reduce((sum, batch) => sum + batch.points.length, 0), 21610);
+  assert.ok(batches.every(batch => batch.points.length <= 500));
+});
 test("Phase F static integration keeps owner isolation, consumer auth, and bounded previews", () => {
   const schema = readFileSync("db/schema.ts", "utf8");
   const migration = readFileSync("drizzle/0002_pasc_jobs.sql", "utf8");
@@ -127,6 +145,10 @@ test("Phase F static integration keeps owner isolation, consumer auth, and bound
   const panel = readFileSync("app/components/PascJobPanel.tsx", "utf8");
   const workspace = readFileSync("app/components/MapWorkspace.tsx", "utf8");
   const consumer = readFileSync("pasc-tcn-service/src/pasc_tcn_service/job_consumer.py", "utf8");
+  const largeApi = readFileSync("api/pasc-jobs.ts", "utf8");
+  const largeWorker = readFileSync("api/pasc-large-worker.ts", "utf8");
+  const largeCore = readFileSync("server/pasc-large-jobs.ts", "utf8");
+  const vercel = readFileSync("vercel.json", "utf8");
   for (const table of ["pasc_jobs", "pasc_job_events", "pasc_artifacts", "model_versions"]) {
     assert.match(schema, new RegExp(`\\b${table.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())}\\b`));
     assert.match(migration, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`));
@@ -136,10 +158,19 @@ test("Phase F static integration keeps owner isolation, consumer auth, and bound
   assert.match(routes, /owner_id = \?/);
   assert.doesNotMatch(panel, /leaseToken|consumerApiKey|idempotencyKey/);
   assert.match(panel, /取消任务/);
-  assert.match(panel, /加载多级地图预览/);
+  assert.match(panel, /加载完整分类地图/);
   assert.match(workspace, /parsePascMapPreview/);
   assert.match(workspace, /map\?zoom=/);
   assert.match(consumer, /MAX_MAP_POINTS = 5000/);
   assert.match(consumer, /path\.startswith\("\/v1\/internal\/jobs\/"\)/);
   assert.doesNotMatch(consumer, /optimizer|\.backward\(|\.fit\(|requests\.get\(.*url/);
+  assert.match(largeApi, /getRequestUser/);
+  assert.match(largeApi, /publicPascLargeJob/);
+  assert.match(largeWorker, /handleNodeCallback/);
+  assert.match(largeWorker, /PASC_LARGE_MAX_ATTEMPTS/);
+  assert.match(largeCore, /users\/\$\{identifier\(ownerId/);
+  assert.match(largeCore, /results\/\$\{index\}\.json/);
+  assert.doesNotMatch(panel, /PASC_SERVICE_API_KEY|ownerId|batchSummaries/);
+  assert.match(vercel, /queue\/v2beta/);
+  assert.match(vercel, /pasc-large-jobs/);
 });

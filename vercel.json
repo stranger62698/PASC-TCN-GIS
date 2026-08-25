@@ -5,5 +5,16 @@
   "buildCommand": "pnpm run build:static",
   "outputDirectory": "static-dist",
   "cleanUrls": true,
-  "trailingSlash": false
+  "trailingSlash": false,
+  "functions": {
+    "api/pasc-large-worker.ts": {
+      "maxDuration": 300,
+      "experimentalTriggers": [{
+        "type": "queue/v2beta",
+        "topic": "pasc-large-jobs",
+        "retryAfterSeconds": 30,
+        "initialDelaySeconds": 0
+      }]
+    }
+  }
 }
