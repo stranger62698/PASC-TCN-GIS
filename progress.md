@@ -441,3 +441,7 @@ Phase C is complete. No acceptance threshold, supported minimum, /v1/infer endpo
 - Regression PASS: 21,610 candidates -> 44 batches (500 x 43 + 110), all batches <=500.
 - Full WebGIS gate PASS: 32/32 tests and both demo validators. New-module strict ESLint PASS; MapWorkspace has zero errors and 15 pre-existing warnings.
 - Vercel production-equivalent build PASS with `api/pasc-large-worker` maxDuration 300 and `queue/v2beta` trigger for topic `pasc-large-jobs` present in `.vc-config.json`.
+- Production deployment PASS: `dpl_3CSivFGH2DqwK6Vy9XL18QyrDNGN` is READY, aliased to `https://pasc-tcn-gis.vercel.app`, and contains `api/pasc-jobs` plus `api/pasc-large-worker` in `iad1`.
+- Production post-deploy log audit found no error-level entries in the first 30 minutes.
+- GitHub publication PASS: public `PASC-TCN-GIS/main` advanced by non-force fast-forward from `5b69175e` to snapshot `c711faba`; the snapshot tree exactly matches validated local commit `210340a`.
+- Browser plugin validation remained blocked before browser startup by the recurring Windows deny-read ACL helper. Direct production root/datasets/map/private-health probes returned HTTP 200 immediately after deployment; later shell calls to both static root and API timed out at the network connection layer, confirming a local connectivity interruption rather than an API-only failure.
