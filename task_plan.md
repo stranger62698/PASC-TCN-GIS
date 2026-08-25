@@ -456,5 +456,5 @@ Phase G complete
 - [x] Design a server-owned persistent job that reads the private CSV, classifies bounded batches, records progress/results, and resumes safely
 - [x] Integrate a clear large-data classification module into the import/map workflow without depending on the visitor computer or browser lifetime
 - [x] Add job, retry, ownership, result-map, and 21,610-point regression coverage; run full frontend/private-service verification
-- [ ] Publish GitHub and deploy/verify production while keeping weights, keys, and user research data private
-- **Status:** in_progress
+- [x] Publish GitHub and deploy/verify production while keeping weights, keys, and user research data private
+- **Status:** complete
