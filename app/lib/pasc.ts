@@ -13,7 +13,7 @@ import {
 } from "../types/pasc.js";
 
 export const PASC_TARGET_STEPS = 248;
-export const PASC_EXPERIMENTAL_MIN_STEPS = 40;
+export const PASC_EXPERIMENTAL_MIN_STEPS = 20;
 export const PASC_ZSCORE_EPSILON = 0.00001 as const;
 
 export const PASC_CLASSES: readonly PascClassDefinition[] = [
@@ -96,10 +96,10 @@ export function classifyEpochCount(validEpochs: number): {
   temporalApplicability: PascTemporalApplicability;
 } {
   if (validEpochs < PASC_EXPERIMENTAL_MIN_STEPS) {
-    return { epochStatus: "unsupported_39_or_less", temporalApplicability: "unsupported" };
+    return { epochStatus: "unsupported_19_or_less", temporalApplicability: "unsupported" };
   }
   if (validEpochs < PASC_TARGET_STEPS) {
-    return { epochStatus: "experimental_40_to_247", temporalApplicability: "experimental_adapted_to_248" };
+    return { epochStatus: "experimental_20_to_247", temporalApplicability: "experimental_adapted_to_248" };
   }
   if (validEpochs === PASC_TARGET_STEPS) {
     return { epochStatus: "native_248", temporalApplicability: "native_248" };

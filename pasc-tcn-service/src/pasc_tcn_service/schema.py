@@ -8,6 +8,7 @@ import math
 import re
 from dataclasses import dataclass
 from datetime import date
+from statistics import median
 from typing import Any
 
 from .contract import (
@@ -216,10 +217,16 @@ def _duplicate_conflicts(rows: list[dict[str, Any]], group: list[DateColumn]) ->
     return conflicts
 
 
-def _point_status(effective: int, total_dates: int) -> str:
+def _point_status(effective: int, total_dates: int, effective_dates) -> str:
     if effective < MIN_EXPERIMENTAL_EPOCHS:
         return "unsupported"
-    if effective == TARGET_EPOCHS and total_dates == TARGET_EPOCHS:
+    gaps = [(right - left).days for left, right in zip(effective_dates, effective_dates[1:])]
+    median_gap_days = float(median(gaps)) if gaps else 0.0
+    if (
+        effective == TARGET_EPOCHS
+        and total_dates == TARGET_EPOCHS
+        and 9.0 <= median_gap_days <= 15.0
+    ):
         return "native_248"
     return "adapted_experimental"
 
@@ -366,13 +373,14 @@ def inspect_payload(payload: dict[str, Any]) -> ValidatedDataset:
 
     point_reports: list[dict[str, Any]] = []
     for index, row in enumerate(rows):
-        effective = 0
+        effective_dates = []
         for group in date_groups:
             if any(_finite(row.get(column.source)) is not None for column in group):
-                effective += 1
+                effective_dates.append(group[0].value)
+        effective = len(effective_dates)
         point_id_field = mapping.get("pointId")
         point_id = row.get(point_id_field) if point_id_field else index
-        status = _point_status(effective, len(date_groups))
+        status = _point_status(effective, len(date_groups), effective_dates)
         report = {
             "row": index,
             "pointId": str(point_id),

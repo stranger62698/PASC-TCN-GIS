@@ -13,6 +13,7 @@ import numpy as np
 from .contract import (
     CONTRACT_VERSION,
     FEATURE_NAMES,
+    FORMAL_VALIDATION_MIN_EPOCHS,
     MIN_EXPERIMENTAL_EPOCHS,
     MODEL_VERSION,
     SERVICE_VERSION,
@@ -219,10 +220,14 @@ def _adapt(
         [(item - original_dates[0]).days for item in original_dates],
         dtype=np.float32,
     )
+    gaps = np.diff(day_offsets)
+    median_gap_days = float(np.median(gaps)) if len(gaps) else 0.0
+    sentinel_cadence = 9.0 <= median_gap_days <= 15.0
     native = (
         len(original_values) == TARGET_EPOCHS
         and total_date_count == TARGET_EPOCHS
         and len(original_dates) == TARGET_EPOCHS
+        and sentinel_cadence
     )
     if native:
         years = day_offsets / np.float32(365.25)
@@ -335,7 +340,31 @@ def _preprocess_point(
         len(dataset.date_groups),
     )
     preprocessing_state = dataset.settings["preprocessingState"]
+    gap_days = np.asarray(
+        [(right - left).days for left, right in zip(original_dates, original_dates[1:])],
+        dtype=np.float32,
+    )
+    median_gap_days = float(np.median(gap_days))
+    cadence_status = (
+        "sentinel_12_day_like"
+        if 9.0 <= median_gap_days <= 15.0
+        else "non_12_day_cadence"
+    )
     warnings: list[dict[str, str]] = []
+    if len(original_values) < FORMAL_VALIDATION_MIN_EPOCHS:
+        warnings.append(
+            {
+                "code": "PASC_20_TO_39_EXPLORATORY",
+                "message": "20—39期已按真实日期插值至248期，但低于既有40期最低评估证据，仅供探索性判读。",
+            }
+        )
+    if cadence_status == "non_12_day_cadence":
+        warnings.append(
+            {
+                "code": "PASC_NON_SENTINEL_CADENCE",
+                "message": f"中位时相间隔为{median_gap_days:.1f}天，偏离哨兵约12天节奏；已按真实日期插值，但属于时间域偏移。",
+            }
+        )
     if preprocessing_state == "raw":
         processed = savgol_filter_9_3(adapted)
         noise_residual_std: float | None = float(
@@ -417,6 +446,8 @@ def _preprocess_point(
         "missingRate": (
             (len(dataset.date_groups) - len(original_values)) / len(dataset.date_groups)
         ),
+        "medianGapDays": median_gap_days,
+        "cadenceStatus": cadence_status,
         "maximumGapDays": max(
             (right - left).days
             for left, right in zip(original_dates, original_dates[1:])

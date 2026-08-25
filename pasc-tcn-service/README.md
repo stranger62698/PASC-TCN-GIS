@@ -9,7 +9,7 @@
 - 契约：`pasc-contract-v1`
 - 模型：`pasc-tcn-haikou-v1`
 - 六类顺序固定为 Stable、Linear、Piecewise、Decelerating、Accelerating、Undefined
-- 原生输入为 248 期；40–247 期经 Temporal Adapter 后仅标记为 experimental；少于 40 期不推理
+- 原生输入为 248 期且中位间隔接近哨兵 12 天；20–247 期按真实日期经 Temporal Adapter 插值至 248 节点并标记为 experimental；20–39 期额外提示低于既有 40 期最低评估证据；少于 20 期不推理；非 12 天节奏返回时间域偏移 warning
 - SG 为 window 9 / polynomial 3；逐行 Z-score epsilon 为 `1e-5`
 - 13 维特征、训练 Scaler、动态类 2/3/4 的 1.35 概率校准均冻结
 - 空间参考只包含固定训练集 1,036 行；8 邻居、500 m 半径、180 m 距离尺度

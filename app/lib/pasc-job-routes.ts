@@ -88,7 +88,7 @@ function mappingConfig(dataset: DatasetJobRow): PascJobRequestConfig | null {
   if (
     typeof record.lon !== "string" || !record.lon ||
     typeof record.lat !== "string" || !record.lat ||
-    dateColumns.length < 40 ||
+    dateColumns.length < 20 ||
     !["mm", "cm", "m"].includes(String(displacementUnit)) ||
     (record.velocity && !["mm/year", "cm/year", "m/year"].includes(String(velocityUnit))) ||
     !["toward_satellite_positive", "away_from_satellite_positive"].includes(String(signConvention)) ||
@@ -141,7 +141,7 @@ export async function publicJobsPOST(request: Request) {
   if (!dataset) return errorResponse("PASC_DATASET_NOT_FOUND", "数据集不存在。", 404);
   if (dataset.status === "archived") return errorResponse("PASC_DATASET_NOT_READY", "已归档数据集不能创建任务。", 409);
   const config = mappingConfig(dataset);
-  if (!config) return errorResponse("PASC_JOB_MAPPING_REQUIRED", "创建大数据任务前必须确认字段、至少 40 个日期列、单位、符号和平滑状态。", 422);
+  if (!config) return errorResponse("PASC_JOB_MAPPING_REQUIRED", "创建大数据任务前必须确认字段、至少 20 个日期列、单位、符号和平滑状态。", 422);
   const created = await createPascJob(env.DB, {
     ownerId: user.userId,
     datasetId,

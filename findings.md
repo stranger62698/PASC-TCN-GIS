@@ -629,3 +629,13 @@
 - Visitor GPU is not used. Any modern browser can upload, monitor, and render; classification speed depends on the server-side private service. A GPU host can accelerate future inference but is not required for correctness.
 - Verification passed: 21,610/44-batch regression, Phase F 8/8, full suite 32/32, production static build, strict lint on all new modules, and Vercel production-equivalent build with the queue trigger present in the consumer function bundle.
 - Final production topology is active: static WebGIS and authenticated task API on `pasc-tcn-gis`, durable queue consumer in `iad1`, private Blob state scoped under `users/{ownerId}`, and the frozen CPU inference service behind the server-only key.
+
+## 2026-08-25 O7 temporal adapter audit
+- The authoritative Python adapter uses parsed acquisition dates, converts them to elapsed-day offsets, and linearly interpolates every non-248 sequence onto 248 normalized nodes. A 210-epoch upload therefore already follows the same automatic 210-to-248 path.
+- Exactly 248 epochs bypass temporal adaptation; 20-247 and >248 inputs are adapted. The experimental label denotes validation scope, not a missing interpolation step.
+- Velocity and physical features use real elapsed years. The frozen TCN still consumes 248 index-space nodes learned mainly from Sentinel-like 12-day sequences, so materially different cadence/sensor/span remains a temporal domain shift.
+- The current private bundle declares a minimum of 40 in its signed configuration and the service validates that exact value at startup. Lowering the boundary requires regenerating the private bundle metadata and hashes, but not changing checkpoint, scaler, calibration, or spatial references.
+- Selected policy: accept >=20 effective epochs; keep every adapted 20-247 sequence explicitly experimental; add a stronger 20-39 evidence warning and a non-12-day cadence warning instead of claiming native equivalence.
+- Audit command errors: a Windows `rg` glob for `PHASE_*_COMPLETION_REPORT.md` was invalid, and an exploratory search named a nonexistent `model_runtime.py`; neither affected the successful source audit.- Additional audit errors: a search referenced nonexistent repository-root `tools` and the bundle script was first read from the wrong path; the authoritative script is `pasc-tcn-service/tools/build_private_model_bundle.py`.
+- The live Python task consumer has two distinct 40 literals: the epoch gate must become 20, while `chunk_size = max(40, ...)` is a batching floor and must remain unchanged.
+- UI wording should state that non-native series are already interpolated by real acquisition dates to 248 nodes; “experimental” describes evidence/domain scope rather than whether adaptation ran.

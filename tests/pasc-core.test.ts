@@ -106,12 +106,12 @@ test("production dataset clients no longer call undeployed Cloudflare upload rou
   assert.match(mapSource, /runPascOnlineRecognition\(result\.points, meta\.name, nextMapping\.preprocessingState, privateId\)/);
 });
 
-test("39, 40, and 248 epoch boundaries remain explicit", () => {
-  assert.deepEqual(classifyEpochCount(39), { epochStatus: "unsupported_39_or_less", temporalApplicability: "unsupported" });
-  assert.deepEqual(classifyEpochCount(40), { epochStatus: "experimental_40_to_247", temporalApplicability: "experimental_adapted_to_248" });
+test("19, 20, and 248 epoch boundaries remain explicit", () => {
+  assert.deepEqual(classifyEpochCount(19), { epochStatus: "unsupported_19_or_less", temporalApplicability: "unsupported" });
+  assert.deepEqual(classifyEpochCount(20), { epochStatus: "experimental_20_to_247", temporalApplicability: "experimental_adapted_to_248" });
   assert.deepEqual(classifyEpochCount(248), { epochStatus: "native_248", temporalApplicability: "native_248" });
-  assert.equal(capabilityLevelFor({ validCoordinates: true, validEpochs: 39, hasVelocity: false }), 2);
-  assert.equal(capabilityLevelFor({ validCoordinates: true, validEpochs: 40, hasVelocity: false }), 3);
+  assert.equal(capabilityLevelFor({ validCoordinates: true, validEpochs: 19, hasVelocity: false }), 2);
+  assert.equal(capabilityLevelFor({ validCoordinates: true, validEpochs: 20, hasVelocity: false }), 3);
 });
 
 test("probability contract normalizes and selects the maximum class", () => {
@@ -167,6 +167,20 @@ test("a generated 248-column row is native Level 3", () => {
   assert.equal(result.compatibility.epochStatus, "native_248");
   assert.equal(result.compatibility.native248Points, 1);
 });
+test("248 non-12-day epochs stay experimental in WebGIS precheck", () => {
+  const dates = Array.from({ length: 248 }, (_, index) => {
+    const date = new Date(Date.UTC(2017, 0, 1 + index * 24));
+    return `D${date.toISOString().slice(0, 10).replaceAll("-", "")}`;
+  });
+  const csv = `fid,longitude,latitude,${dates.join(",")}\nN1,110.3,20.1,${dates.map((_, index) => index).join(",")}`;
+  const inspection = inspectCsv(csv);
+  const mapping: CsvMapping = { ...inspection.mapping, velocity: "", timeCols: dates, ...confirmed };
+  const result = parseMappedCsv(csv, "non-sentinel-cadence.csv", mapping);
+  assert.equal(result.compatibility.epochStatus, "experimental_20_to_247");
+  assert.equal(result.compatibility.temporalApplicability, "experimental_adapted_to_248");
+  assert.equal(result.compatibility.native248Points, 0);
+  assert.match(result.points[0].warnings.join(" "), /24\.0 天|时间域偏移/);
+});
 test("away-from-satellite positive input is converted to model-native sign", () => {
   const csv = "fid,longitude,latitude,velocity,D20200101,D20210101\nP1,110.3,20.1,2,0,10";
   const inspection = inspectCsv(csv);
@@ -203,16 +217,16 @@ function phaseEPoint(id: string, epochs = 40): InsarPoint {
     updated: phaseEDates[Math.min(epochs, phaseEDates.length) - 1] ?? "—",
     series: Array.from({ length: epochs }, (_, index) => -index),
     dates: phaseEDates.slice(0, epochs),
-    capabilityLevel: epochs >= 40 ? 3 : 2,
+    capabilityLevel: epochs >= 20 ? 3 : 2,
     effectiveEpochCount: epochs,
-    temporalApplicability: epochs >= 40 ? "experimental_adapted_to_248" : "unsupported",
+    temporalApplicability: epochs >= 20 ? "experimental_adapted_to_248" : "unsupported",
     spatialApplicability: "not_evaluated",
   };
 }
 
-test("Phase E request keeps ordinary WebGIS points below 40 out of inference", () => {
+test("Phase E request keeps ordinary WebGIS points below 20 out of inference", () => {
   const request = buildPascOnlineRequest(
-    [phaseEPoint("eligible"), phaseEPoint("ordinary", 39)],
+    [phaseEPoint("eligible"), phaseEPoint("ordinary", 19)],
     "small.csv",
     "raw",
   );
@@ -226,7 +240,7 @@ test("Phase E request keeps ordinary WebGIS points below 40 out of inference", (
 
 test("automatic CSV classification splits 3,000 eligible points into bounded requests", () => {
   const source = Array.from({ length: 3_000 }, (_, index) => phaseEPoint(`batch-${index}`));
-  const requests = buildPascOnlineRequestBatches([...source, phaseEPoint("ordinary", 39)], "three-thousand.csv", "raw");
+  const requests = buildPascOnlineRequestBatches([...source, phaseEPoint("ordinary", 19)], "three-thousand.csv", "raw");
   assert.deepEqual(requests.map(request => request.points.length), [500, 500, 500, 500, 500, 500]);
   assert.deepEqual(requests.flatMap(request => request.points.map(point => point.pointId)), source.map(point => point.id));
   assert.throws(
@@ -365,7 +379,7 @@ function phaseEResponse(): PascOnlineResponse {
 }
 
 test("Phase E merge trusts calibrated service output and enables PASC filters", () => {
-  const ordinary = phaseEPoint("ordinary", 39);
+  const ordinary = phaseEPoint("ordinary", 19);
   const { points, response } = mergePascOnlineResults([phaseEPoint("P-1"), ordinary], phaseEResponse());
   assert.equal(response.summary.predicted, 1);
   assert.equal(points[0].modeCanonical, "Stable");
@@ -377,7 +391,7 @@ test("Phase E merge trusts calibrated service output and enables PASC filters", 
   assert.deepEqual(filterPascOnlinePoints(points, "limitedReference").map(point => point.id), ["P-1"]);
 });
 test("Phase E synchronous small-data flow runs preprocess, infer, merge, and filter end to end", async () => {
-  const sourcePoints = [phaseEPoint("P-1"), phaseEPoint("ordinary", 39)];
+  const sourcePoints = [phaseEPoint("P-1"), phaseEPoint("ordinary", 19)];
   const request = buildPascOnlineRequest(sourcePoints, "small.csv", "already_smoothed");
   const calls: string[] = [];
   const fetchImpl: typeof fetch = async (input) => {

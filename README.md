@@ -33,7 +33,7 @@ pnpm build
 
 ## PASC Phase A 离线展示
 
-当前契约为 `pasc-contract-v1`，模型结果版本为 `pasc-tcn-haikou-v1`。Level 3 需要至少 40 个逐点有效日期值，但 40—247 期仍只标记为 experimental，248 期为 native。时间适用性与空间适用性分别显示。
+当前契约为 `pasc-contract-v1`，模型结果版本为 `pasc-tcn-haikou-v1`。Level 3 需要至少 20 个逐点有效日期值。20—247 期会按真实采集日期自动插值至 248 节点并标记为 experimental；其中 20—39 期低于既有 40 期最低评估证据，仅供探索性判读。只有 248 期且中位间隔接近哨兵 12 天节奏时标记为 native。时间适用性与空间适用性分别显示。
 
 - Spatial Demo：`public/data/haikou-insar.csv`，3,094 点、248 期、连续区域约 50m 网格抽稀，保持自然类别不平衡
 - Showcase Demo：`public/data/haikou-pasc-showcase.csv`，3,000 点、248 期、每类 500 点，仅用于六类界面覆盖，不代表科学类别比例
@@ -57,8 +57,8 @@ npm run demo:validate
 row-wise Z-score、冻结 13 维物理特征和冻结训练 Scaler，并提供
 `GET /v1/models`、`POST /v1/validate`、`POST /v1/preprocess`。
 
-完整 248 期会绕过插值；40–247 期仅为 experimental；少于 40 期返回
-unsupported 原因。`validate` 与 `preprocess` 本身不加载 checkpoint；Phase D 推理仅通过独立、鉴权且验证签名工件的 `infer` 路由执行。
+完整 248 期且中位间隔接近 12 天时绕过插值；20–247 期会按真实日期插值至 248 节点并标记为 experimental；少于 20 期返回
+unsupported 原因。非 12 天节奏仍可执行，但会返回时间域偏移 warning；可靠迁移需独立评估，必要时微调或重训模型。`validate` 与 `preprocess` 本身不加载 checkpoint；Phase D 推理仅通过独立、鉴权且验证签名工件的 `infer` 路由执行。
 运行、请求契约、错误码和 native-248 黄金回归方法见
 [`pasc-tcn-service/README.md`](pasc-tcn-service/README.md)。
 
@@ -86,7 +86,7 @@ optimizer、backward、fit 或训练入口。配置、鉴权和验证命令见
 
 地图的 PASC 工作区已接入同步小数据流程：本地 CSV 上传与字段映射后，必须
 明确确认形变/速率单位、正负号以及 raw/already_smoothed 状态，再显示能力
-等级并仅提交逐点有效期不少于 40 的候选点。少于 40 期的点不会提交推理，
+等级并仅提交逐点有效期不少于 20 的候选点。少于 20 期的点不会提交推理，
 但仍完整保留普通 WebGIS 浏览与分析能力。
 
 浏览器只调用同源的 POST /api/pasc/infer。该路由要求登录，将规范化的小数据
@@ -105,7 +105,7 @@ Phase E 同步流程仍保持 500 点边界；更大的私有数据集由 Phase 
 
 ## PASC Phase F 大数据任务
 
-登录后的“数据集管理”页面提供持久任务中心。已确认经纬度、至少 40 个日期列、
+登录后的“数据集管理”页面提供持久任务中心。已确认经纬度、至少 20 个日期列、
 单位、正负号和预处理状态的数据集可提交至 `POST /v1/jobs`。任务状态、事件、
 模型版本与摘要存入 D1；原始 CSV、分块预测、错误、审计和多级地图工件存入 R2，
 完整时序与大矩阵不会写入 D1 或返回任务列表。

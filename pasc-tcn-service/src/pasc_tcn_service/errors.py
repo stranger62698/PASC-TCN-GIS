@@ -27,7 +27,7 @@ MESSAGES = {
     "PASC_UNIT_CONFIRMATION_REQUIRED": "必须明确确认形变和速度单位。",
     "PASC_SIGN_CONFIRMATION_REQUIRED": "必须明确确认形变符号约定。",
     "PASC_PREPROCESSING_STATE_REQUIRED": "必须确认数据是原始序列还是已平滑序列。",
-    "PASC_TOO_FEW_VALID_EPOCHS": "有效时相少于40，当前模型不支持。",
+    "PASC_TOO_FEW_VALID_EPOCHS": "有效时相少于20，当前模型不支持。",
     "PASC_PREPROCESS_FAILED": "预处理失败，请检查输入数据。",
     "PASC_BAD_REQUEST": "请求格式无效。",
     "PASC_NOT_FOUND": "接口不存在。",
