@@ -605,3 +605,26 @@
 - The smallest correct production repair is client-side routing to `/api/private-datasets`: generate the dataset UUID in the browser, upload <=4 MiB chunks, complete with metadata, and reconstruct analysis-ready CSV bytes from authenticated chunk reads.
 - Chunk text must be decoded only after byte concatenation, because decoding each arbitrary byte slice independently can corrupt UTF-8 characters at chunk boundaries.
 - `parsePascDateHeader` accepts `YYYYMMDD`, `DYYYYMMDD`, and separated year-first dates, but not `D_YYYYMMDD`. Extending only its prefix grammar preserves all downstream canonical sorting, duplicate detection, real-date velocity, and PASC request conversion.
+
+## 2026-08-25 Large-dataset classification report
+- The screenshot shows 21,610 valid 46-epoch candidates, which are blocked by the browser-only 10,000-candidate safety cap before any classification result is committed.
+- The desired production behavior is persistent server-side task processing: bounded model requests, visible progress, retry/resume, and final classified-map loading even if the browser closes.
+- Client hardware must not be part of the execution contract; browser devices should only upload, monitor, and render sampled/results data.
+- Existing Phase F code is not connected to the deployed stack: its `/v1/jobs` routes import `cloudflare:workers`, require D1/R2 bindings and ChatGPT/Sites identity, while production is a static Vercel frontend with root Vercel functions and Vercel Blob/session-cookie storage.
+- `PascJobPanel` therefore describes a durable pipeline that is unavailable on the current production deployment; it cannot receive the 21,610-point dataset stored by `/api/private-datasets`.
+- The frozen private model already enforces a safe <=512-point request. Large-data support should preserve that model boundary and add persistent orchestration above it rather than increasing one inference payload to tens of thousands of points.
+- Current official Vercel limits show Fluid Compute Hobby functions run up to 300 seconds on 1 vCPU/2 GB; this is CPU server compute, not the visitor's GPU.
+- Vercel Queues is in public beta on all plans and provides durable asynchronous delivery, push consumers, automatic retries, visibility leases and idempotency. It is a direct production replacement for the undeployed Cloudflare D1 lease queue.
+- Hobby Cron is only daily and imprecise, so Cron cannot drive interactive 21,610-point classification. A Vercel Queue push consumer is the appropriate autonomous trigger.
+- Queue messages should contain only owner/job/dataset/chunk identifiers. CSV series remain in private Blob; each consumer loads one bounded chunk, calls the existing private PASC proxy/service, writes an idempotent result artifact, updates job metadata, and enqueues the next chunk.
+- Installed official `@vercel/queue` 0.5.0. Its `QueueClient.handleNodeCallback` directly supports the `(req, res)` signature used by root Vercel Functions, so no public consumer endpoint or ad-hoc callback authentication is needed.
+- The existing `runPascOnlineProxy` already accepts a canonical <=500-point request and reads the private service URL/key only on the server. Queue workers can reuse it directly instead of round-tripping through the session-protected public proxy.
+- Private dataset storage is `users/{userId}/datasets/{datasetId}/chunks/{index}` plus `users/{userId}/meta/{datasetId}.json`; job/result keys can stay under the same owner prefix and never expose another user's objects.
+## 2026-08-25 O6 implementation findings
+- Production implementation now uses Vercel Blob for owner-scoped job metadata, request batches, and result batches plus Vercel Queues for durable push delivery. Queue messages contain only owner/job/batch identifiers; CSV content, model package, and service key are never placed in the queue or browser.
+- The supplied 21,610-candidate shape is deterministically split into 44 requests: 43 batches of 500 and a final batch of 110. The existing private inference service remains the only model executor and currently reports CPU.
+- Each queue delivery processes at most one 500-point inference batch with a 300-second function boundary. Result blobs make retries idempotent; batch summaries are keyed by index so redelivery cannot double-count progress.
+- Private CSV upload chunks are reconstructed as bytes and decoded once as UTF-8, preventing a multibyte character from being corrupted when it crosses a 4 MiB chunk boundary.
+- The map now routes >10,000 candidates to the persistent task API instead of treating them as a terminal browser error. The data center polls progress and exposes cancel/retry; completed jobs load all result batches and merge them into the original full point map.
+- Visitor GPU is not used. Any modern browser can upload, monitor, and render; classification speed depends on the server-side private service. A GPU host can accelerate future inference but is not required for correctness.
+- Verification passed: 21,610/44-batch regression, Phase F 8/8, full suite 32/32, production static build, strict lint on all new modules, and Vercel production-equivalent build with the queue trigger present in the consumer function bundle.

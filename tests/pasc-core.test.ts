@@ -103,7 +103,7 @@ test("production dataset clients no longer call undeployed Cloudflare upload rou
   assert.match(source, /private-datasets-client/);
   assert.match(datasetSource, /\/map\?dataset=/);
   assert.match(datasetSource, /进入地图并自动分类/);
-  assert.match(mapSource, /runPascOnlineRecognition\(result\.points, meta\.name, nextMapping\.preprocessingState\)/);
+  assert.match(mapSource, /runPascOnlineRecognition\(result\.points, meta\.name, nextMapping\.preprocessingState, privateId\)/);
 });
 
 test("39, 40, and 248 epoch boundaries remain explicit", () => {

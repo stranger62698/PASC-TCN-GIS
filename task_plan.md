@@ -447,6 +447,14 @@ Phase G complete
 - [x] Reproduce the supplied `500.csv` import and inventory ENVI headers, encoding, row shape, and current parser behavior
 - [x] Accept `D_YYYYMMDD` as a date column by canonicalizing it to `YYYY-MM-DD` without changing source values
 - [x] Diagnose and repair the non-JSON import response so local CSV analysis does not depend on an unavailable server route
-- [ ] Add STAMPS/ENVI regression coverage, run full build/tests, and verify automatic PASC-TCN classification end to end
-- [ ] Publish the validated public code and redeploy Vercel without exposing private weights or secrets
+- [x] Add STAMPS/ENVI regression coverage, run full build/tests, and verify automatic PASC-TCN classification end to end
+- [x] Publish the validated public code and redeploy Vercel without exposing private weights or secrets
+- **Status:** complete
+
+### Operations O6: Large InSAR Task Classification
+- [x] Reproduce the 21,610-point boundary and audit whether existing Phase F APIs/storage/worker are deployable on current Vercel production
+- [x] Design a server-owned persistent job that reads the private CSV, classifies bounded batches, records progress/results, and resumes safely
+- [x] Integrate a clear large-data classification module into the import/map workflow without depending on the visitor computer or browser lifetime
+- [x] Add job, retry, ownership, result-map, and 21,610-point regression coverage; run full frontend/private-service verification
+- [ ] Publish GitHub and deploy/verify production while keeping weights, keys, and user research data private
 - **Status:** in_progress

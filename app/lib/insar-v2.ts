@@ -1,4 +1,4 @@
-import type { InsarPoint } from "../data/site";
+import type { InsarPoint } from "../data/site.js";
 import {
   PASC_CONTRACT_VERSION,
   PASC_MODEL_VERSION,
@@ -10,7 +10,7 @@ import {
   type PascPreprocessingState,
   type PascSpatialApplicability,
   type PascValueSource,
-} from "../types/pasc";
+} from "../types/pasc.js";
 import {
   PASC_CLASSES,
   PASC_ZSCORE_EPSILON,
@@ -20,7 +20,7 @@ import {
   parsePascClass,
   pascDisplayName,
   winningPascClass,
-} from "./pasc";
+} from "./pasc.js";
 import {
   analyzePascDateColumns,
   duplicateDateConflicts,
@@ -31,7 +31,7 @@ import {
   type PascDateSchemaAnalysis,
   type PascFieldResolution,
   type PascSemanticField,
-} from "./pasc-schema";
+} from "./pasc-schema.js";
 
 export type DisplacementUnit = "mm" | "cm" | "m" | "unknown";
 export type VelocityUnit = "mm/year" | "cm/year" | "m/year" | "unknown";

@@ -7,7 +7,7 @@ import { AnalysisProvider, colorForMode, deformationModeOrder, normalizedMode, u
 import { interpretRegionalAnalysis, type RegionalAnalysisInput, type RegionalInterpretation } from "../lib/ai-analysis";
 import { trackEvent } from "../lib/analytics";
 import { inspectCsv, parseMappedCsv, parseQgisRamp, stageVelocity, type CsvInspection, type CsvMapping, type DatasetParseResult, type RenderAttribute, type RenderStyle } from "../lib/insar-v2";
-import { buildPascOnlineRequestBatches, filterPascOnlinePoints, mergePascOnlineResults, onlineErrorMessage, type PascOnlineFilter, type PascOnlineRunState } from "../lib/pasc-online";
+import { PASC_AUTO_CLASSIFY_MAX_POINTS, buildPascOnlineRequestBatches, filterPascOnlinePoints, mergePascOnlineResults, onlineErrorMessage, type PascOnlineFilter, type PascOnlineRunState } from "../lib/pasc-online";
 import { parsePascMapPreview, pascMapLevelForZoom, type PascPublicJob } from "../lib/pasc-job-client";
 import { listPrivateDatasets, patchPrivateDataset, readPrivateDatasetSource } from "../lib/private-datasets-client";
 import { PascAnalysisPanel } from "./PascAnalysisPanel";
@@ -323,7 +323,9 @@ function MapWorkspaceView() {
             throw new Error("该数据集仅完成私有归档，文件过大，暂不支持浏览器直接分析。");
             const text = await readPrivateDatasetSource(privateId, meta.chunks), found = inspectCsv(text), saved = meta.mapping as CsvMapping | undefined, nextMapping = saved?.lon ? { ...found.mapping, ...saved } : found.mapping, result = parseMappedCsv(text, meta.name, nextMapping, true); setInspection(found); setMapping(nextMapping); applyResult(result, meta.name, restoreRequested.current); if (!saved?.lon)
             await saveAnalysisMeta(privateId, nextMapping, result);
-            await runPascOnlineRecognition(result.points, meta.name, nextMapping.preprocessingState);
+            const largeJobId = params.get("largeJob");
+            if (largeJobId) await loadPascLargeJobResults(largeJobId, result.points);
+            else await runPascOnlineRecognition(result.points, meta.name, nextMapping.preprocessingState, privateId);
         }).catch(e => setStatus(e instanceof Error ? e.message : "私有数据读取失败")).finally(() => setBusy(""));
         return;
     } fetch("/data/haikou-insar.csv").then(r => { if (!r.ok)
@@ -470,13 +472,69 @@ function MapWorkspaceView() {
         updateAnalysis({ selectedPointId: null, selectedRegion: chosen.length ? { bounds, pointIds: chosen.map(point => point.id), label: "异常点筛选结果", source: "anomaly" } : null });
         setStatus(chosen.length ? `发现 ${chosen.length.toLocaleString()} 个异常监测点；已排除 ${anomalyDiscovery.summary.excludedLowQuality.toLocaleString()} 个低质量点。` : "当前数据未筛选出符合既定规则的异常监测点。" );
     };
-    const runPascOnlineRecognition = async (
+    async function loadPascLargeJobResults(jobId: string, sourcePoints: InsarPoint[]) {
+        const runId = ++pascRunId.current;
+        setRightTab("pasc");
+        setStatus("正在读取后台分类任务与完整结果分块…");
+        const detailResponse = await fetch(`/api/pasc-jobs?op=detail&id=${encodeURIComponent(jobId)}`, { credentials: "include", cache: "no-store" });
+        const detailBody = await detailResponse.json().catch(() => null) as { job?: PascPublicJob; error?: { message?: string } } | null;
+        if (!detailResponse.ok || !detailBody?.job) throw new Error(detailBody?.error?.message || "后台分类任务读取失败。");
+        const job = detailBody.job;
+        if (job.status !== "completed") throw new Error(`后台分类尚未完成：${job.progress.toFixed(1)}%。可在数据中心查看进度。`);
+        const sourceById = new Map(sourcePoints.map(point => [point.id, point]));
+        const classified = new Map<string, InsarPoint>();
+        const summary = { points: 0, predicted: 0, lowConfidence: 0, limitedReference: 0 };
+        let serviceVersion: string | null = null;
+        let buildHash: string | null = null;
+        setPascOnlineRun({ ...emptyPascOnlineRun, status: "running", totalPoints: job.points.total, totalBatches: job.chunks.total });
+        for (let index = 0; index < job.chunks.total; index += 1) {
+            if (runId !== pascRunId.current) return;
+            setStatus(`正在加载分类结果第 ${index + 1} / ${job.chunks.total} 批…`);
+            const response = await fetch(`/api/pasc-jobs?op=result&id=${encodeURIComponent(jobId)}&index=${index}`, { credentials: "include", cache: "no-store" });
+            const body = await response.json().catch(() => null) as { points?: Array<{ pointId?: string }>; error?: { message?: string } } | null;
+            if (!response.ok || !Array.isArray(body?.points)) throw new Error(body?.error?.message || `第 ${index + 1} 批结果读取失败。`);
+            const batchPoints = body.points.map(item => sourceById.get(String(item.pointId || ""))).filter(Boolean) as InsarPoint[];
+            const merged = mergePascOnlineResults(batchPoints, body);
+            if (serviceVersion && serviceVersion !== merged.response.serviceVersion) throw new Error("后台分批结果的服务版本不一致。");
+            if (buildHash && buildHash !== merged.response.modelPackage.buildHash) throw new Error("后台分批结果的模型包不一致。");
+            serviceVersion = merged.response.serviceVersion;
+            buildHash = merged.response.modelPackage.buildHash;
+            merged.points.forEach(point => classified.set(point.id, point));
+            summary.points += merged.response.summary.points;
+            summary.predicted += merged.response.summary.predicted;
+            summary.lowConfidence += merged.response.summary.lowConfidence;
+            summary.limitedReference += merged.response.summary.limitedReference;
+            setPascOnlineRun({ status: "running", error: "", completedAt: null, summary: { ...summary }, serviceVersion, buildHash, processedPoints: summary.predicted, totalPoints: job.points.total, completedBatches: index + 1, totalBatches: job.chunks.total });
+        }
+        if (runId !== pascRunId.current) return;
+        const mergedPoints = sourcePoints.map(point => classified.get(point.id) ?? point);
+        setPoints(mergedPoints);
+        setSelected(current => current ? mergedPoints.find(point => point.id === current.id) ?? null : null);
+        setBoxPoints(current => current.map(point => classified.get(point.id) ?? point));
+        setAttribute("mode");
+        setVisible(current => ({ ...current, points: true }));
+        setPascOnlineRun({ status: "success", error: "", completedAt: new Date().toISOString(), summary, serviceVersion, buildHash, processedPoints: summary.predicted, totalPoints: job.points.total, completedBatches: job.chunks.total, totalBatches: job.chunks.total });
+        setStatus(`后台 PASC 自动分类已加载 · ${summary.predicted.toLocaleString()} 点 · 共 ${job.chunks.total} 批 · 地图已切换六类固定色`);
+    }
+    async function runPascOnlineRecognition(
         sourcePoints: InsarPoint[] = points,
         sourceTitle: string = datasetTitle,
         sourcePreprocessing: CsvMapping["preprocessingState"] = mapping?.preprocessingState,
-    ) => {
+        sourceDatasetId: string = privateDatasetId,
+    ) {
         const runId = ++pascRunId.current;
         try {
+            const candidateTotal = sourcePoints.filter(point => (point.effectiveEpochCount ?? point.series.length) >= 40).length;
+            if (candidateTotal > PASC_AUTO_CLASSIFY_MAX_POINTS) {
+                if (!sourceDatasetId) throw new Error(`当前 ${candidateTotal.toLocaleString()} 个候选点需要后台任务；请先登录并将 CSV 保存为私有数据集。`);
+                setStatus(`正在创建 ${candidateTotal.toLocaleString()} 点后台自动分类任务…`);
+                const response = await fetch("/api/pasc-jobs?op=create", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ datasetId: sourceDatasetId }) });
+                const body = await response.json().catch(() => null) as { job?: PascPublicJob; created?: boolean; error?: { message?: string } } | null;
+                if (!response.ok || !body?.job) throw new Error(body?.error?.message || "后台分类任务创建失败。");
+                setPascOnlineRun({ ...emptyPascOnlineRun, totalPoints: candidateTotal, totalBatches: Math.ceil(candidateTotal / 500) });
+                setStatus(`已进入后台自动分类 · ${candidateTotal.toLocaleString()} 点 / ${body.job.chunks.total || Math.ceil(candidateTotal / 500)} 批；关闭页面不会中断，请在数据中心查看任务 ${body.job.jobId.slice(0, 8)}。`);
+                return;
+            }
             const requests = buildPascOnlineRequestBatches(sourcePoints, sourceTitle, sourcePreprocessing);
             const sourceById = new Map(sourcePoints.map(point => [point.id, point]));
             const classified = new Map<string, InsarPoint>();
@@ -534,7 +592,7 @@ function MapWorkspaceView() {
             setPascOnlineRun(current => ({ ...current, status: "error", error: message }));
             setStatus(message);
         }
-    };
+    }
     const applyPascResultFilter = (filter: PascOnlineFilter) => {
         const chosen = filterPascOnlinePoints(points, filter);
         const active = filter === "lowConfidence" ? "pascLowConfidence" : "pascLimitedSpatial";

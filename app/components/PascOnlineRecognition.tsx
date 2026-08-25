@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import type { PascPreprocessingState } from "../types/pasc";
 import type { PascOnlineFilter, PascOnlineRunState } from "../lib/pasc-online";
 import { PASC_AUTO_CLASSIFY_MAX_POINTS, PHASE_E_MAX_POINTS } from "../lib/pasc-online";
@@ -33,14 +35,14 @@ export function PascOnlineRecognition({
 }: PascOnlineRecognitionProps) {
   const hasResults = runState.status === "success";
   const overLimit = candidatePoints > PASC_AUTO_CLASSIFY_MAX_POINTS;
-  const blocked = !mappingConfirmed || blockingIssues.length > 0 || candidatePoints === 0 || overLimit;
+  const blocked = !mappingConfirmed || blockingIssues.length > 0 || candidatePoints === 0;
   const busy = runState.status === "running";
   const confirmedState = preprocessingState === "raw" || preprocessingState === "already_smoothed";
   const stages = [
     { key: "upload", label: "上传与映射", detail: mappingConfirmed ? `${totalPoints.toLocaleString()} 点已载入` : "等待确认字段映射", state: stageState(mappingConfirmed) },
     { key: "confirm", label: "单位 / 符号 / 平滑", detail: confirmedState ? (preprocessingState === "raw" ? "raw · 服务端执行 SG" : "already_smoothed · 不重复平滑") : "需要显式确认", state: stageState(confirmedState, mappingConfirmed && !confirmedState) },
-    { key: "compat", label: "能力分级", detail: `${candidatePoints.toLocaleString()} 个 ≥40 期候选`, state: stageState(candidatePoints > 0 && !blockingIssues.length, blockingIssues.length > 0 || overLimit) },
-    { key: "infer", label: "自动分批识别", detail: busy ? `${runState.processedPoints.toLocaleString()} / ${runState.totalPoints.toLocaleString()} 点 · ${runState.completedBatches} / ${runState.totalBatches} 批` : hasResults ? `${runState.summary?.predicted ?? 0} 点完成` : `确认导入后自动开始 · 每批 ≤${PHASE_E_MAX_POINTS}`, state: busy ? "running" : stageState(hasResults, blocked) },
+    { key: "compat", label: "能力分级", detail: `${candidatePoints.toLocaleString()} 个 ≥40 期候选`, state: stageState(candidatePoints > 0 && !blockingIssues.length, blockingIssues.length > 0) },
+    { key: "infer", label: "自动分批识别", detail: busy ? `${runState.processedPoints.toLocaleString()} / ${runState.totalPoints.toLocaleString()} 点 · ${runState.completedBatches} / ${runState.totalBatches} 批` : hasResults ? `${runState.summary?.predicted ?? 0} 点完成` : overLimit ? `后台持久队列 · 每批 ≤${PHASE_E_MAX_POINTS}` : `确认导入后自动开始 · 每批 ≤${PHASE_E_MAX_POINTS}`, state: busy ? "running" : stageState(hasResults, blocked) },
     { key: "map", label: "地图结果", detail: hasResults ? "六类固定色已应用" : "保留当前地图", state: stageState(hasResults) },
   ] as const;
 
@@ -59,7 +61,7 @@ export function PascOnlineRecognition({
         ))}
       </ol>
 
-      {overLimit && <div className="pasc-online-notice is-blocked" role="alert"><b>超出浏览器自动识别边界</b><span>当前有 {candidatePoints.toLocaleString()} 个候选点；自动分批最多处理 {PASC_AUTO_CLASSIFY_MAX_POINTS.toLocaleString()} 点，更大数据需进入可恢复任务流程。</span></div>}
+      {overLimit && <div className="pasc-online-notice" role="status"><b>已切换为后台大数据分类</b><span>当前 {candidatePoints.toLocaleString()} 个候选点将进入持久队列，按最多 {PHASE_E_MAX_POINTS} 点自动分批；关闭页面不会中断。</span><Link href="/datasets">打开任务进度模块 ↗</Link></div>}
       {!overLimit && blockingIssues.length > 0 && <div className="pasc-online-notice is-blocked" role="alert"><b>仍有确认项</b><span>{blockingIssues[0]}</span></div>}
       {!overLimit && mappingConfirmed && candidatePoints === 0 && <div className="pasc-online-notice" role="status"><b>普通 WebGIS 可继续使用</b><span>当前没有达到 40 个有效期的点，不会发送 PASC 请求。</span></div>}
 
@@ -75,7 +77,7 @@ export function PascOnlineRecognition({
 
       <div className="pasc-online-actions">
         <button className="pasc-online-run" disabled={blocked || busy} onClick={onRun}>
-          {busy ? "正在自动执行预处理与分类…" : runState.status === "error" ? "重试自动分类" : hasResults ? "重新分类当前数据" : "自动分类待启动"}
+          {busy ? "正在自动执行预处理与分类…" : runState.status === "error" ? "重试自动分类" : hasResults ? "重新分类当前数据" : overLimit ? "创建或恢复后台任务" : "自动分类待启动"}
         </button>
         <small>验证并导入后自动开始 · 同源代理 · 服务密钥不进入浏览器 · API 失败不清空数据 · 任一批失败不更新地图</small>
       </div>
