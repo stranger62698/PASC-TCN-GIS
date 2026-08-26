@@ -4,7 +4,7 @@
 Preserve completed Phases A-F and complete only Phase G from the v4 plan: independently evaluate external-region temporal/physical behavior, spatial reliability, orbit/unit/sign and sampling differences; keep Self-neighborhood experimental; surface honest exploratory applicability without changing frozen model mathematics.
 
 ## Current Phase
-Phase G complete
+V2 Phase 6 complete — exports, rule summary, finite states, and responsive polish; local only
 
 ## Phases
 
@@ -369,6 +369,11 @@ Phase G complete
 
 | Direct view_image access to the clipboard temp path was blocked by the Windows sandbox ACL helper | 1 | Use the visible attached image already supplied in the conversation and source/API evidence; do not copy user temp data unnecessarily |
 
+| Phase 1 planning apply_patch was blocked by the workspace deny-read ACL helper | 1 | Used the established exact UTF-8 replacement fallback and kept the edit limited to planning records |
+
+| Initial full lint included generated `.vercel/output` and failed on minified deployment bundles | 1 | Excluded `.vercel` and `build` from the source lint command |
+| Second full lint exposed the additional generated `static-dist` directory | 2 | Excluded `static-dist`; final source lint completed with 0 errors |
+| A development HMR reload briefly invalidated the analysis context module after an export changed | 1 | Restarted the development server from a clean process and verified `/map?demo=haikou` returned HTTP 200 |
 ## Notes
 - Six classes and colors are frozen by v4.
 - 40 epochs remain experimental; 39 is unsupported; 248 is native.
@@ -464,3 +469,63 @@ Phase G complete
 - [x] Add 19/20/210-to-248/irregular-cadence regression coverage and run WebGIS/private-service verification
 - [x] Publish GitHub and redeploy the frontend/private service with production checks
 - **Status:** complete
+
+## LANJIFYW InSAR V2 incremental roadmap
+
+### V2 Phase 0: Current-state audit
+- [x] Inventory stack, routes, directory structure, map engine, charting, data flow, result fields, filters, layers, exports, dialogs, deployment configuration, and dormant reusable code
+- [x] Map every V2 requirement to existing reusable code, required additions, and performance risks
+- [x] Produce `IMPLEMENTATION_AUDIT.md` with a file-level Phase 1 plan; do not modify business code in this phase
+- [x] Verify the audit against the current clean/dirty worktree and record acceptance evidence
+- **Status:** complete
+
+### V2 Phase 1: Core information architecture
+- [x] Preserve the original LANJIFYW positioning, typography, spacing, colors, and map-first shell
+- [x] Add a first-class three-mode switch: velocity / cumulative displacement / PASC pattern
+- [x] Keep dataset, map extent, filters, selections, and details stable when switching modes
+- [x] Synchronize map legend, visible counts, and missing-value display with the active mode
+- [x] De-emphasize stable points only in PASC mode and make accelerating points most visible
+- [x] Add reversible anomaly-only filtering with an optional undefined-category inclusion
+- [x] Add focused Phase 1 contract tests, run the full suite, and validate the production build
+- **Status:** complete
+
+### V2 Phase 2: PASC-TCN productization
+- [x] Audit the current point/PASC result contract and existing point, PASC, and time-series panels
+- [x] Add truthful result presentation for mode, confidence, Top-2 probabilities, and separate data-quality status
+- [x] Add optional change point and stage-slope derivation/display without fabricating unavailable model fields
+- [x] Add bounded six-mode explanations and an enhanced time-series view using the existing visual system
+- [x] Add focused tests and run full lint, WebGIS regression, Vinext build, and Vercel static build
+- **Status:** complete
+
+### V2 Phase 3: AOI analysis
+- [x] Audit and preserve the current rectangle-selection, region-context, and statistics flow
+- [x] Add polygon AOI drawing and persistent AOI geometry without replacing Leaflet
+- [x] Add truthful AOI area, velocity/cumulative, pattern-distribution, and quality statistics
+- [x] Add median/mean aggregate time series and optional per-pattern grouped curves
+- [x] Add focused tests and run full lint, WebGIS regression, Vinext build, and Vercel static build
+- **Status:** complete
+
+### V2 Phase 4: Anomaly regions
+- [x] Audit and preserve the current quality-gated anomaly-point discovery flow
+- [x] Add deterministic spatial-index clustering with explicit radius/minimum-point parameters and bounded large-data behavior
+- [x] Build truthful anomaly-region polygons, sortable evidence list, map navigation, and region details without an opaque risk score
+- [x] Keep anomaly regions distinct from raw anomaly points and AOI selections; preserve Phase 1-3 state and interaction
+- [x] Add focused tests and run full lint, WebGIS regression, Vinext build, and Vercel static build
+- **Status:** complete
+
+### V2 Phase 5: Multi-point comparison and real cases
+- [x] Audit and preserve the existing comparison, case, and map-navigation flows
+- [x] Enforce a single up-to-five-point comparison invariant in logic and UI
+- [x] Add comparison evidence summaries without changing the established chart language
+- [x] Add data-backed quick cases that locate, zoom, select, and open existing point details
+- [x] Add Phase 5 regression coverage and pass targeted/full verification
+- **Status:** complete — local implementation only; no commit or deployment
+
+### V2 Phase 6: Export and polish
+- [x] Audit and preserve existing point CSV, map screenshot, print, AOI, chart, dialog, and responsive flows
+- [x] Centralize safe point/comparison/AOI CSV generation and add chart PNG exports
+- [x] Add an inspectable current-analysis rule summary with text export
+- [x] Make loading, success, error, disabled, and empty states finite and accessible
+- [x] Refine map workspace behavior across desktop, tablet, and narrow mobile widths without redesigning LANJIFYW
+- [x] Add Phase 6 regression coverage and pass targeted/full lint, build, static, and local-route verification
+- **Status:** complete — local implementation only; no commit or deployment

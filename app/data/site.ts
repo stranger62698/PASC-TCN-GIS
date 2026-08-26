@@ -50,6 +50,9 @@ export type InsarPoint = {
   temporalApplicability?: PascTemporalApplicability;
   spatialApplicability?: PascSpatialApplicability;
   pasc?: PascPointResult;
+  changePoint?: string | null;
+  slopeBefore?: number | null;
+  slopeAfter?: number | null;
   warnings?: string[];
 };
 export const demoPoints: InsarPoint[] = [

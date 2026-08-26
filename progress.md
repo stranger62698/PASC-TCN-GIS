@@ -457,3 +457,160 @@ Phase C is complete. No acceptance threshold, supported minimum, /v1/infer endpo
 - A direct authenticated private inference probe could not run because the service-local environment file now contains only `VERCEL_OIDC_TOKEN`; no request or account was created. The frontend proxy production probe will run after the updated frontend is deployed, using an exactly cleaned temporary account.- Public GitHub `stranger62698/PASC-TCN-GIS` main fast-forwarded without force from `27d549b` to snapshot `2b7ffaa3814db97251880d2806379606c7d74d7d`; its tree matches local O7 commit `7e48755` and still excludes model bundles, weights, secrets, research data, and staging.
 - Frontend production deployment `dpl_9jnH9P9Z7dmeVhaEz6fCk15px8pv` is Ready at `https://pasc-tcn-gis.vercel.app`; all auth, PASC proxy, private-dataset, job, and queue-worker functions are present in `iad1`.
 - Stable-alias end-to-end production probes passed for synthetic 20-epoch and 210-epoch inputs through registration/session → frontend proxy → private preprocess → signed artifact → frozen Torch inference. Both report `adapterApplied=true`, `experimental_adapted_to_248`, service 0.4.0, and the 20-epoch point includes `PASC_20_TO_39_EXPLORATORY`. The exact temporary account Blob was deleted and verified absent.
+## 2026-08-26 V2 document-guided continuation
+- Began a new document-guided implementation cycle from the completed Phase A-G/O7 baseline.
+- The planning skill catch-up command initially failed because the Windows sandbox could not apply deny-read ACLs; the approved read-only retry completed with no unsynced-context report.
+- A combined planning-file read exceeded the tool output limit; subsequent reads will be scoped by file and line range.
+- Tool error: `apply_patch` was blocked by the recurring Windows deny-read ACL helper while recording this session; used the established exact UTF-8 workspace fallback after the required patch attempt.- V2 Phase 0 discovered an older `AUDIT_V2.md`; it is useful evidence but predates the current Phase A-G/O7 product state and does not match the new document's Phase 0-6 structure, so it will be validated rather than copied blindly.
+- Tool error: the first multi-pattern PowerShell code-location audit failed because nested double quotes were parsed before `rg`; no files changed. The retry will use single-quoted search expressions.
+- Tool error: `apply_patch` was blocked by the recurring Windows deny-read ACL helper while logging this audit; used the established exact UTF-8 workspace fallback.- Tool error: the first two-range `MapWorkspace` read calculated an array bound inside a nested array and PowerShell treated it as an unsupported array subtraction. The corrected command computed the last index first and then read the intended ranges.
+- Current-state verification confirms V2 can reuse existing analysis persistence, anomaly filtering, regional statistics, local rule interpretation, point CSV export, screenshot/print support, and PASC large-job result loading.
+- Tool error: `apply_patch` was blocked by the recurring Windows deny-read ACL helper while logging this audit; used the established exact UTF-8 workspace fallback.
+### V2 Phase 0 completion
+- Completed the full 1,382-line requirements read and current-code audit.
+- Created `IMPLEMENTATION_AUDIT.md` (232 lines) with stack/routes, code locations, current data fields, requirement mapping, reuse/addition decisions, performance risks, and a file-level Phase 1 plan.
+- Validation PASS: all required sections and referenced key paths exist; `git diff --check` found no whitespace error.
+- Phase boundary PASS: no product/business source was modified; only the audit deliverable and persistent planning records changed.
+- Tool error: creating the audit with `apply_patch` failed because the Windows workspace helper could not write the new file; used the established exact UTF-8 workspace fallback after the required patch attempt.
+- Tool error: the final planning-record `apply_patch` was also blocked by the recurring deny-read ACL helper; used the same exact UTF-8 fallback.
+## 2026-08-26 - V2 Phase 1 started
+
+- Confirmed scope from the V2 implementation plan: product shell, three primary analysis modes, synchronized legend/counts, and anomaly-first PASC display.
+- Preserved Phase 0 constraints: no model, inference-service, upload-pipeline, authentication, storage, or AOI changes in this phase.
+- Selected an incremental implementation that keeps the existing map instance and analysis context instead of replacing the workspace.
+## 2026-08-26 - V2 Phase 1 first runnable slice
+
+- Added the velocity / cumulative displacement / PASC pattern primary switch without recreating the Leaflet map.
+- Added persisted, reversible anomaly-only pattern visibility with optional Undefined inclusion.
+- Applied PASC-only visual hierarchy: Stable 0.22 opacity, anomaly classes 0.90, Accelerating 1.00.
+- Synchronized visible counts and pattern legend to the displayed point set while preserving the full dataset and extent.
+- Restored the original LANJIFYW branding and home positioning; Phase 1 adds functions without redesigning the existing visual system.
+- Focused ESLint errors: 0. Vinext production build: passed.
+- Started the local preview at http://localhost:3000/map?demo=haikou and handed it to the Codex preview panel.
+## 2026-08-26 - V2 Phase 1 complete
+
+- Full WebGIS regression: 38/38 tests passed, including the new five-test Phase 1 suite and existing A-G/ENVI/20-epoch/21,610-point coverage.
+- Full source lint: 0 errors; 64 pre-existing warnings remain in legacy/dormant code and existing image/effect patterns.
+- Production Vinext build and public demo validation passed; clean dev restart returned HTTP 200 for the map route.
+- Corrected the lint command to exclude generated deployment/build outputs (`.vercel`, `static-dist`, `build`) from source analysis.
+- Sites access audit found the existing Site is public. No Sites or Vercel production deployment was started without a new explicit public-release confirmation.
+## 2026-08-26 - Deployment target clarified
+
+- The old ChatGPT Sites URL is historical and is no longer a reference target.
+- GitHub `stranger62698/PASC-TCN-GIS` is the only publication repository and Vercel is the only production deployment target.
+- Cloudflare/Sites and Netlify files are treated as dormant compatibility history; they are not used for publishing or acceptance.
+- Updated active metadata and showcase social URLs to `https://pasc-tcn-gis.vercel.app` without deleting historical configuration files.
+
+## 2026-08-26 - V2 Phase 2 started
+
+- User explicitly requested Phase 2 implementation with no deployment.
+- Scope is limited to PASC-TCN result productization: mode, confidence, Top-2, data quality, optional change point/stage slopes, bounded explanation, and time-series enhancement.
+- Existing LANJIFYW layout, visual language, map engine, model/runtime, upload pipeline, authentication, storage, AOI, and deployment state remain unchanged.
+- Initial inventory confirms the service/result contract already supplies confidence, all six probabilities, and quality provenance; Phase 2 can be implemented without changing the frozen model or inference APIs.
+- Tool error: a multi-pattern component search had a quoting-induced invalid regular expression; no files changed and subsequent reads will target the relevant components directly.
+
+## 2026-08-26 - V2 Phase 2 implementation slice
+
+- Added a pure product-analysis module for fixed mode explanations, calibrated Top-2 ranking, separate input-data quality, and optional two-stage real-date regression.
+- Added optional point fields for future provided change point/pre/post slopes; current data transparently falls back to a deterministic candidate estimate and hides the module when evidence is insufficient.
+- Integrated Top-2, confidence, data quality, bounded explanation, candidate change point, stage slopes, zero line, stage shading, and richer map tooltip into the existing point/PASC/chart surfaces.
+- Phase 2 focused tests PASS 5/5; focused lint has 0 errors and only existing MapWorkspace/WebGisMap warnings.
+- Tool errors: `apply_patch` remained blocked by the workspace ACL; two initial in-tool Base64 encoders were unavailable (`TextEncoder`, then `btoa`); the manual UTF-8/Base64 fallback succeeded. Two exact mixed-line-ending replacements missed their markers and made no file write; regex-scoped retries succeeded.
+- The first stage-analysis test exposed a false change point on an almost linear calendar-year series. Added a 15% stage-slope contrast guard alongside the explicit 10% fit-improvement gate; the regression now passes.
+
+## 2026-08-26 - V2 Phase 2 complete
+
+- Full WebGIS regression PASS: 43/43 tests, including 5 new Phase 2 tests and all existing A-G, ENVI, 20-epoch, 21,610-point, Phase 1, render, and demo checks.
+- Full lint PASS with 0 errors and the same 64 pre-existing warnings.
+- Vinext production build PASS; Vercel static build PASS; local map returned HTTP 200; `git diff --check` PASS.
+- No commit, GitHub push, Vercel deployment, model/runtime change, upload-pipeline change, AOI work, or global visual redesign was performed.
+
+## 2026-08-26 - V2 Phase 3 started
+
+- User requested AOI analysis after local Phase 2 completion; deployment remains explicitly out of scope.
+- Phase 3 will extend the existing Leaflet rectangle-selection and right-side region panel with polygon AOI, area/statistics, aggregate time series, and grouped mode curves.
+- The existing LANJIFYW shell, Leaflet map, classification model/service, upload pipeline, authentication, storage, and Phase 1/2 result presentation remain unchanged.
+- Completed the Phase 3 current-code audit: rectangle selection and region-context persistence are reusable; polygon geometry, geodesic area, aggregate time series, and grouped curves are absent.
+- Selected an incremental design: one pure AOI analysis module, backward-compatible context fields, native Leaflet polygon interaction, and additions inside the existing right-side region panel.
+- Implemented the pure AOI module, aggregate chart, polygon drawing/persistence, expanded region/statistics surfaces, and a five-test Phase 3 suite.
+- Verification environment error: bare `npm` and `npx` are not on the PowerShell PATH in this Codex session. No test or lint process started; verification will use the workspace-bundled Node runtime paths instead of repeating the same commands.
+- The first bundled-`pnpm` retry also stopped before execution because its child process still could not resolve `node`. The next attempt will prepend the exact bundled Node and pnpm directories to PATH for that command only.
+- Phase 3 focused tests PASS: 5/5 covering polygon inclusion/boundaries, WGS84 area, median versus mean aggregation, quality separation, and static integration wiring.
+- Targeted new-module ESLint PASS with 0 warnings. The broader touched-file lint reported 0 errors and 43 warnings in the existing large `MapWorkspace`/`WebGisMap` style; no warning gate regression was introduced.
+- Vinext production build PASS with the map and statistics routes included.
+- Full WebGIS regression PASS: 48/48 tests, including all Phase 1/2/3, PASC A-G, ENVI, 20/248-epoch, large-job, render, and demo validation coverage.
+- Vercel/static-compatible build PASS.
+
+## 2026-08-26 - V2 Phase 6 complete
+
+- Completed point/comparison/AOI CSV exports, single/comparison/AOI chart PNG exports, map PNG continuity, AI/rule text exports, and safe filename/CSV handling.
+- Added an inspectable eight-item rule summary and finite accessible export status with running, success, error, close, disabled, and timeout behavior.
+- Completed responsive closeout for four analysis tabs, top-action overflow, bounded mobile map height, stacked panels/actions, compact dialogs, print output, and reduced motion while preserving the LANJIFYW visual system.
+- Phase 6 focused suite PASS 6/6; complete WebGIS suite PASS 66/66; new-module ESLint PASS with zero warnings; broader Phase 6 lint PASS with zero errors and 15 legacy `MapWorkspace` warnings.
+- Vinext production build PASS; final Vercel/static-compatible build PASS; local `/map?demo=haikou` and `/statistics` both returned HTTP 200; `git diff --check` PASS.
+- V2 Phases 0-6 are now complete locally. No commit, GitHub push, Vercel deployment, model/service change, upload/auth/storage change, or map-library replacement was performed.
+- Local preview note: an existing Vinext dev server for this exact workspace was already active at `http://localhost:3000`; the attempted second server correctly refused to duplicate it. Browser-control bootstrap then exited twice before a tab could be selected, so no automated click/screenshot evidence was produced; build, rendered-HTML tests, and HTTP verification remain the acceptance path.
+- Added a finite zero-point AOI state: its geometry stays visible, the panel explains that no monitoring point lies inside it, and the user can still clear or redraw the AOI.
+
+## 2026-08-26 - V2 Phase 3 complete
+
+- Implemented rectangle and polygon AOI geometry persistence using the existing Leaflet map and analysis context.
+- Added spherical AOI area, mean/median velocity and current displacement, maximum absolute displacement, pattern composition, low-coherence/high-missing counts, and quality-concern totals from selected real points.
+- Added a robust AOI aggregate chart with median default, mean switch, hover evidence, and optional per-pattern grouped curves.
+- Extended the Statistics page with AOI source, area, mean/median displacement, and quality breakdown.
+- Phase 3 focused suite PASS 5/5; complete WebGIS suite PASS 48/48; targeted new-module ESLint PASS 0 warnings; broader touched-file ESLint 0 errors with 43 existing warnings; Vinext build PASS; static build PASS; local map HTTP 200; `git diff --check` PASS.
+- No commit, GitHub push, Vercel deployment, model/service change, upload-pipeline change, authentication/storage change, map-library replacement, or global redesign was performed.
+
+## 2026-08-26 - V2 Phase 4 started
+
+- User requested Phase 4 after local Phase 3 completion; deployment remains out of scope.
+- Confirmed scope: explainable quality-gated anomaly-point clustering, analytical polygon envelopes, transparent sortable list, map navigation, and region details.
+- Preserved boundaries: no opaque risk score, no safety/disaster conclusion, no model/service/upload/auth/storage/deployment change, and no replacement of Leaflet or the LANJIFYW visual system.
+- Audited the bundled Spatial Demo: 119 quality-gated anomaly candidates; nearest-neighbor P50 46.5 m and P90 180.2 m. Selected an explicit default of 200 m radius / 3 minimum points, with user controls and no hidden score.
+- Implemented deterministic grid-index density-connectivity, convex-hull/fallback-envelope geometry, bounded 50,000-candidate local processing, and transparent per-region statistics.
+- Added a sortable anomaly-region panel with radius/minimum-point controls, candidate/assigned/noise counts, parameter method text, map focus, region details, and a return-to-all-candidates action.
+- Added Leaflet anomaly-region polygons with bounded 500-region rendering, safe text tooltips, active styling, click selection, and fit-to-region navigation.
+- Initial Phase 4 focused tests PASS 5/5; targeted new-module ESLint PASS with 0 warnings; Vinext production build PASS.
+
+## 2026-08-26 - V2 Phase 4 complete
+
+- Completed explainable anomaly-region discovery from the existing quality-gated anomaly candidate rule.
+- Added deterministic grid-index clustering, convex-hull/fallback polygon envelopes, adjustable 25-5,000 m radius and 2-50 minimum points, and a 50,000-candidate local processing ceiling.
+- Added transparent sortable region evidence, candidate/assigned/noise totals, selected-region details, all-candidate reset, Leaflet polygons, hover evidence, click selection, map fit, and persistent region context.
+- Phase 4 focused suite PASS 6/6, including the frozen public Demo; complete WebGIS suite PASS 54/54; targeted new-module ESLint PASS with 0 warnings; broader touched-file ESLint PASS with 0 errors and only legacy large-component warnings.
+- Vinext production build PASS; Vercel/static-compatible build PASS; local map HTTP 200; `git diff --check` PASS.
+- No commit, GitHub push, Vercel deployment, model/service change, upload/auth/storage change, map-library replacement, or global redesign was performed.
+
+## 2026-08-26 - V2 Phase 5 started
+
+- Started local-only implementation of five-point comparison and data-backed quick cases.
+- Re-auditing the existing map comparison and showcase paths before editing; deployment and commit remain out of scope.
+- Audit complete: the current comparison cap is duplicated as 30 in selection logic, chart rendering, and UI copy; no tested invariant exists.
+- Selected an incremental design: a pure Phase 5 comparison/case module, a compact data-backed case panel inside the existing point workflow, and one bounded map-focus prop. Existing showcase claims remain unchanged.
+- Implemented a shared five-point selection invariant with visible sixth-point rejection, stable five-color evidence, velocity/current-displacement comparison ranges, and chart hover readouts.
+- Added current-dataset quick cases derived only from loaded point IDs: lowest quality-screened velocity, cross-mode contrast, and a high-coherence reference neighborhood. Activation selects at most five points, zooms the map, and opens the anchor detail.
+- Phase 5 focused tests PASS 6/6; new-module ESLint PASS with zero warnings; Vinext production build PASS.
+
+## 2026-08-26 - V2 Phase 5 complete
+
+- Completed bounded five-point comparison, visible limit handling, stable curve colors, comparison ranges, and synchronized chart hover evidence.
+- Completed current-data quick-case generation and one-click select / compare / map-fit / point-detail navigation without fabricating coordinates or changing showcase claims.
+- Phase 5 focused suite PASS 6/6; complete WebGIS suite PASS 60/60; targeted new-module ESLint PASS with zero warnings; broader touched-file ESLint PASS with zero errors and only legacy large-component warnings.
+- Vinext production build PASS; Vercel/static-compatible build PASS; a clean temporary local server returned HTTP 200 for `/map?demo=haikou`; `git diff --check` PASS.
+- No commit, GitHub push, Vercel deployment, model/service change, upload/auth/storage change, map-library replacement, or global redesign was performed.
+
+## 2026-08-26 - V2 Phase 6 started
+
+- User requested the final V2 phase; implementation remains local-only.
+- Audited existing export and state surfaces. Single-point CSV, map PNG, AI text, print, and several panel empty states are reusable; comparison/AOI CSV, chart PNG, consolidated rule summary, and narrow-workspace behavior are missing.
+- Frontend direction remains the established restrained LANJIFYW industrial GIS interface: evidence-dense, blue/navy, map-first, and compact rather than a new visual theme.
+- Confirmed exact Phase 6 insertion points for point/comparison/AOI exports, chart-owned actions, the rule-summary dialog, semantic operation feedback, and explicit narrow-screen workspace stacking.
+- Added tested-design export primitives for safe filenames, escaped UTF-8 CSV, point/comparison/AOI records, AOI aggregate series, rule-summary text, and SVG-to-PNG conversion.
+- Added a reusable current-analysis rule dialog and wired finite export operation state into the map workspace.
+- Wired point CSV, visible comparison CSV/PNG, AOI point CSV, AOI aggregate CSV/PNG, single-point chart PNG, map PNG, AI summary, and rule-summary TXT while preserving current analysis state.
+- Initial Phase 6 suite: 5/6 passed. The failing AOI group-column test identified and corrected a mode-normalizer callback mismatch before integration verification.
+- First zero-warning lint found three new-module errors: backdrop click handlers on non-interactive elements and a control-character filename regex. Removed backdrop-click dismissal in favor of the explicit accessible close button and replaced the regex with character-code sanitization.
+- Phase 6 focused suite now PASS 6/6; new-module ESLint PASS with zero warnings; Vinext production build PASS.
+- Broader Phase 6 lint PASS with zero errors and 15 existing `MapWorkspace` warnings; no new warning-gate regression.
+- Complete WebGIS regression PASS 66/66, including all V2 Phase 1-6, PASC A-G, render, large-job, and frozen demo validation coverage.
+- Vercel/static-compatible build PASS.

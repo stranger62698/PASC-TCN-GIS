@@ -6,7 +6,7 @@ import { AnalysisProvider, colorForMode, deformationModeOrder, useAnalysisContex
 import { trackEvent } from "../lib/analytics";
 import { PageHero, PageShell } from "./SiteShell";
 
-const sourceLabel = (source?: "rectangle" | "filter" | "anomaly") => source === "anomaly" ? "异常点筛选" : source === "filter" ? "属性阈值筛选" : "地图矩形框选";
+const sourceLabel = (source?: "rectangle" | "polygon" | "filter" | "anomaly" | "anomalyRegion") => source === "anomaly" ? "异常点筛选" : source === "anomalyRegion" ? "自动异常区域" : source === "filter" ? "属性阈值筛选" : source === "polygon" ? "地图多边形 AOI" : "地图矩形框选";
 const velocityColor = (minimum: number, maximum: number) => {
   const midpoint = (minimum + maximum) / 2;
   return midpoint <= -3 ? "#e94b4b" : midpoint >= 3 ? "#1677ff" : "#24a685";
@@ -57,7 +57,7 @@ function StatisticsView() {
           <article><span>区域来源</span><b>{region ? sourceLabel(region.source) : "尚未建立"}</b></article>
         </div>
 
-        {!stats ? <div className="analysis-context-empty phase-seven-empty"><span>NO REGION CONTEXT</span><h2>尚未从地图建立区域分析</h2><p>返回地图使用矩形框选、属性筛选或“发现异常”，统计页会自动继承当前分析对象。</p><Link className="button primary" href="/map">前往地图建立分析对象</Link></div> : <>
+        {!stats ? <div className="analysis-context-empty phase-seven-empty"><span>NO REGION CONTEXT</span><h2>尚未从地图建立区域分析</h2><p>返回地图使用矩形或多边形 AOI、属性筛选或“发现异常”，统计页会自动继承当前分析对象。</p><Link className="button primary" href="/map">前往地图建立分析对象</Link></div> : <>
           <div className="phase-seven-chart-grid">
             <article className="statistics-high-value-card velocity-card">
               <header><div><span className="eyebrow">VELOCITY DISTRIBUTION</span><h2>区域速率分布</h2><p>观察区域内形变速率的集中区间与两端分布，避免只依赖平均值。</p></div><div className="chart-key-metrics"><span>平均速率<b>{stats.averageVelocity.toFixed(2)} mm/yr</b></span><span>速率范围<b>{stats.minimumVelocity?.toFixed(2) ?? "—"}—{stats.maximumVelocity?.toFixed(2) ?? "—"}</b></span></div></header>
@@ -70,9 +70,10 @@ function StatisticsView() {
             </article>
           </div>
           <div className="statistics-evidence-strip">
+            <article><span>AOI 面积</span><b>{stats.areaKm2 == null ? "未绘制" : `${stats.areaKm2 < 1 ? stats.areaKm2.toFixed(3) : stats.areaKm2.toFixed(2)} km²`}</b><small>{stats.areaKm2 == null ? "属性筛选不推定空间面积" : "WGS84 球面估算"}</small></article>
             <article><span>最大累计形变量</span><b>{stats.maximumDisplacement.toFixed(2)} mm</b><small>当前时间范围内绝对值</small></article>
-            <article><span>平均当前形变</span><b>{stats.averageDisplacement?.toFixed(2) ?? "—"} mm</b><small>{analysis.timeRange.endDate}</small></article>
-            <article><span>平均相干性</span><b>{stats.averageCoherence == null ? "未提供" : stats.averageCoherence.toFixed(2)}</b><small>质量关注点 {stats.qualityCount.toLocaleString()}</small></article>
+            <article><span>平均 / 中位当前形变</span><b>{stats.averageDisplacement?.toFixed(2) ?? "—"} / {stats.medianDisplacement?.toFixed(2) ?? "—"} mm</b><small>{analysis.timeRange.endDate}</small></article>
+            <article><span>平均相干性</span><b>{stats.averageCoherence == null ? "未提供" : stats.averageCoherence.toFixed(2)}</b><small>低相干 {stats.lowCoherenceCount ?? 0} · 高缺测 {stats.missingDataCount ?? 0}</small></article>
             <article><span>空间范围</span><b>{region ? `${region.bounds[0].toFixed(3)}, ${region.bounds[1].toFixed(3)}` : "—"}</b><small>{region ? `至 ${region.bounds[2].toFixed(3)}, ${region.bounds[3].toFixed(3)}` : "未提供"}</small></article>
           </div>
           <p className="analysis-boundary-note phase-seven-boundary">这里的数值由程序根据当前区域和筛选条件计算，仅描述数据分布，不代表工程安全结论、灾害预测或空间聚集区识别结果。</p>

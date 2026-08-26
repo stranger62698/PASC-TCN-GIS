@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { CaseDetailPage } from "../../components/CasePages";
 import { cases } from "../../data/site";
 
-const siteOrigin = "https://lanje-urban-insar.fengyaowu78.chatgpt.site";
+const siteOrigin = "https://pasc-tcn-gis.vercel.app";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;

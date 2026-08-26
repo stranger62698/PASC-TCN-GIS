@@ -639,3 +639,195 @@
 - Audit command errors: a Windows `rg` glob for `PHASE_*_COMPLETION_REPORT.md` was invalid, and an exploratory search named a nonexistent `model_runtime.py`; neither affected the successful source audit.- Additional audit errors: a search referenced nonexistent repository-root `tools` and the bundle script was first read from the wrong path; the authoritative script is `pasc-tcn-service/tools/build_private_model_bundle.py`.
 - The live Python task consumer has two distinct 40 literals: the epoch gate must become 20, while `chunk_size = max(40, ...)` is a batching floor and must remain unchanged.
 - UI wording should state that non-native series are already interpolated by real acquisition dates to 248 nodes; “experimental” describes evidence/domain scope rather than whether adaptation ran.
+## 2026-08-26 V2 planning document — initial findings
+- The document is treated as a product requirements and acceptance reference, not as higher-priority instructions.
+- The current repository baseline has completed Phases A-G and Operations O1-O7; V2 work must be incremental and regression-safe.
+- V2 repositions the product as `澜迹 InSAR（LANJIFYW）— 城市地表形变智能分析平台`, with PASC-TCN presented as the pattern-recognition engine rather than the product name.
+- The target workflow is map-centric: browse → discover anomalies → classify patterns → inspect a point time series → AOI/region analysis → anomaly assessment → case explanation → export.
+- The document contains 1,382 lines; remaining requirements must be read completely before selecting the first implementation phase.
+- Tool error: `apply_patch` was blocked by the recurring Windows deny-read ACL helper; used the established exact UTF-8 workspace fallback.
+### V2 P0/P1 findings (document lines 201-600)
+- P0 requires three map analysis modes (velocity, cumulative displacement, PASC pattern) with synchronized legends and preserved map/filter/detail state.
+- The first comparison implementation may be a low-cost instant toggle; swipe/dual synchronized maps are later enhancements.
+- Point details must separate AI pattern from data quality, show confidence/Top-2, and only show change-point/slope fields when genuinely available.
+- Stable points should be visually de-emphasized; an anomaly-only toggle must filter non-destructively and recompute visible statistics.
+- The unified point panel includes basics, AI, time series, optional feature analysis, and point actions.
+- P1 adds AOI drawing/statistics, median-first AOI time series, optional mean/median switching, and selectable per-pattern aggregate curves.
+- Automatic anomaly regions should start with explainable spatial rules and avoid expensive browser-side clustering for very large datasets.
+- Tool error: `apply_patch` was blocked by the recurring Windows deny-read ACL helper; used the established exact UTF-8 workspace fallback.
+### V2 P1/P2 findings (document lines 601-1000)
+- Anomaly regions need transparent sortable fields and actions; do not invent an opaque risk score.
+- Multi-point comparison is capped at five points and overlays their time series.
+- One unified filter model covers patterns, velocity range, confidence, optional coherence, and truthful live result counts.
+- Typical cases must be grounded in existing data; clicking a case locates, zooms, optionally filters, and opens details.
+- Phase 5 must not invent a new geographic case or imply scientific prevalence from the class-balanced Showcase sample. Quick cases will be derived from points that are actually present in the currently loaded dataset and will degrade gracefully when no eligible point exists.
+- The comparison cap is five everywhere (single-click selection, case navigation, chart rendering, and tests); a sixth point is rejected visibly rather than silently evicting an earlier selection.
+- Existing comparison state is local to `MapWorkspace`: map clicks silently retain only the newest 30 IDs and `CompareChart` independently slices to 30. Phase 5 will replace both with one tested five-point invariant and visible limit feedback.
+- The existing city showcase is the only page explicitly grounded in the frozen 3,094-point Spatial Demo; landslide and road are clearly labeled workflow illustrations. The map-side case library will therefore derive evidence sets from the active loaded points instead of attaching fabricated coordinates to those illustrative pages.
+- Each quick case will carry only inspectable criteria (for example strongest quality-screened subsidence, pattern diversity, or high-coherence reference), point IDs, and bounds. Activation will select at most five real points, open point details, and issue an explicit map-focus request.
+
+### V2 Phase 5 completion findings
+- Five-point comparison now has one exported maximum and one tested update function. Selecting a sixth point leaves all five existing evidence points unchanged and reports the limit in the workspace status.
+- Comparison evidence now uses a stable five-color palette, exposes velocity and current-displacement ranges plus mode/coherence context, and supports synchronized hover readout across all visible curves.
+- Quick cases are deterministic views over the active dataset rather than a new static geography layer. They cover the lowest quality-screened velocity neighborhood, available-mode contrast, and a high-coherence reference neighborhood; every displayed ID is validated against loaded points.
+- Activating a quick case clears conflicting region/filter context, selects no more than five points, fits the existing Leaflet map to their bounds, and opens the anchor point detail. The frozen 3,094-point Spatial Demo is covered by regression.
+- Static showcase boundaries remain truthful: the Haikou city case is data-backed, while landslide and road remain explicitly labeled workflow illustrations.
+
+### V2 Phase 6 boundaries — requirements reconfirmed
+- Existing exports cover a single-point CSV, map PNG, AI text summary, and browser print. Missing acceptance paths are AOI data export, multi-point comparison data export, and direct chart-image export.
+- Export generation should be centralized and tested: UTF-8 BOM, RFC-style CSV escaping, finite missing-value cells, stable filenames, and aligned date/value rows. It must not mutate point or AOI state.
+- The rule summary must expose current display mode, thresholds, pattern visibility, active filter, anomaly discovery rule, clustering parameters, selection source, and safety boundary. It is evidence documentation, not an AI conclusion.
+- Loading/error/empty states already exist in several isolated panels, but the top status strip has no consistent semantic status and export buttons do not expose progress/failure. Phase 6 will add bounded operation feedback rather than indefinite spinners.
+- Responsive work will preserve the dense industrial map-workspace language. The main risk is the three-column fixed-height shell on narrow screens; refinement should prioritize usable map height, horizontally scrollable toolbars/tabs, and stacked panels without replacing Leaflet.
+- Exact integration points are now confirmed: `exportPoint`, `captureMap`, and `printAnalysis` sit in `MapWorkspace`; `AoiTimeSeriesChart` already owns its aggregation method and visible groups; the region summary owns the selected real points; the existing backdrop/dialog pattern can host the rule summary without a new UI system.
+- Current `max-width: 820px` rules hide the status strip and release the fixed shell height, but do not explicitly stack the left panel, map, and right panel or suppress desktop resizers. Phase 6 needs explicit grid areas, bounded map height, panel ordering, and overflow-safe top actions.
+- The existing AI panel already demonstrates finite idle/loading/error/success states. Export operations should mirror that finite vocabulary via a single operation status (`idle/running/success/error`) and an accessible live message.
+- Existing base responsive CSS already switches `.gis-shell` to a flex column and hides desktop resizers at its narrow breakpoint; Phase 6 should refine the later scoped rules rather than duplicate the entire layout. The remaining visible issues are four tabs in a three-column grid, top-action overflow, chart action sizing, and dialog/card density.
+- First Phase 6 test run exposed a callback-shape mismatch in AOI CSV generation: `aggregateAoiSeries` expects a point-to-mode function, while the export helper accepted a mode-string normalizer. The helper now explicitly adapts `point => normalizeMode(point.mode)` so exported group columns match the visible chart.
+
+### V2 Phase 6 completion findings
+- Export filenames are Windows-safe and CSV files use a UTF-8 BOM, CRLF rows, escaped quotes/commas, and empty cells for non-finite values. Point, comparison, AOI point, and visible AOI aggregate data are generated from the current in-memory analysis objects without mutation.
+- Single-point, up-to-five-point comparison, and AOI aggregate charts can export their current SVG view to a 2× PNG. The client conversion has an eight-second timeout and reports running/success/error through one accessible live status.
+- The rule-summary dialog records eight reproducibility items: dataset, time range, map expression, PASC visibility, active filter/quality thresholds, anomaly-candidate rule, spatial-support parameters, and current analysis object. Its TXT export carries the non-risk boundary.
+- Responsive closeout fixes the four-tab grid, makes crowded top actions horizontally scrollable, preserves a bounded map viewport, stacks panels and export actions on narrow screens, and removes export controls from print output. Reduced-motion users receive a static progress marker.
+- Existing AI and region idle/loading/error/empty states were preserved. Phase 6 adds finite export states and disabled controls without introducing a second status/state system.
+- Exports include point CSV/JSON, AOI CSV/GeoJSON, and chart PNG; rule-generated summaries are later P2 and must not use an LLM now.
+- Visual rules preserve existing class colors, reduce stable opacity, make accelerating most prominent, and preserve hover/selection state.
+- Time-series charts need raw/preprocessed data, optional smoothing, a zero line, and optional genuine change-point/stage annotations.
+- The internal point shape can be compatibility-normalized without a wholesale data rewrite.
+- Tool error: `apply_patch` was blocked by the recurring Windows deny-read ACL helper; used the established exact UTF-8 workspace fallback.
+### V2 execution boundary (document lines 1001-1382)
+- Performance is a first-class constraint: reuse the current map renderer, avoid per-point React components/full-data reparsing/full-array hover searches/deep copies, and prefer existing WebGL/Canvas/indexing/worker capabilities.
+- Desktop is primary; tablet/mobile may collapse panels while retaining map browsing and basic query.
+- The document defines Phases 0-6 and requires Phase 0 to produce `IMPLEMENTATION_AUDIT.md` only, with no business-code changes before audit acceptance.
+- Each implementation phase must report changed/unchanged areas, compatibility risks, lint/build/tests, and Vercel build viability.
+- The final 3-minute workflow ends at AOI pattern composition and aggregate curve; prohibited scope includes retraining, raw SAR processing, ungrounded risk prediction, a new LLM chatbot, a technology rewrite, and unrelated account/billing systems.
+- Tool error: `apply_patch` was blocked by the recurring Windows deny-read ACL helper; used the established exact UTF-8 workspace fallback.
+### Repository stack and delivery surface
+- Existing site is a React 19 + TypeScript application using Vinext/Vite; Leaflet is the current map engine and there is no dedicated charting library.
+- Production Vercel uses a static Vite build plus root serverless functions; a separate Sites/Vinext path exists with D1/R2 bindings and worker routes.
+- The repository already contains authentication, private upload, synchronous inference, durable large-job classification, PASC panels, dataset/map/statistics routes, and extensive Phase A-G tests.
+- `.openai/hosting.json` is present, so future site changes must preserve the Sites capability-path architecture even though the current public production target is Vercel.
+- An existing `AUDIT_V2.md` was found and must be evaluated/reused rather than duplicating its analysis; the requested deliverable remains `IMPLEMENTATION_AUDIT.md`.
+- Tool error: `apply_patch` was blocked by the recurring Windows deny-read ACL helper; used the established exact UTF-8 workspace fallback.
+### Current map/analysis implementation — verified
+- The older audit is materially stale: `AnalysisContext`, real Statistics continuity, analytics events, anomaly discovery, point insights, genuine PASC confidence, chart hover/zoom, and large-job loading are already implemented.
+- `AnalysisContext` persists dataset, time range, filters, color mode, selected point/region, region stats, and map view in session storage.
+- `WebGisMap` uses Leaflet Canvas renderers but still creates one `circleMarker` per point, rebuilds all marker layers when data/style/quality visibility changes, and performs O(n) nearest-point and rectangle selection scans.
+- Map modes currently include six attributes; the three V2 primary modes already exist but are not yet presented as one explicit primary segmented control.
+- PASC has a frozen six-class color catalog, 20-epoch minimum, complete probabilities/confidence/quality/applicability fields, and truthful external-region messaging.
+- Time-series hover, range zoom, restoration, and point insight already exist; multi-point comparison currently allows 30 points, conflicting with V2's maximum of five.
+- Stable-point opacity is currently the same as anomaly opacity (`0.92`), so stable visual de-emphasis is genuinely missing.
+- Tool error: `apply_patch` was blocked by the recurring Windows deny-read ACL helper; used the established exact UTF-8 workspace fallback.
+### Current data model/import implementation — verified
+- `InsarPoint` already carries identity, coordinates, velocity/displacement/coherence/missingness, dates/series, pattern source/confidence, PASC probabilities/quality/applicability, and warnings.
+- CSV inspection supports aliases, canonical date ordering, ENVI-style dates through the schema module, unit/sign/preprocessing confirmations, duplicate-date conflict checks, calculated velocity, quality reporting, and automatic Level/PASC classification eligibility.
+- Quality reports already include invalid rows, missingness, low coherence, velocity outliers, mode counts, bbox, capability counts, compatibility, duplicate coordinates and unparsed time fields (the latter fields are populated through the dataset flow where available).
+- MapWorkspace already exposes left Data/Layers/Filters and right Point/Region/AI/PASC tabs, a two-mode header toggle, anomaly discovery, map screenshot, browser print, single-point CSV, large classification jobs, and CSV mapping.
+- Missing against V2 Phase 1: the primary header toggle omits velocity, no anomaly-only pattern switch exists, stable markers are not de-emphasized, and the left filter area is not yet a unified pattern/velocity/confidence/coherence filter model.
+- Point details show mode/source/confidence and quality metrics but do not visibly surface Top-2 probabilities in the point tab; PASC probabilities exist separately in the PASC tab.
+- Tool error: `apply_patch` was blocked by the recurring Windows deny-read ACL helper; used the established exact UTF-8 workspace fallback.
+### Current presentation/analysis continuity — verified
+- Branding is partly updated: metadata title is already `澜迹 InSAR（LANJIFYW）｜城市地表形变智能分析平台`, but the visible map/header still uses `LANJIFYW / INSAR WEBGIS` and the homepage hero uses older marketing copy.
+- The homepage already has direct demo and upload actions and truthful 3,094-point/248-epoch Spatial Demo metrics.
+- `metadataBase` still targets an old ChatGPT Sites URL rather than the active public Vercel origin; social metadata therefore needs a later Phase 1 correction while preserving the existing `og.png`.
+- Real session-scoped analysis continuity and a live Statistics page are implemented; the older `AUDIT_V2.md` claims that these were absent and must be superseded.
+- Regional interpretation is a transparent local rule engine with bounded claims, not an LLM; this is consistent with the new document's prohibition on adding a chatbot.
+- Static Vercel routing and Vinext/Sites file routing still coexist, so every later route-level change requires both entry paths to be validated.
+- Analytics already covers page/demo/upload/point/region/filter/pattern/AI/statistics/export and computes time-to-first-insight without collecting obvious sensitive payload keys.
+- Tool error: `apply_patch` was blocked by the recurring Windows deny-read ACL helper; used the established exact UTF-8 workspace fallback.
+### Dataset, testing, and maintainability audit — verified
+- Dataset onboarding already implements the requested four-step upload → field recognition → quality check → user confirmation flow for files up to 300 MB in-browser, plus private 4 MiB chunk storage and owner-scoped server operations.
+- Large PASC work is server-owned and resumable; the browser is not the model runtime. Current explicit limits are 100,000 candidates and 256 MB for a classification job.
+- `InsarMap.tsx` has no consumers and is a dormant legacy map; `WebGisMap.tsx` is the only active map implementation. It should not be edited for Phase 1 and may only be removed later after a separate reference/build check.
+- Automated coverage is strong for PASC contracts, dates, ENVI import, private client errors, synchronous/large inference, ownership boundaries, external-region messaging, analytics, and production rendering.
+- Missing coverage for V2 Phase 1 is interaction/state behavior: three-mode switching, preserved map view/detail/filter state, stable opacity, anomaly-only point counts, empty values, and legend synchronization.
+- `MapWorkspace.tsx` (1,040 lines), `insar-v2.ts` (607), and layered `globals.css` phase blocks are maintenance hotspots. Phase 1 should add small pure helpers/components and avoid another broad rewrite.
+- Existing dataset and Statistics implementations make much of the old `AUDIT_V2.md` obsolete; `IMPLEMENTATION_AUDIT.md` must describe the current baseline.
+- Tool error: `apply_patch` was blocked by the recurring Windows deny-read ACL helper; used the established exact UTF-8 workspace fallback.
+### Data truth and deployment boundary — verified
+- Public Spatial Demo is exactly 3,094 points × 248 epochs (2017-03-22 to 2025-05-03); Showcase is 3,000 points × 248 epochs with 500 per class and an explicit non-prevalence disclaimer.
+- Public manifest provenance and hashes are present; Phase 1 must keep these honest counts and should not reuse historical 4,073/210 or full-area 755,780 numbers without an explicit scope label.
+- Date schema accepts `D20110101`, `D_20110101`, plain `YYYYMMDD`, and separated calendar formats, canonicalizing to `YYYY-MM-DD`.
+- Active public production is Vercel static output plus Vercel functions/queues and a separate private PASC service; the repository also retains a functional Vinext/Sites D1/R2 path. Netlify packages are installed but no active Netlify configuration is tracked.
+- Phase 1 should not remove deployment paths or dependencies. It should modify only shared UI/data code and validate both `build:static` and the normal Vinext build.
+- Current worktree began clean at `4aa90249...`; only planning records are modified so far, satisfying the Phase 0 no-business-code boundary.
+- Tool error: `apply_patch` was blocked by the recurring Windows deny-read ACL helper; used the established exact UTF-8 workspace fallback.
+### Authoritative deployment target — user confirmed 2026-08-26
+- Publish only to GitHub `https://github.com/stranger62698/PASC-TCN-GIS.git` and deploy only through Vercel.
+- Ignore the historical ChatGPT Sites URL and do not use Cloudflare/Sites or Netlify as implementation, testing, or release references.
+- Retained dormant legacy files to avoid an unauthorized destructive cleanup; active public metadata must resolve to `https://pasc-tcn-gis.vercel.app`.
+
+### V2 Phase 2 boundaries — requirements reconfirmed
+- Phase 2 must present PASC mode, confidence, Top-2, and data quality as separate concepts; Undefined, low confidence, and low coherence must not be conflated.
+- Change point and pre/post slopes are optional: render only when supplied or transparently derived from the point time series, never invent values.
+- Explanations describe temporal pattern behavior only and must not assert danger, failure, or disaster prediction.
+- The enhanced time-series view should reuse the existing chart and layout; no framework, map, global style, model, service, upload, AOI, or deployment rewrite is authorized.
+
+### V2 Phase 2 initial code inventory
+- `InsarPoint` already carries `modeConfidence` and an optional full `PascPointResult`; the PASC contract already includes normalized six-class probabilities, confidence, low-confidence state, temporal/spatial applicability, warnings, and detailed preprocessing quality.
+- CSV parsing and both synchronous/large inference merge paths already populate the available PASC result fields, so Phase 2 can remain a presentation/analysis layer instead of changing inference.
+- `MapWorkspace` already has point insight, PASC detail, probability bars, quality metrics, and the current time-series chart; the implementation should unify and enhance these instead of creating a separate page.
+- Inventory error: one combined `rg` expression for component locations was malformed by quoting and returned an unclosed-group error; the next inspection will use literal searches or direct file reads.
+
+### V2 Phase 2 reusable result surface
+- The inference result contract does not currently carry explicit change-point or stage-slope fields, but every normal point carries real dates and displacement series. Any derived metrics must be labeled as transparent time-series estimates, not model output.
+- `PascAnalysisPanel` already renders confidence, all six probability bars, applicability, model trace, and input provenance; it lacks a focused Top-2 summary, explicit quality classification, and bounded mode explanation.
+- The point tab already renders base metrics, a time-series chart, linear trend toggle, and programmatic interpretation. Phase 2 should extend this same panel and avoid duplicating the full six-probability chart there.
+- Demo/legacy points may have only a CSV mode and no `pasc` object; the UI needs a graceful not-provided state and must not synthesize probabilities or confidence.
+- Tool error: the first findings append used a double-quoted PowerShell string containing an unescaped quoted phrase and stopped at parse time; no file changed.
+
+### V2 Phase 2 temporal-chart reuse
+- `TimeSeriesChart` already provides the measured series, date/value hover, selected-date marker, overall linear fit, axis labels, zoom range, and restore control.
+- Phase 2 only needs to layer a zero reference, optional two-stage shading, a labeled change-point line, stage-aware tooltip text, and pre/post slope metrics; the existing SVG and chart controls remain intact.
+- Existing Phase 3 style blocks already define point-result cards, chart axes/hover/zoom, and responsive behavior. New Phase 2 styles can be narrowly appended with the same tokens and component density.
+
+### V2 Phase 2 test integration
+- The JavaScript test builder explicitly enumerates V2 test entries; Phase 2 needs a new `v2-phase2.test` entry plus inclusion in the full `pnpm test` command.
+- Phase 1 tests mix pure helper behavior with static wiring assertions. Phase 2 should follow that pattern: deterministic helper tests for Top-2/quality/change-point logic and static checks for result/chart integration.
+- The first source-range read began after the existing `stageVelocity` implementation; a smaller exact range is required before deciding whether to reuse it.
+
+### V2 Phase 2 implementation decision
+- Existing `stageVelocity` already delegates to the real-date `slopePerYear` calculation, so derived pre/post slopes should use it for consistency after selecting a transparent candidate split.
+- The PASC library freezes classes, colors, probability validation, epoch applicability, and spatial presentation. Phase 2 will consume these unchanged and add a separate product-presentation helper rather than altering the contract/model math.
+- Inspection error: the guessed `static-src/App.tsx` path does not exist. The static build already consumes the shared app components through its actual entry; locate that entry before integration validation rather than assuming a path.
+
+### V2 Phase 3 boundaries — requirements reconfirmed
+- Required drawing modes are rectangle and polygon; circle is optional and will not be added unless it materially improves the existing workflow.
+- AOI statistics must be calculated from the selected real points: area, point count, mean/max velocity and cumulative displacement, pattern composition, and quality counts.
+- Aggregate time series defaults to median because it is more robust to InSAR outliers; users can switch to mean and selectively enable per-pattern curves.
+- AOI selection must remain a local display/analysis operation, preserve the full source dataset, and avoid a new map library or server/model change.
+
+### V2 Phase 3 current-code audit
+- The existing rectangle tool is implemented directly with Leaflet mouse events in `WebGisMap`; it returns selected visible points and a WGS84 bounding box without mutating the source dataset.
+- `SelectedRegion` persists only bounds and point IDs. Phase 3 needs an optional polygon coordinate ring and a `polygon` source while remaining backward-compatible with stored Phase 1/2 context.
+- The right-side region panel already computes point count, mean/range velocity, current displacement, maximum absolute displacement, mean coherence, quality count, and normalized mode counts from the real selected points.
+- Missing capabilities are geodesic AOI area, polygon point-in-polygon selection, median/mean aggregate series, and optional grouped curves. These belong in a pure `aoi-analysis` module so geometry/statistics can be tested independently from Leaflet and React.
+- Polygon drawing can be implemented without Leaflet Draw: click vertices, preview the ring, double-click to complete, Escape/right-click to cancel. Persisted geometry should be rendered by the existing selection overlay lifecycle.
+
+### V2 Phase 3 completion findings
+- Rectangle and polygon AOIs now share a persisted WGS84 geometry contract. Older session state containing rectangle bounds but no geometry is upgraded in memory through `rectangleGeometry`.
+- Area uses a spherical WGS84-coordinate formula and is shown only for drawn AOIs. Filter/anomaly result sets explicitly report that no spatial area is inferred.
+- Aggregate time series aligns selected point observations by period, defaults to median, supports mean, and exposes optional grouped mode curves without adding every point as an individual line.
+- Zero-point AOIs retain their drawn geometry and remain clearable; the source dataset and map extent are never replaced by the selection result.
+- Browser automation could not initialize in this environment, but both production build paths, rendered-HTML coverage, local HTTP 200, source integration tests, and pure geometry/statistics tests passed.
+
+### V2 Phase 4 boundaries — requirements reconfirmed
+- Existing one-click anomaly discovery already filters obvious subsidence / accelerating / piecewise points and excludes low-quality observations; Phase 4 must reuse this candidate contract instead of redefining model semantics.
+- Automatic regions must use explainable spatial rules with visible radius and minimum-point thresholds. The product must distinguish anomaly points from spatially supported anomaly regions.
+- Region cards/list rows need transparent sortable evidence and map/detail actions. No opaque risk score, danger conclusion, failure prediction, or disaster wording is allowed.
+- Browser performance must avoid all-pairs distance checks on large candidate sets; a spatial grid/index and bounded rendering are required.
+- Region boundaries are analytical envelopes derived from candidate coordinates, not engineering or administrative boundaries.
+
+### V2 Phase 4 demo-spacing evidence
+- The current Spatial Demo yields 119 quality-gated anomaly candidates under the existing rule and coherence threshold 0.75.
+- Candidate nearest-neighbor distances are approximately P25 31.6 m, median 46.5 m, P75 75.9 m, and P90 180.2 m. A transparent default neighborhood radius of 200 m with at least three points is therefore appropriate for the bundled demo while remaining user-adjustable.
+- The clustering module should use local projected meters plus a radius-sized grid index, expand density-connected components deterministically, and sort regions separately from their stable IDs.
+
+### V2 Phase 4 completion findings
+- The implementation uses deterministic radius-grid density connectivity rather than an all-pairs loop. Local clustering fails closed above 50,000 candidates and tells the user to narrow the dataset or use a backend task.
+- Default parameters are 200 m / three points and are directly editable. The frozen Spatial Demo test confirms 119 quality-gated candidates and at least one spatially supported region under these defaults.
+- Region IDs are deterministic for a given point set and parameters; list sorting does not alter identity. Boundaries use convex hulls with a small padded-rectangle fallback for collinear/coincident coordinates.
+- Region evidence exposes candidate/assigned/noise counts, point count, mean/median velocity, envelope area, dominant mode, and explicit rule counts. No risk score or safety conclusion exists.
+- The map renders at most 500 point-rich regions plus the current selection, while the list shows at most 80 sorted rows. Both caps are disclosed in the UI.
+- Clicking an envelope focuses the map and region context; click bubbling preserves the existing nearest-point analysis path. Selected region geometry and point IDs persist through AnalysisContext and continue into AOI statistics, aggregate time series, Statistics, and bounded AI interpretation.

@@ -9,12 +9,23 @@ import { trackEvent } from "../lib/analytics";
 import { inspectCsv, parseMappedCsv, parseQgisRamp, stageVelocity, type CsvInspection, type CsvMapping, type DatasetParseResult, type RenderAttribute, type RenderStyle } from "../lib/insar-v2";
 import { PASC_AUTO_CLASSIFY_MAX_POINTS, buildPascOnlineRequestBatches, filterPascOnlinePoints, mergePascOnlineResults, onlineErrorMessage, type PascOnlineFilter, type PascOnlineRunState } from "../lib/pasc-online";
 import { parsePascMapPreview, pascMapLevelForZoom, type PascPublicJob } from "../lib/pasc-job-client";
+import { filterPointsForPattern, type PatternVisibility } from "../lib/v2-map-analysis";
+import { deriveTemporalStageAnalysis, pascModeExplanation, pointDataQuality, topPascCandidates, type TemporalStageAnalysis } from "../lib/pasc-product";
+import { rectangleGeometry, summarizeAoi, type AoiAggregateMethod, type AoiCoordinate } from "../lib/aoi-analysis";
+import { buildAnomalyRegions, type AnomalyRegion } from "../lib/anomaly-regions";
+import { buildDataBackedQuickCases, comparisonColor, currentDisplacement, MAX_COMPARE_POINTS, summarizeComparison, updateComparison, type DataBackedQuickCase } from "../lib/point-comparison";
+import { aoiPointsCsv, aoiSeriesCsv, buildAnalysisRuleSummary, comparisonCsv, downloadSvgPng, downloadText, pointCsv, safeExportName } from "../lib/analysis-exports";
 import { listPrivateDatasets, patchPrivateDataset, readPrivateDatasetSource } from "../lib/private-datasets-client";
 import { PascAnalysisPanel } from "./PascAnalysisPanel";
 import { PascCompatibilityCheck } from "./PascCompatibilityCheck";
 import { PascPatternLegend } from "./PascPatternLegend";
 import { PascOnlineRecognition } from "./PascOnlineRecognition";
 import { PascRegionStats } from "./PascRegionStats";
+import { AnalysisModeSwitch } from "./AnalysisModeSwitch";
+import { AoiTimeSeriesChart } from "./AoiTimeSeriesChart";
+import { AnomalyRegionPanel } from "./AnomalyRegionPanel";
+import { DataBackedCasePanel } from "./DataBackedCasePanel";
+import { AnalysisRuleSummary } from "./AnalysisRuleSummary";
 
 const MapCanvas = dynamic(() => import("./WebGisMap"), { ssr: false, loading: () => <div className="map-loading">正在初始化 WebGIS 地图…</div> });
 const defaultColors = ["#e94b4b", "#ff8a34", "#eee3b1", "#0a9c93", "#1677ff"];
@@ -45,6 +56,9 @@ type AnomalySummary = {
     pattern: number;
     excludedLowQuality: number;
 };
+
+type ExportOperation = { state: "idle" | "running" | "success" | "error"; message: string };
+const idleExportOperation: ExportOperation = { state: "idle", message: "" };
 
 const pointBounds = (items: InsarPoint[]): [number, number, number, number] => items.length ? [
     Math.min(...items.map(point => point.lon)),
@@ -125,16 +139,20 @@ function buildPointInsight(point: InsarPoint, coherenceThreshold: number): Point
     };
 }
 
-function TimeSeriesChart({ point, showTrend, timeIndex }: {
+function TimeSeriesChart({ point, showTrend, timeIndex, stageAnalysis, exportBusy, onExportChart }: {
     point: InsarPoint;
     showTrend: boolean;
     timeIndex: number;
+    stageAnalysis: TemporalStageAnalysis | null;
+    exportBusy: boolean;
+    onExportChart: (svg: SVGSVGElement) => void;
 }) {
     const sourceValues = point.series;
     const sourceDates = point.dates?.length ? point.dates : demoDates.slice(0, sourceValues.length);
     const [zoomStart, setZoomStart] = useState(0);
     const [zoomEnd, setZoomEnd] = useState(Math.max(1, sourceValues.length - 1));
     const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+    const svgRef = useRef<SVGSVGElement>(null);
     const safeEnd = Math.min(sourceValues.length - 1, Math.max(1, zoomEnd));
     const safeStart = Math.max(0, Math.min(zoomStart, safeEnd - 1));
     const values = sourceValues.slice(safeStart, safeEnd + 1);
@@ -163,6 +181,10 @@ function TimeSeriesChart({ point, showTrend, timeIndex }: {
     const hoverX = hoverIndex === null ? 0 : x(hoverIndex);
     const hoverY = hoveredValue === null ? 0 : y(hoveredValue);
     const tooltipX = Math.min(width - 150, Math.max(left + 5, hoverX + 9));
+    const changeLocalIndex = stageAnalysis ? stageAnalysis.changeIndex - safeStart : -1;
+    const changeVisible = Boolean(stageAnalysis && changeLocalIndex > 0 && changeLocalIndex < count);
+    const changeX = changeVisible ? x(changeLocalIndex) : 0;
+    const zeroVisible = lo <= 0 && hi >= 0;
 
     const handleHover = (event: ReactMouseEvent<SVGSVGElement>) => {
         const rect = event.currentTarget.getBoundingClientRect();
@@ -173,7 +195,8 @@ function TimeSeriesChart({ point, showTrend, timeIndex }: {
 
     return (
         <div className="series-chart phase-three-series">
-            <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${point.name}累计形变时序曲线，横轴为观测日期，纵轴为累计形变毫米`} onMouseMove={handleHover} onMouseLeave={() => setHoverIndex(null)}>
+            <svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${point.name}累计形变时序曲线，横轴为观测日期，纵轴为累计形变毫米`} onMouseMove={handleHover} onMouseLeave={() => setHoverIndex(null)}>
+                {changeVisible && <g className="chart-stage-bands"><rect x={left} y={top} width={changeX - left} height={plotH} /><rect className="stage-two" x={changeX} y={top} width={width - right - changeX} height={plotH} /></g>}
                 <g className="chart-grid">
                     {yTicks.map((tick, index) => <line key={`y-${index}`} x1={left} y1={tick.pos} x2={width - right} y2={tick.pos} />)}
                     {xTicks.map((tick, index) => <line key={`x-${index}`} x1={x(tick)} y1={top} x2={x(tick)} y2={height - bottom} />)}
@@ -186,7 +209,9 @@ function TimeSeriesChart({ point, showTrend, timeIndex }: {
                     <text className="axis-title" x={(left + width - right) / 2} y={height - 7} textAnchor="middle">观测日期</text>
                     <text className="axis-title" transform={`translate(14 ${(top + height - bottom) / 2}) rotate(-90)`} textAnchor="middle">累计形变 (mm)</text>
                 </g>
+                {zeroVisible && <line className="chart-zero-line" x1={left} y1={y(0)} x2={width - right} y2={y(0)} />}
                 {showTrend && <polyline className="trend-line" points={trend} />}
+                {changeVisible && <g className="chart-change-point"><line x1={changeX} y1={top} x2={changeX} y2={height - bottom} /><text x={Math.min(width - right - 4, changeX + 5)} y={top + 13}>候选变化点 {stageAnalysis?.changeDate}</text></g>}
                 <polyline className="data-line" points={points} />
                 {values.map((value, index) => (index % dotStep === 0 || index === count) ? <circle className="observed-dot" key={index} cx={x(index)} cy={y(value)} r="2.2" /> : null)}
                 {currentVisible && <circle className="current-time-dot" cx={x(currentLocalIndex)} cy={y(values[currentLocalIndex] ?? values.at(-1) ?? 0)} r="3.6" />}
@@ -195,9 +220,10 @@ function TimeSeriesChart({ point, showTrend, timeIndex }: {
                     <g className="chart-hover">
                         <line x1={hoverX} y1={top} x2={hoverX} y2={height - bottom} />
                         <circle cx={hoverX} cy={hoverY} r="4" />
-                        <rect x={tooltipX} y={Math.max(top + 4, hoverY - 43)} width="136" height="38" rx="7" />
-                        <text x={tooltipX + 8} y={Math.max(top + 19, hoverY - 28)}>{dates[hoverIndex] || "—"}</text>
-                        <text x={tooltipX + 8} y={Math.max(top + 34, hoverY - 13)}>{hoveredValue.toFixed(2)} mm</text>
+                        <rect x={tooltipX} y={Math.max(top + 4, hoverY - 57)} width="136" height={stageAnalysis ? "52" : "38"} rx="7" />
+                        <text x={tooltipX + 8} y={Math.max(top + 19, hoverY - 42)}>{dates[hoverIndex] || "—"}</text>
+                        <text x={tooltipX + 8} y={Math.max(top + 34, hoverY - 27)}>{hoveredValue.toFixed(2)} mm</text>
+                        {stageAnalysis && <text x={tooltipX + 8} y={Math.max(top + 49, hoverY - 12)}>{hoverIndex + safeStart < stageAnalysis.changeIndex ? "阶段 1" : "阶段 2"}</text>}
                     </g>
                 )}
                 <g className="chart-legend">
@@ -214,14 +240,23 @@ function TimeSeriesChart({ point, showTrend, timeIndex }: {
                 </div>
                 <button disabled={safeStart === 0 && safeEnd === sourceValues.length - 1} onClick={() => { setZoomStart(0); setZoomEnd(sourceValues.length - 1); setHoverIndex(null); }}>恢复全时段</button>
             </div>
+            <div className="chart-export-actions single-chart-export"><button disabled={exportBusy} onClick={() => svgRef.current && onExportChart(svgRef.current)}>导出当前视图 PNG</button></div>
         </div>
     );
 }
-function CompareChart({ points }: {
+function CompareChart({ points, exportBusy, onExportData, onExportChart }: {
     points: InsarPoint[];
+    exportBusy: boolean;
+    onExportData: () => void;
+    onExportChart: (svg: SVGSVGElement) => void;
 }) {
-    const shown = points.slice(0, 30), values = shown.flatMap(p => p.series), lo = Math.min(...values), hi = Math.max(...values), range = hi - lo || 1, width = 400, height = 235, left = 54, right = 18, top = 18, bottom = 44, plotW = width - left - right, plotH = height - top - bottom, maxCount = Math.max(1, ...shown.map(p => p.series.length - 1)), x = (i: number, count: number) => left + (i / Math.max(1, count)) * plotW, y = (v: number) => top + ((hi - v) / range) * plotH, color = (j: number) => `hsl(${(j * 47) % 360} 88% 45%)`, yTicks = Array.from({ length: 5 }, (_, i) => ({ value: hi - (range * i) / 4, pos: top + (plotH * i) / 4 })), xTicks = Array.from({ length: 5 }, (_, i) => Math.round((maxCount * i) / 4)), dates = shown[0]?.dates || [];
-    return <div className="compare-chart"><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="多点累计形变时序对比，横轴为观测日期，纵轴为累计形变毫米"><g className="chart-grid">{yTicks.map((tick, i) => <line key={`y-${i}`} x1={left} y1={tick.pos} x2={width - right} y2={tick.pos}/>)}{xTicks.map((tick, i) => <line key={`x-${i}`} x1={x(tick, maxCount)} y1={top} x2={x(tick, maxCount)} y2={height - bottom}/>)}</g><g className="chart-axes"><line x1={left} y1={top} x2={left} y2={height - bottom}/><line x1={left} y1={height - bottom} x2={width - right} y2={height - bottom}/>{yTicks.map((tick, i) => <text key={i} x={left - 7} y={tick.pos + 4} textAnchor="end">{tick.value.toFixed(1)}</text>)}{xTicks.map((tick, i) => <text key={i} x={x(tick, maxCount)} y={height - bottom + 16} textAnchor="middle">{axisDate(dates[tick] || String(tick))}</text>)}<text className="axis-title" x={(left + width - right) / 2} y={height - 6} textAnchor="middle">观测日期</text><text className="axis-title" transform={`translate(14 ${(top + height - bottom) / 2}) rotate(-90)`} textAnchor="middle">累计形变 (mm)</text></g>{shown.map((p, j) => <polyline key={p.id} style={{ stroke: color(j) }} points={p.series.map((v, i) => `${x(i, p.series.length - 1)},${y(v)}`).join(" ")}/>)}</svg><div>{shown.slice(0, 12).map((p, j) => <span key={p.id}><i style={{ background: color(j) }}/>{p.id}</span>)}{shown.length > 12 && <span>+ {shown.length - 12} 条</span>}</div></div>;
+    const shown = points.slice(0, MAX_COMPARE_POINTS), [hoverIndex, setHoverIndex] = useState<number | null>(null), svgRef = useRef<SVGSVGElement>(null), values = shown.flatMap(p => p.series).filter(Number.isFinite);
+    if (!shown.length || !values.length) return null;
+    const lo = Math.min(...values), hi = Math.max(...values), range = hi - lo || 1, width = 400, height = 235, left = 54, right = 18, top = 18, bottom = 44, plotW = width - left - right, plotH = height - top - bottom, maxCount = Math.max(1, ...shown.map(p => p.series.length - 1)), x = (i: number, count: number) => left + (i / Math.max(1, count)) * plotW, y = (v: number) => top + ((hi - v) / range) * plotH, yTicks = Array.from({ length: 5 }, (_, i) => ({ value: hi - (range * i) / 4, pos: top + (plotH * i) / 4 })), xTicks = Array.from({ length: 5 }, (_, i) => Math.round((maxCount * i) / 4)), dates = shown[0]?.dates || demoDates.slice(0, shown[0]?.series.length || 0);
+    const pointerMove = (event: ReactPointerEvent<SVGSVGElement>) => { const rect = event.currentTarget.getBoundingClientRect(), ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)); setHoverIndex(Math.round(ratio * maxCount)); };
+    const pointIndexAtHover = (point: InsarPoint) => Math.round(((hoverIndex ?? 0) / maxCount) * Math.max(0, point.series.length - 1));
+    const hoverDate = hoverIndex === null ? "" : dates[Math.round((hoverIndex / maxCount) * Math.max(0, dates.length - 1))] || `第 ${hoverIndex + 1} 期`;
+    return <div className="compare-chart"><svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="最多五点累计形变时序对比，横轴为观测日期，纵轴为累计形变毫米" onPointerMove={pointerMove} onPointerLeave={() => setHoverIndex(null)}><g className="chart-grid">{yTicks.map((tick, i) => <line key={`y-${i}`} x1={left} y1={tick.pos} x2={width - right} y2={tick.pos}/>)}{xTicks.map((tick, i) => <line key={`x-${i}`} x1={x(tick, maxCount)} y1={top} x2={x(tick, maxCount)} y2={height - bottom}/>)}</g><g className="chart-axes"><line x1={left} y1={top} x2={left} y2={height - bottom}/><line x1={left} y1={height - bottom} x2={width - right} y2={height - bottom}/>{yTicks.map((tick, i) => <text key={i} x={left - 7} y={tick.pos + 4} textAnchor="end">{tick.value.toFixed(1)}</text>)}{xTicks.map((tick, i) => <text key={i} x={x(tick, maxCount)} y={height - bottom + 16} textAnchor="middle">{axisDate(dates[Math.round((tick / maxCount) * Math.max(0, dates.length - 1))] || String(tick))}</text>)}<text className="axis-title" x={(left + width - right) / 2} y={height - 6} textAnchor="middle">观测日期</text><text className="axis-title" transform={`translate(14 ${(top + height - bottom) / 2}) rotate(-90)`} textAnchor="middle">累计形变 (mm)</text></g>{shown.map((p, j) => <polyline key={p.id} style={{ stroke: comparisonColor(j) }} points={p.series.map((v, i) => `${x(i, p.series.length - 1)},${y(v)}`).join(" ")}/>)}{hoverIndex !== null && <g className="compare-hover"><line x1={x(hoverIndex, maxCount)} y1={top} x2={x(hoverIndex, maxCount)} y2={height - bottom}/>{shown.map((point, index) => { const value = point.series[pointIndexAtHover(point)]; return Number.isFinite(value) ? <circle key={point.id} cx={x(pointIndexAtHover(point), point.series.length - 1)} cy={y(value)} r="3.8" style={{ fill: comparisonColor(index) }}/> : null; })}</g>}</svg><div className="compare-legend">{shown.map((p, j) => <span key={p.id}><i style={{ background: comparisonColor(j) }}/>{p.id}</span>)}</div>{hoverIndex !== null && <div className="compare-hover-readout"><b>{hoverDate}</b>{shown.map((point, index) => { const value = point.series[pointIndexAtHover(point)]; return <span key={point.id}><i style={{ background: comparisonColor(index) }}/>{point.id}<strong>{Number.isFinite(value) ? `${value.toFixed(2)} mm` : "—"}</strong></span>; })}</div>}<div className="chart-export-actions"><button disabled={exportBusy} onClick={onExportData}>导出对比数据 CSV</button><button disabled={exportBusy} onClick={() => svgRef.current && onExportChart(svgRef.current)}>导出对比图 PNG</button></div></div>;
 }
 export function MapWorkspace() {
     return <AnalysisProvider><MapWorkspaceView /></AnalysisProvider>;
@@ -232,8 +267,10 @@ function MapWorkspaceView() {
         text: string;
         name: string;
         file?: File;
-    } | null>(null), [parseReport, setParseReport] = useState<DatasetParseResult | null>(null), [privateDatasetId, setPrivateDatasetId] = useState(""), [leftWidth, setLeftWidth] = useState(270), [rightWidth, setRightWidth] = useState(430), [leftCollapsed, setLeftCollapsed] = useState(false), [rightCollapsed, setRightCollapsed] = useState(false), [timeIndex, setTimeIndex] = useState(0), [rangeStart, setRangeStart] = useState(0), [rangeEnd, setRangeEnd] = useState(1), [attribute, setAttributeState] = useState<RenderAttribute>("velocity"), [styleMin, setStyleMin] = useState(-30), [styleMax, setStyleMax] = useState(30), [interval, setInterval] = useState(15), [colors, setColors] = useState(defaultColors), [threshold, setThreshold] = useState(-10), [coherenceThreshold, setCoherenceThreshold] = useState(.75), [selectionMode, setSelectionMode] = useState<"single" | "compare" | "compareBox" | "box">("single"), [compareIds, setCompareIds] = useState<string[]>([]), [curveIds, setCurveIds] = useState<string[]>([]), [boxPoints, setBoxPoints] = useState<InsarPoint[]>([]), [busy, setBusy] = useState(""), [dataReady, setDataReady] = useState(false);
+    } | null>(null), [parseReport, setParseReport] = useState<DatasetParseResult | null>(null), [privateDatasetId, setPrivateDatasetId] = useState(""), [leftWidth, setLeftWidth] = useState(270), [rightWidth, setRightWidth] = useState(430), [leftCollapsed, setLeftCollapsed] = useState(false), [rightCollapsed, setRightCollapsed] = useState(false), [timeIndex, setTimeIndex] = useState(0), [rangeStart, setRangeStart] = useState(0), [rangeEnd, setRangeEnd] = useState(1), [attribute, setAttributeState] = useState<RenderAttribute>("velocity"), [styleMin, setStyleMin] = useState(-30), [styleMax, setStyleMax] = useState(30), [interval, setInterval] = useState(15), [colors, setColors] = useState(defaultColors), [threshold, setThreshold] = useState(-10), [coherenceThreshold, setCoherenceThreshold] = useState(.75), [selectionMode, setSelectionMode] = useState<"single" | "compare" | "compareBox" | "box" | "polygon">("single"), [compareIds, setCompareIds] = useState<string[]>([]), [curveIds, setCurveIds] = useState<string[]>([]), [boxPoints, setBoxPoints] = useState<InsarPoint[]>([]), [busy, setBusy] = useState(""), [dataReady, setDataReady] = useState(false), [activeQuickCaseId, setActiveQuickCaseId] = useState<string | null>(null), [mapFocus, setMapFocus] = useState<{ bounds: [number, number, number, number]; token: number } | null>(null), [ruleSummaryOpen, setRuleSummaryOpen] = useState(false), [exportOperation, setExportOperation] = useState<ExportOperation>(idleExportOperation);
     const [leftTab, setLeftTab] = useState<"data" | "layers" | "filters">("data"), [rightTab, setRightTab] = useState<"point" | "region" | "pasc" | "ai">("point"), [activeFilter, setActiveFilter] = useState<"none" | "velocity" | "coherence" | "anomaly" | "pascLowConfidence" | "pascLimitedSpatial">("none");
+    const [patternVisibility, setPatternVisibility] = useState<PatternVisibility>("all");
+    const [anomalyRadiusMeters, setAnomalyRadiusMeters] = useState(200), [anomalyMinimumPoints, setAnomalyMinimumPoints] = useState(3);
     const [aiStatus, setAiStatus] = useState<"idle" | "loading" | "success" | "error">("idle"), [aiResult, setAiResult] = useState<RegionalInterpretation | null>(null), [aiError, setAiError] = useState(""), [evidenceOpen, setEvidenceOpen] = useState(false);
     const [pascOnlineRun, setPascOnlineRun] = useState<PascOnlineRunState>(emptyPascOnlineRun);
     const [jobPreviewId, setJobPreviewId] = useState("");
@@ -257,23 +294,57 @@ function MapWorkspaceView() {
         summary.total = chosen.length;
         return { points: chosen, summary };
     }, [points, coherenceThreshold]);
-    const boxStats = useMemo(() => boxPoints.length ? {
-        avg: boxPoints.reduce((sum, point) => sum + point.velocity, 0) / boxPoints.length,
-        minVelocity: Math.min(...boxPoints.map(point => point.velocity)),
-        maxVelocity: Math.max(...boxPoints.map(point => point.velocity)),
-        max: Math.max(...boxPoints.map(point => Math.abs(point.series[Math.min(timeIndex, point.series.length - 1)] ?? point.displacement))),
-        averageCurrent: boxPoints.reduce((sum, point) => sum + (point.series[Math.min(timeIndex, point.series.length - 1)] ?? point.displacement), 0) / boxPoints.length,
-        averageCoherence: (() => { const supplied = boxPoints.filter(point => point.coherence > 0); return supplied.length ? supplied.reduce((sum, point) => sum + point.coherence, 0) / supplied.length : null; })(),
-        quality: boxPoints.filter(point => (point.coherence > 0 && point.coherence < coherenceThreshold) || point.missingRate > .2).length,
-        modes: boxPoints.reduce((acc, point) => { const mode = normalizedMode(point.mode); acc[mode] = (acc[mode] || 0) + 1; return acc; }, {} as Record<string, number>),
-    } : null, [boxPoints, coherenceThreshold, timeIndex]);
-    const compareStats = useMemo(() => compared.length ? { avgVelocity: compared.reduce((s, p) => s + p.velocity, 0) / compared.length, avgCurrent: compared.reduce((s, p) => s + (p.series[Math.min(timeIndex, p.series.length - 1)] ?? p.displacement), 0) / compared.length, avgCoherence: compared.reduce((s, p) => s + p.coherence, 0) / compared.length } : null, [compared, timeIndex]);
+    const anomalyRegionResult = useMemo(() => buildAnomalyRegions(anomalyDiscovery.points, { radiusMeters: anomalyRadiusMeters, minimumPoints: anomalyMinimumPoints }, timeIndex, normalizedMode), [anomalyDiscovery.points, anomalyRadiusMeters, anomalyMinimumPoints, timeIndex]);
+    const activeAnomalyRegionId = analysis.selectedRegion?.source === "anomalyRegion" ? analysis.selectedRegion.regionId || null : null;
+    const activeAnomalyRegion = anomalyRegionResult.regions.find(region => region.id === activeAnomalyRegionId) || null;
+    const mapAnomalyRegions = useMemo(() => {
+        if (activeFilter !== "anomaly") return [];
+        const sorted = [...anomalyRegionResult.regions].sort((a, b) => b.pointCount - a.pointCount || a.id.localeCompare(b.id)).slice(0, 500);
+        const active = anomalyRegionResult.regions.find(region => region.id === activeAnomalyRegionId);
+        return active && !sorted.some(region => region.id === active.id) ? [...sorted.slice(0, 499), active] : sorted;
+    }, [activeFilter, anomalyRegionResult.regions, activeAnomalyRegionId]);
+    const selectedAoiGeometry = useMemo(() => {
+        const region = analysis.selectedRegion;
+        if (!region || (region.source !== "rectangle" && region.source !== "polygon" && region.source !== "anomalyRegion")) return null;
+        return region.geometry || rectangleGeometry(region.bounds);
+    }, [analysis.selectedRegion]);
+    const boxStats = useMemo(() => {
+        const summary = summarizeAoi(boxPoints, timeIndex, coherenceThreshold, normalizedMode, selectedAoiGeometry);
+        return summary ? {
+            ...summary,
+            avg: summary.meanVelocity,
+            minVelocity: summary.minimumVelocity,
+            maxVelocity: summary.maximumVelocity,
+            max: summary.maximumAbsoluteDisplacement,
+            averageCurrent: summary.meanCurrentDisplacement,
+            quality: summary.qualityConcernCount,
+            modes: summary.modeCounts,
+        } : null;
+    }, [boxPoints, coherenceThreshold, timeIndex, selectedAoiGeometry]);
+    const compareStats = useMemo(() => summarizeComparison(compared, timeIndex), [compared, timeIndex]);
+    const dataBackedCases = useMemo(() => buildDataBackedQuickCases(points), [points]);
+    const analysisRuleSummary = useMemo(() => buildAnalysisRuleSummary({
+        datasetName: datasetTitle,
+        datasetId: privateDatasetId || "demo-haikou",
+        timeRange: analysis.timeRange,
+        displayMode: attributeNames[attribute],
+        displayRange: attribute === "mode" ? "PASC 固定六类配色" : `${styleMin}—${styleMax} · 间距 ${interval}`,
+        patternVisibility: patternVisibility === "all" ? "显示全部模式" : patternVisibility === "anomaly_with_undefined" ? "异常模式 + 未定义型" : "仅异常模式",
+        activeFilter: activeFilter === "none" ? "未启用额外筛选" : activeFilter === "velocity" ? `速率 ≤ ${threshold} mm/yr` : activeFilter === "coherence" ? `相干性 < ${coherenceThreshold.toFixed(2)}` : activeFilter === "anomaly" ? "质量筛选后的异常候选" : activeFilter === "pascLowConfidence" ? "PASC 低置信度" : "PASC 空间适用性有限",
+        coherenceThreshold,
+        anomalyRadiusMeters,
+        anomalyMinimumPoints,
+        selectionSource: analysis.selectedRegion?.label || (selected ? `点位 ${selected.id}` : "尚未建立分析对象"),
+        selectedPointCount: boxPoints.length || (selected ? 1 : 0),
+    }), [datasetTitle, privateDatasetId, analysis.timeRange, analysis.selectedRegion, attribute, styleMin, styleMax, interval, patternVisibility, activeFilter, threshold, coherenceThreshold, anomalyRadiusMeters, anomalyMinimumPoints, boxPoints.length, selected]);
     const pascCandidateCount = parseReport?.compatibility.pascCandidatePoints ?? points.filter(point => (point.effectiveEpochCount ?? point.series.length) >= 20).length;
     const pascBlockingIssues = (parseReport?.compatibility.issues ?? []).filter(issue => issue.severity === "error" || issue.severity === "confirmation").map(issue => issue.message);
     const pascLowConfidenceCount = points.filter(point => point.pasc?.lowConfidence).length;
     const pascLimitedReferenceCount = points.filter(point => point.pasc?.spatialApplicability === "limited_reference").length;
     const filteredPointCount = activeFilter !== "none" || analysis.selectedRegion ? boxPoints.length : points.length;
-    const contextRegionStats = useMemo<SelectedRegionStats | null>(() => boxStats ? { pointCount: boxPoints.length, averageVelocity: boxStats.avg, maximumDisplacement: boxStats.max, qualityCount: boxStats.quality, modeCounts: boxStats.modes, averageDisplacement: boxStats.averageCurrent, averageCoherence: boxStats.averageCoherence, minimumVelocity: boxStats.minVelocity, maximumVelocity: boxStats.maxVelocity, velocityHistogram: buildVelocityHistogram(boxPoints) } : null, [boxStats, boxPoints]);
+    const patternVisiblePoints = useMemo(() => filterPointsForPattern(points, patternVisibility), [points, patternVisibility]);
+    const mapVisiblePointCount = attribute === "mode" ? patternVisiblePoints.length : points.length;
+    const contextRegionStats = useMemo<SelectedRegionStats | null>(() => boxStats ? { pointCount: boxPoints.length, averageVelocity: boxStats.avg, maximumDisplacement: boxStats.max, qualityCount: boxStats.quality, modeCounts: boxStats.modes, averageDisplacement: boxStats.averageCurrent, averageCoherence: boxStats.averageCoherence, minimumVelocity: boxStats.minVelocity, maximumVelocity: boxStats.maxVelocity, areaKm2: boxStats.areaKm2, medianVelocity: boxStats.medianVelocity, medianDisplacement: boxStats.medianCurrentDisplacement, lowCoherenceCount: boxStats.lowCoherenceCount, missingDataCount: boxStats.missingDataCount, velocityHistogram: buildVelocityHistogram(boxPoints) } : null, [boxStats, boxPoints]);
     const regionalAiInput = useMemo<RegionalAnalysisInput | null>(() => {
         if (!boxStats || !boxPoints.length) return null;
         const modeSources = [...new Set(boxPoints.map(point => point.modeSource?.trim()).filter(Boolean) as string[])];
@@ -300,8 +371,8 @@ function MapWorkspaceView() {
         if (!dataReady || (restoreRequested.current && !restoredContextKey.current)) return;
         const dates = points[0]?.dates || [], start = Math.min(rangeStart, Math.max(0, dates.length - 1)), end = Math.min(rangeEnd, Math.max(0, dates.length - 1));
         const descriptions = { none: "未启用", velocity: `速率 ≤ ${threshold} mm/yr`, coherence: `相干性 < ${coherenceThreshold.toFixed(2)}`, anomaly: "明显沉降 / 加速沉降 / 阶段形变，已排除低质量点", pascLowConfidence: "PASC 低置信度结果", pascLimitedSpatial: "PASC 空间适用性有限结果" } as const;
-        updateAnalysis({ datasetId: privateDatasetId || "demo-haikou", datasetName: datasetTitle, timeRange: { startIndex: start, endIndex: end, startDate: dates[start] || "—", endDate: dates[end] || "—" }, filters: { active: activeFilter, velocityMax: activeFilter === "velocity" ? threshold : null, coherenceMin: activeFilter === "coherence" || activeFilter === "anomaly" ? coherenceThreshold : null, resultCount: filteredPointCount, description: descriptions[activeFilter] }, activeColorMode: attribute, selectedPointId: selected?.id || null, selectedRegionStats: contextRegionStats });
-    }, [privateDatasetId, datasetTitle, points, rangeStart, rangeEnd, activeFilter, threshold, coherenceThreshold, filteredPointCount, attribute, selected?.id, contextRegionStats, updateAnalysis, dataReady]);
+        updateAnalysis({ datasetId: privateDatasetId || "demo-haikou", datasetName: datasetTitle, timeRange: { startIndex: start, endIndex: end, startDate: dates[start] || "—", endDate: dates[end] || "—" }, filters: { active: activeFilter, velocityMax: activeFilter === "velocity" ? threshold : null, coherenceMin: activeFilter === "coherence" || activeFilter === "anomaly" ? coherenceThreshold : null, resultCount: filteredPointCount, description: descriptions[activeFilter] }, activeColorMode: attribute, patternVisibility, selectedPointId: selected?.id || null, selectedRegionStats: contextRegionStats });
+    }, [privateDatasetId, datasetTitle, points, rangeStart, rangeEnd, activeFilter, threshold, coherenceThreshold, filteredPointCount, attribute, patternVisibility, selected?.id, contextRegionStats, updateAnalysis, dataReady]);
     const handleMapViewChange = useCallback((mapView: AnalysisMapView) => {
         if (restoreRequested.current && !restoredContextKey.current) return;
         updateAnalysis({ mapView });
@@ -313,7 +384,7 @@ function MapWorkspaceView() {
         setStatus("上传自己的数据：请确认 CSV 字段要求，然后选择本地文件。");
     } }, []);
     const saveAnalysisMeta = async (id: string, nextMapping: CsvMapping, result: DatasetParseResult) => { await patchPrivateDataset(id, { mapping: nextMapping, qualityReport: result.quality, schemaStatus: "validated", processStatus: "validated" }).catch(() => null); };
-    const applyResult = (result: DatasetParseResult, label: string, preserveAnalysis = false) => { pascRunId.current += 1; setPascOnlineRun(emptyPascOnlineRun); setPoints(result.points); setSelected(null); setDatasetTitle(result.datasetTitle); setTimeIndex(result.periods - 1); setRangeStart(0); setRangeEnd(result.periods - 1); setCompareIds([]); setCurveIds([]); setBoxPoints([]); setActiveFilter("none"); setRightTab("point"); if (!preserveAnalysis) updateAnalysis({ selectedPointId: null, selectedRegion: null, selectedRegionStats: null }); setParseReport(result); setDataReady(true); setStatus(`${label} · ${result.points.length.toLocaleString()} 点 · ${result.periods} 期 · 模式字段 ${result.modeField} · 过滤 ${result.invalid} 条`); trackEvent("dataset_loaded", { dataset_type: privateDatasetId ? "private" : label.includes("公开示例") ? "demo" : "local", point_count: result.points.length, period_count: result.periods, invalid_count: result.invalid }); };
+    const applyResult = (result: DatasetParseResult, label: string, preserveAnalysis = false) => { pascRunId.current += 1; setPascOnlineRun(emptyPascOnlineRun); setPoints(result.points); setSelected(null); setDatasetTitle(result.datasetTitle); setTimeIndex(result.periods - 1); setRangeStart(0); setRangeEnd(result.periods - 1); setCompareIds([]); setCurveIds([]); setActiveQuickCaseId(null); setMapFocus(null); setBoxPoints([]); setActiveFilter("none"); setRightTab("point"); if (!preserveAnalysis) setPatternVisibility("all"); if (!preserveAnalysis) updateAnalysis({ selectedPointId: null, selectedRegion: null, selectedRegionStats: null }); setParseReport(result); setDataReady(true); setStatus(`${label} · ${result.points.length.toLocaleString()} 点 · ${result.periods} 期 · 模式字段 ${result.modeField} · 过滤 ${result.invalid} 条`); trackEvent("dataset_loaded", { dataset_type: privateDatasetId ? "private" : label.includes("公开示例") ? "demo" : "local", point_count: result.points.length, period_count: result.periods, invalid_count: result.invalid }); };
     const loadShowcaseDemo = () => { setBusy("正在加载六类 Showcase Demo…"); fetch("/data/haikou-pasc-showcase.csv").then(response => { if (!response.ok) throw new Error("Showcase Demo 不可用"); return response.text(); }).then(text => { const found = inspectCsv(text), demoMapping: CsvMapping = { ...found.mapping, displacementUnit: "mm", velocityUnit: "mm/year", signConvention: "toward_satellite_positive", preprocessingState: "already_smoothed" }, result = parseMappedCsv(text, "海口 PASC Showcase.csv", demoMapping, false); result.datasetTitle = "海口 PASC-TCN 248 期 Showcase Demo"; setPrivateDatasetId(""); applyResult(result, "海口 PASC Showcase Demo"); setStatus(`Showcase Demo · ${result.points.length.toLocaleString()} 点 · 248 期 · 每类 500 点；仅用于六类界面覆盖，不代表科学类别比例`); }).catch(error => setStatus(error instanceof Error ? error.message : "Showcase Demo 加载失败")).finally(() => setBusy("")); };
     useEffect(() => { const params = new URLSearchParams(window.location.search); restoreRequested.current = params.get("restore") === "analysis"; const previewJobId = params.get("job"); if (previewJobId) { jobPreviewLevel.current = ""; setJobPreviewId(previewJobId); setStatus("正在读取 Phase F 多级地图预览…"); return; } const privateId = params.get("dataset"); if (privateId) {
         setPrivateDatasetId(privateId);
@@ -348,7 +419,7 @@ function MapWorkspaceView() {
             const preview = parsePascMapPreview(mapBody);
             if (preview.jobId !== jobPreviewId) throw new Error("任务地图标识不匹配。");
             setPrivateDatasetId(jobBody.job.datasetId); setPoints(preview.points); setSelected(null); setDatasetTitle(`${jobBody.job.datasetName} · Phase F 抽样预览`);
-            setTimeIndex(0); setRangeStart(0); setRangeEnd(0); setCompareIds([]); setCurveIds([]); setBoxPoints([]); setActiveFilter("none"); setRightTab("pasc");
+            setTimeIndex(0); setRangeStart(0); setRangeEnd(0); setCompareIds([]); setCurveIds([]); setBoxPoints([]); setActiveFilter("none"); setPatternVisibility("all"); setRightTab("pasc");
             setAttributeState("mode"); setVisible(current => ({ ...current, points: true })); setInspection(null); setMapping(null); setParseReport(null); setDataReady(true);
             setStatus(`Phase F ${stageLabelsForPreview(level)} · 当前 ${preview.points.length.toLocaleString()} 个确定性抽样点 / 共 ${preview.totalPredictedPoints.toLocaleString()} 个识别结果；缩放地图会切换层级，不加载全量数据。`);
         }).catch(error => {
@@ -367,7 +438,8 @@ function MapWorkspaceView() {
         if (analysis.filters.velocityMax !== null) setThreshold(analysis.filters.velocityMax);
         if (analysis.filters.coherenceMin !== null) setCoherenceThreshold(analysis.filters.coherenceMin);
         setActiveFilter(analysis.filters.active);
-        if (restoredPoints?.length) { setBoxPoints(restoredPoints); setSelectionMode(analysis.selectedRegion?.source === "rectangle" ? "box" : "single"); setRightTab("region"); }
+        setPatternVisibility(analysis.patternVisibility);
+        if (restoredPoints?.length) { setBoxPoints(restoredPoints); setSelectionMode(analysis.selectedRegion?.source === "rectangle" ? "box" : analysis.selectedRegion?.source === "polygon" ? "polygon" : "single"); setRightTab("region"); }
         if (analysis.selectedPointId) { const point = points.find(item => item.id === analysis.selectedPointId); if (point) { setSelected(point); setRightTab("point"); } }
         restoredContextKey.current = `${analysis.datasetId}:${analysis.timeRange.startIndex}:${analysis.timeRange.endIndex}:${analysis.selectedRegion?.pointIds.length || 0}`;
         setStatus("已恢复地图范围、时间区间、筛选条件与分析对象");
@@ -429,25 +501,48 @@ function MapWorkspaceView() {
         setStyleMax(30);
         setInterval(15);
     } };
-    const selectPoint = useCallback((point: InsarPoint) => { trackEvent("point_click", { selection_mode: selectionMode, deformation_mode: normalizedMode(point.mode), result_count: 1 }); setRightTab("point"); if (selectionMode === "compare" || selectionMode === "compareBox") {
-        setCompareIds(ids => { const removing = ids.includes(point.id); if (removing) {
+    const applyPatternVisibility = (next: PatternVisibility) => {
+        const shown = filterPointsForPattern(points, next).length;
+        setPatternVisibility(next);
+        setAttribute("mode");
+        setVisible(current => ({ ...current, points: true }));
+        trackEvent("pattern_visibility_filter", { mode: next, result_count: shown, total_count: points.length });
+        setStatus(next === "all" ? `已恢复全部 ${points.length.toLocaleString()} 个监测点。` : `PASC 异常优先显示：${shown.toLocaleString()} / ${points.length.toLocaleString()} 点；原始数据未被删除。`);
+    };
+    const selectPoint = useCallback((point: InsarPoint) => { trackEvent("point_click", { selection_mode: selectionMode, deformation_mode: normalizedMode(point.mode), result_count: 1 }); setRightTab("point"); setActiveQuickCaseId(null); if (selectionMode === "compare" || selectionMode === "compareBox") {
+        setCompareIds(ids => { const update = updateComparison(ids, point.id); if (update.action === "limit") { setStatus(`多点对比最多选择 ${MAX_COMPARE_POINTS} 个点；请先移除一个点再继续。`); return update.ids; } if (update.action === "removed") {
             setCurveIds(current => current.filter(id => id !== point.id));
             setSelected(current => current?.id === point.id ? null : current);
-            return ids.filter(id => id !== point.id);
-        } const next = [...ids, point.id].slice(-30); setCurveIds(current => [...current.filter(id => next.includes(id)), point.id].slice(-30)); setSelected(point); return next; });
+            return update.ids;
+        } setCurveIds(current => [...current.filter(id => update.ids.includes(id)), point.id].slice(0, MAX_COMPARE_POINTS)); setSelected(point); setStatus(`已加入对比：${point.id} · ${update.ids.length}/${MAX_COMPARE_POINTS}`); return update.ids; });
     }
     else
         setSelected(point); }, [selectionMode]);
     const toggleCurve = (id: string) => setCurveIds(ids => ids.includes(id) ? ids.filter(item => item !== id) : [...ids, id]);
     const removeCompared = (id: string) => { setCompareIds(ids => ids.filter(item => item !== id)); setCurveIds(ids => ids.filter(item => item !== id)); setSelected(current => current?.id === id ? null : current); };
-    const clearSelection = () => { setSelected(null); setCompareIds([]); setCurveIds([]); setBoxPoints([]); setActiveFilter("none"); updateAnalysis({ selectedPointId: null, selectedRegion: null, selectedRegionStats: null }); setStatus("已取消全部选择与地图高亮"); };
+    const activateQuickCase = (item: DataBackedQuickCase) => {
+        const chosen = item.pointIds.map(id => points.find(point => point.id === id)).filter(Boolean) as InsarPoint[], focus = chosen.find(point => point.id === item.focusPointId) || chosen[0];
+        if (!focus) { setStatus("当前数据已变化，快捷案例没有可定位的点，请重新加载数据。"); return; }
+        const ids = chosen.slice(0, MAX_COMPARE_POINTS).map(point => point.id);
+        setActiveQuickCaseId(item.id); setSelectionMode(ids.length > 1 ? "compare" : "single"); setCompareIds(ids); setCurveIds(ids); setSelected(focus); setBoxPoints([]); setActiveFilter("none"); setRightTab("point"); setMapFocus({ bounds: item.bounds, token: Date.now() });
+        updateAnalysis({ selectedPointId: focus.id, selectedRegion: null, selectedRegionStats: null });
+        setStatus(`已定位“${item.title}” · ${ids.length} 个真实监测点 · 已打开 ${focus.id} 详情。`);
+        trackEvent("data_backed_case_open", { case_id: item.id, point_count: ids.length, dataset_type: privateDatasetId ? "private" : "public_or_local" });
+    };
+    const clearSelection = () => { setSelected(null); setCompareIds([]); setCurveIds([]); setActiveQuickCaseId(null); setBoxPoints([]); setActiveFilter("none"); updateAnalysis({ selectedPointId: null, selectedRegion: null, selectedRegionStats: null }); setStatus("已取消全部选择与地图高亮"); };
     const clearRegionSelection = () => { setBoxPoints([]); setActiveFilter("none"); updateAnalysis({ selectedRegion: null, selectedRegionStats: null }); setStatus("已清除区域选择与筛选结果"); };
     const handleBoxSelect = useCallback((chosen: InsarPoint[], bounds: [
         number,
         number,
         number,
         number
-    ]) => { trackEvent("region_select", { selection_type: "rectangle", result_count: chosen.length }); setSelectionMode("box"); setRightTab("region"); setActiveFilter("none"); setSelected(null); setCompareIds([]); setCurveIds([]); setBoxPoints(chosen); updateAnalysis({ selectedPointId: null, selectedRegion: { bounds, pointIds: chosen.map(point => point.id), label: "自定义矩形区域", source: "rectangle" } }); setStatus(`矩形区域统计：已框选 ${chosen.length.toLocaleString()} 个点。矩形框选不进入多点曲线，避免大范围时序分析卡顿。`); }, [updateAnalysis]);
+    ]) => { trackEvent("region_select", { selection_type: "rectangle", result_count: chosen.length }); setSelectionMode("box"); setRightTab("region"); setActiveFilter("none"); setSelected(null); setCompareIds([]); setCurveIds([]); setBoxPoints(chosen); updateAnalysis({ selectedPointId: null, selectedRegion: { bounds, geometry: rectangleGeometry(bounds), pointIds: chosen.map(point => point.id), label: "自定义矩形区域", source: "rectangle" } }); setStatus(`矩形区域统计：已框选 ${chosen.length.toLocaleString()} 个点。聚合时序默认使用中位数。`); }, [updateAnalysis]);
+    const handlePolygonSelect = useCallback((chosen: InsarPoint[], bounds: [number, number, number, number], coordinates: AoiCoordinate[]) => {
+        trackEvent("region_select", { selection_type: "polygon", result_count: chosen.length, vertex_count: coordinates.length });
+        setSelectionMode("polygon"); setRightTab("region"); setActiveFilter("none"); setSelected(null); setCompareIds([]); setCurveIds([]); setBoxPoints(chosen);
+        updateAnalysis({ selectedPointId: null, selectedRegion: { bounds, geometry: { type: "polygon", coordinates }, pointIds: chosen.map(point => point.id), label: "自定义多边形区域", source: "polygon" } });
+        setStatus(`多边形区域统计：${coordinates.length} 个顶点内选中 ${chosen.length.toLocaleString()} 个点。聚合时序默认使用中位数。`);
+    }, [updateAnalysis]);
     const chooseBase = (value: string) => { setBase(value); if ((value.startsWith("tdt") && !tdtKey) || value === "custom")
         setSourceOpen(true); }, saveKey = () => { const value = keyDraft.trim(), custom = customDraft.trim(); localStorage.setItem("lanjifyw-tianditu-key", value); localStorage.setItem("lanjifyw-custom-basemap", custom); setTdtKey(value); setCustomBasemap(custom); setSourceOpen(false); if (value || custom)
         setStatus("图源配置已保存在当前浏览器"); };
@@ -464,13 +559,30 @@ function MapWorkspaceView() {
     const applyThreshold = () => { const chosen = points.filter(p => p.velocity <= threshold); trackEvent("filter_apply", { filter_type: "velocity", threshold, result_count: chosen.length }); trackEvent("region_select", { selection_type: "velocity_filter", result_count: chosen.length }); setSelectionMode("single"); setActiveFilter("velocity"); setBoxPoints(chosen); setRightTab("region"); setSelected(null); updateAnalysis({ selectedPointId: null, selectedRegion: { bounds: pointBounds(chosen), pointIds: chosen.map(point => point.id), label: `速率 ≤ ${threshold} mm/yr`, source: "filter" } }); setStatus(`阈值筛选：速率 ≤ ${threshold} mm/yr · ${chosen.length.toLocaleString()} 点`); };
     const setSafeCoherenceThreshold = (value: number) => setCoherenceThreshold(Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0)));
     const applyCoherenceFilter = () => { const chosen = points.filter(p => p.coherence > 0 && p.coherence < coherenceThreshold); trackEvent("filter_apply", { filter_type: "coherence", threshold: coherenceThreshold, result_count: chosen.length }); trackEvent("region_select", { selection_type: "coherence_filter", result_count: chosen.length }); setSelectionMode("single"); setActiveFilter("coherence"); setAttribute("coherence"); setBoxPoints(chosen); setVisible(v => ({ ...v, quality: true })); setRightTab("region"); setSelected(null); updateAnalysis({ selectedPointId: null, selectedRegion: { bounds: pointBounds(chosen), pointIds: chosen.map(point => point.id), label: `低相干 < ${coherenceThreshold.toFixed(2)}`, source: "filter" } }); setStatus(`低相干筛选：相干性 < ${coherenceThreshold.toFixed(2)} · ${chosen.length.toLocaleString()} 点`); };
-    const discoverAnomalies = () => {
+    const showAllAnomalyPoints = (message?: string) => {
         const chosen = anomalyDiscovery.points, bounds = pointBounds(chosen);
-        trackEvent("filter_apply", { filter_type: "anomaly_discovery", result_count: chosen.length, excluded_low_quality: anomalyDiscovery.summary.excludedLowQuality });
-        trackEvent("region_select", { selection_type: "anomaly_discovery", result_count: chosen.length });
         setSelectionMode("single"); setActiveFilter("anomaly"); setAttribute("velocity"); setBoxPoints(chosen); setSelected(null); setCompareIds([]); setCurveIds([]); setRightTab("region"); setLeftTab("filters"); setVisible(value => ({ ...value, points: true }));
         updateAnalysis({ selectedPointId: null, selectedRegion: chosen.length ? { bounds, pointIds: chosen.map(point => point.id), label: "异常点筛选结果", source: "anomaly" } : null });
-        setStatus(chosen.length ? `发现 ${chosen.length.toLocaleString()} 个异常监测点；已排除 ${anomalyDiscovery.summary.excludedLowQuality.toLocaleString()} 个低质量点。` : "当前数据未筛选出符合既定规则的异常监测点。" );
+        if (message) setStatus(message);
+    };
+    const discoverAnomalies = () => {
+        const chosen = anomalyDiscovery.points;
+        trackEvent("filter_apply", { filter_type: "anomaly_discovery", result_count: chosen.length, excluded_low_quality: anomalyDiscovery.summary.excludedLowQuality });
+        trackEvent("region_select", { selection_type: "anomaly_discovery", result_count: chosen.length });
+        showAllAnomalyPoints(chosen.length ? `发现 ${chosen.length.toLocaleString()} 个异常监测点，其中 ${anomalyRegionResult.assignedPointCount.toLocaleString()} 点形成 ${anomalyRegionResult.regions.length.toLocaleString()} 个空间支持区域；已排除 ${anomalyDiscovery.summary.excludedLowQuality.toLocaleString()} 个低质量点。` : "当前数据未筛选出符合既定规则的异常监测点。");
+    };
+    const focusAnomalyRegion = useCallback((region: AnomalyRegion) => {
+        const ids = new Set(region.pointIds), chosen = anomalyDiscovery.points.filter(point => ids.has(point.id));
+        trackEvent("region_select", { selection_type: "anomaly_region", region_id: region.id, result_count: chosen.length, radius_meters: anomalyRegionResult.parameters.radiusMeters, minimum_points: anomalyRegionResult.parameters.minimumPoints });
+        if (attribute === "mode") trackEvent("pattern_view_switch", { from: attribute, to: "velocity" });
+        setSelectionMode("single"); setActiveFilter("anomaly"); setAttributeState("velocity"); setBoxPoints(chosen); setSelected(null); setCompareIds([]); setCurveIds([]); setRightTab("region");
+        updateAnalysis({ selectedPointId: null, selectedRegion: { bounds: region.bounds, geometry: region.geometry, regionId: region.id, pointIds: region.pointIds, label: `异常区域 ${region.id}`, source: "anomalyRegion" } });
+        setStatus(`已定位 ${region.id}：${region.pointCount.toLocaleString()} 个异常候选点，平均速率 ${region.meanVelocity.toFixed(2)} mm/yr。边界为监测点分析包络。`);
+    }, [anomalyDiscovery.points, anomalyRegionResult.parameters, attribute, updateAnalysis]);
+    const changeAnomalyRegionParameters = (radiusMeters: number, minimumPoints: number) => {
+        setAnomalyRadiusMeters(Math.max(25, Math.min(5000, Number.isFinite(radiusMeters) ? radiusMeters : 200)));
+        setAnomalyMinimumPoints(Math.max(2, Math.min(50, Math.round(Number.isFinite(minimumPoints) ? minimumPoints : 3))));
+        if (activeFilter === "anomaly" && activeAnomalyRegionId) showAllAnomalyPoints("聚类参数已更新；已返回全部异常候选点，请重新选择区域。");
     };
     async function loadPascLargeJobResults(jobId: string, sourcePoints: InsarPoint[]) {
         const runId = ++pascRunId.current;
@@ -609,32 +721,42 @@ function MapWorkspaceView() {
         catch (error) { trackEvent("ai_analysis_fail", { reason: "interpretation_failed", point_count: regionalAiInput.pointCount }); setAiError(error instanceof Error ? error.message : "区域解读生成失败，请检查当前分析对象后重试。"); setAiStatus("error"); }
     };
     const showPrimaryModes = () => { setAttribute("mode"); setRightTab("region"); setStatus("已切换为形变模式着色，并保留当前区域分析结果"); };
+    const runExport = async (label: string, task: () => void | Promise<void>) => {
+        if (exportOperation.state === "running") return;
+        setExportOperation({ state: "running", message: `正在生成${label}…` });
+        try { await task(); setExportOperation({ state: "success", message: `${label}已生成并开始下载。` }); }
+        catch (error) { const message = error instanceof Error ? error.message : `${label}生成失败`; setExportOperation({ state: "error", message }); setStatus(message); }
+    };
     const downloadAiSummary = () => {
         if (!aiResult || !regionalAiInput) return;
-        const lines = ["澜迹 InSAR · 区域分析摘要", "", `数据集：${regionalAiInput.datasetName}`, `分析范围：${regionalAiInput.regionLabel}`, `有效点数：${regionalAiInput.pointCount}`, `时间范围：${regionalAiInput.timeRange.startDate}—${regionalAiInput.timeRange.endDate}`, `筛选条件：${regionalAiInput.filterDescription}`, `模式来源：${regionalAiInput.modeSource || "未提供"}`, `解释引擎：${aiResult.engineLabel}`, "", "区域概况", aiResult.overview, "", "主要发现", ...aiResult.findings.map((item, index) => `${index + 1}. ${item}`), "", "值得关注", aiResult.attention, "", "建议下一步", aiResult.nextStep, "", "边界说明：本摘要仅解释程序统计结果，不构成安全判断、灾害预测或处置建议。"], blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/plain;charset=utf-8" }), link = document.createElement("a");
-        link.href = URL.createObjectURL(blob); link.download = `${datasetTitle.replace(/\s/g, "-")}-区域分析摘要.txt`; link.click(); URL.revokeObjectURL(link.href); trackEvent("analysis_export", { export_type: "ai_summary", point_count: regionalAiInput.pointCount });
+        const lines = ["澜迹 InSAR · 区域分析摘要", "", `数据集：${regionalAiInput.datasetName}`, `分析范围：${regionalAiInput.regionLabel}`, `有效点数：${regionalAiInput.pointCount}`, `时间范围：${regionalAiInput.timeRange.startDate}—${regionalAiInput.timeRange.endDate}`, `筛选条件：${regionalAiInput.filterDescription}`, `模式来源：${regionalAiInput.modeSource || "未提供"}`, `解释引擎：${aiResult.engineLabel}`, "", "区域概况", aiResult.overview, "", "主要发现", ...aiResult.findings.map((item, index) => `${index + 1}. ${item}`), "", "值得关注", aiResult.attention, "", "建议下一步", aiResult.nextStep, "", "边界说明：本摘要仅解释程序统计结果，不构成安全判断、灾害预测或处置建议。"];
+        void runExport("区域分析摘要", () => { downloadText("\uFEFF" + lines.join("\r\n"), `${safeExportName(datasetTitle)}-区域分析摘要.txt`); trackEvent("analysis_export", { export_type: "ai_summary", point_count: regionalAiInput.pointCount }); });
     };
-    const captureMap = async () => { const node = document.querySelector<HTMLElement>(".gis-map"); if (!node)
-        return; setBusy("正在生成地图截图…"); try {
+    const captureMap = () => void runExport("地图 PNG", async () => { const node = document.querySelector<HTMLElement>(".gis-map"); if (!node) throw new Error("地图尚未准备完成，请稍后重试"); setBusy("正在生成地图截图…"); try {
         const html2canvas = (await import("html2canvas")).default, canvas = await html2canvas(node, { useCORS: true, backgroundColor: "#eef3f7", scale: 2 }), a = document.createElement("a");
         a.href = canvas.toDataURL("image/png");
-        a.download = `${datasetTitle.replace(/\s/g, "-")}-${currentDate}.png`;
+        a.download = `${safeExportName(datasetTitle)}-${safeExportName(currentDate, "current")}.png`;
         a.click();
         trackEvent("analysis_export", { export_type: "map_png", point_count: filteredPointCount });
     }
-    catch {
-        setStatus("底图跨域限制导致截图失败，可切换 Esri Light Gray 后重试");
-    }
     finally {
         setBusy("");
-    } };
-    const exportPoint = () => { if (!selected)
-        return; const dates = selected.dates?.length ? selected.dates : demoDates.slice(0, selected.series.length), rows: (string | number)[][] = [["point_id", "longitude", "latitude", "velocity", "coherence", "missing_rate", "mode", "mode_source", "mode_confidence"], [selected.id, selected.lon, selected.lat, selected.velocity, selected.coherence, selected.missingRate, selected.mode, selected.modeSource || "", selected.modeConfidence ?? ""], ["date", "displacement"], ...dates.map((d, i) => [d, selected.series[i]])], blob = new Blob(["\uFEFF" + rows.map(r => r.join(",")).join("\n")], { type: "text/csv;charset=utf-8" }), a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${selected.id}-timeseries.csv`; a.click(); URL.revokeObjectURL(a.href); trackEvent("analysis_export", { export_type: "point_csv", period_count: selected.series.length }); };
+    } });
+    const exportPoint = () => { if (!selected) return; void runExport("单点 CSV", () => { downloadText(pointCsv(selected), `${safeExportName(selected.id)}-timeseries.csv`, "text/csv;charset=utf-8"); trackEvent("analysis_export", { export_type: "point_csv", period_count: selected.series.length }); }); };
+    const exportComparison = () => { if (!curves.length) return; void runExport("多点对比 CSV", () => { downloadText(comparisonCsv(curves), `${safeExportName(datasetTitle)}-多点对比.csv`, "text/csv;charset=utf-8"); trackEvent("analysis_export", { export_type: "comparison_csv", point_count: curves.length }); }); };
+    const exportAoiPoints = () => { if (!boxPoints.length) return; void runExport("AOI 点位 CSV", () => { downloadText(aoiPointsCsv(boxPoints, timeIndex), `${safeExportName(datasetTitle)}-AOI点位.csv`, "text/csv;charset=utf-8"); trackEvent("analysis_export", { export_type: "aoi_points_csv", point_count: boxPoints.length }); }); };
+    const exportAoiSeries = (method: AoiAggregateMethod, enabledModes: string[]) => { if (!boxPoints.length) return; void runExport("AOI 聚合时序 CSV", () => { downloadText(aoiSeriesCsv(boxPoints, method, enabledModes, normalizedMode), `${safeExportName(datasetTitle)}-AOI-${method}.csv`, "text/csv;charset=utf-8"); trackEvent("analysis_export", { export_type: "aoi_series_csv", point_count: boxPoints.length, method }); }); };
+    const exportChart = (svg: SVGSVGElement, scope: "point" | "comparison" | "aoi") => void runExport("图表 PNG", async () => { await downloadSvgPng(svg, `${safeExportName(datasetTitle)}-${scope}-chart.png`); trackEvent("analysis_export", { export_type: `${scope}_chart_png` }); });
+    const exportRuleSummary = () => void runExport("规则摘要", () => { downloadText("\uFEFF" + analysisRuleSummary.text, `${safeExportName(datasetTitle)}-分析规则摘要.txt`); trackEvent("analysis_export", { export_type: "rule_summary" }); });
     const printAnalysis = () => { trackEvent("analysis_export", { export_type: "print_report", point_count: filteredPointCount }); window.print(); };
     const shellStyle = { "--left-panel": leftCollapsed ? "0px" : `${leftWidth}px`, "--right-panel": rightCollapsed ? "0px" : `${rightWidth}px` } as CSSProperties, currentValue = selected ? (selected.series[Math.min(timeIndex, selected.series.length - 1)] ?? selected.displacement) : 0;
     const selectedInsight = selected ? buildPointInsight(selected, coherenceThreshold) : null;
+    const selectedStageAnalysis = selected ? deriveTemporalStageAnalysis(selected) : null;
+    const selectedTopTwo = selected ? topPascCandidates(selected.pasc) : [];
+    const selectedDataQuality = selected ? pointDataQuality(selected, coherenceThreshold) : null;
+    const selectedModeExplanation = selected ? pascModeExplanation(selected) : null;
     return (
-        <main className="map-page phase-two-workspace">
+        <main className="map-page phase-two-workspace" aria-busy={!dataReady || Boolean(busy) || exportOperation.state === "running"}>
             <header className="map-topbar phase-two-topbar">
                 <Link className="site-brand" href="/">
                     <img src="/insar-satellite-v2.png" alt="" />
@@ -643,25 +765,25 @@ function MapWorkspaceView() {
                 <section className="analysis-status-strip" aria-label="当前分析上下文">
                     <article className="dataset-status-cell"><small>当前数据集</small><b title={datasetTitle}>{datasetTitle}</b><span title={busy || status}>{busy || status}</span></article>
                     <article><small>时间范围</small><b>{analysis.timeRange.startDate}—{analysis.timeRange.endDate}</b></article>
-                    <article><small>当前点数</small><b>{filteredPointCount.toLocaleString()}</b></article>
+                    <article><small>地图显示</small><b>{mapVisiblePointCount.toLocaleString()} / {points.length.toLocaleString()}</b></article>
                 </section>
                 <button className={"phase-four-discover " + (activeFilter === "anomaly" ? "active" : "")} onClick={discoverAnomalies}>
                     <span>DISCOVERY</span><b>发现异常</b><small>一次筛选重点监测点</small>
                 </button>
-                <div className="analysis-color-toggle" role="group" aria-label="地图主着色方式">
-                    <small>主着色</small>
-                    <button className={attribute === "displacement" ? "active" : ""} onClick={() => setAttribute("displacement")}>形变量</button>
-                    <button className={attribute === "mode" ? "active" : ""} onClick={() => setAttribute("mode")}>形变模式</button>
-                </div>
+                <AnalysisModeSwitch value={attribute} onChange={setAttribute} />
+
                 <nav className="phase-two-actions" onPointerMove={trackNavPointer}>
                     <Link className="topbar-tool" href="/statistics">区域统计</Link>
-                    <button className="topbar-tool" onClick={captureMap}>地图截图</button>
+                    <button className="topbar-tool" disabled={exportOperation.state === "running"} onClick={captureMap}>地图截图</button>
+                    <button className="topbar-tool" onClick={() => setRuleSummaryOpen(true)}>规则摘要</button>
                     <button className="topbar-tool" onClick={printAnalysis}>导出报告</button>
                     <Link href="/">返回首页</Link>
                     <button className="button primary small" onClick={() => fileRef.current?.click()}>导入 CSV</button>
                     <input ref={fileRef} hidden type="file" accept=".csv,text/csv" onChange={e => inspectFile(e.target.files?.[0])} />
                 </nav>
             </header>
+
+            {exportOperation.state !== "idle" && <div className={`workspace-operation-state ${exportOperation.state}`} role={exportOperation.state === "error" ? "alert" : "status"} aria-live="polite"><i /> <span>{exportOperation.message}</span><button aria-label="关闭导出状态" onClick={() => setExportOperation(idleExportOperation)}>×</button></div>}
 
             <section className="gis-shell phase-two-shell" style={shellStyle}>
                 <aside className={"gis-left phase-two-left " + (leftCollapsed ? "is-collapsed" : "")}>
@@ -728,6 +850,20 @@ function MapWorkspaceView() {
 
                     {leftTab === "filters" && (
                         <div className="workspace-tab-panel" role="tabpanel">
+                            <section className="renderer-panel threshold-analysis">
+                                <small>PASC 模式显示</small>
+
+                                <span>形变量回答“变了多少”，PASC 模式帮助理解“正在怎样变化”。筛选仅改变地图显示，不删除原始数据。</span>
+                                <div className="pattern-toggle-row">
+                                    <span><b>仅看异常模式</b><small>线性、分段、减速、加速</small></span>
+                                    <input aria-label="仅看异常模式" id="pattern-anomaly-only" type="checkbox" checked={patternVisibility !== "all"} onChange={event => applyPatternVisibility(event.target.checked ? "anomaly" : "all")} />
+                                </div>
+                                <div className={"pattern-toggle-row secondary " + (patternVisibility === "all" ? "disabled" : "")}>
+                                    <span><b>保留未定义型</b><small>与异常模式同时显示</small></span>
+                                    <input aria-label="保留未定义型" id="pattern-include-undefined" type="checkbox" disabled={patternVisibility === "all"} checked={patternVisibility === "anomaly_with_undefined"} onChange={event => applyPatternVisibility(event.target.checked ? "anomaly_with_undefined" : "anomaly")} />
+                                </div>
+                                <span className="pattern-display-count">当前显示 <b>{mapVisiblePointCount.toLocaleString()}</b> / {points.length.toLocaleString()} 点</span>
+                            </section>
                             <section className={"anomaly-discovery-card " + (activeFilter === "anomaly" ? "active" : "")}>
                                 <small>GUIDED DISCOVERY</small>
                                 <h3>先看值得关注的点</h3>
@@ -779,6 +915,8 @@ function MapWorkspaceView() {
                     selected={selected}
                     onSelect={selectPoint}
                     onBoxSelect={handleBoxSelect}
+                    onPolygonSelect={handlePolygonSelect}
+                    onAnomalyRegionSelect={focusAnomalyRegion}
                     onViewChange={handleMapViewChange}
                     visible={visible}
                     base={base}
@@ -788,13 +926,17 @@ function MapWorkspaceView() {
                     coherenceThreshold={coherenceThreshold}
                     layoutToken={leftWidth + "-" + rightWidth + "-" + leftCollapsed + "-" + rightCollapsed}
                     renderStyle={renderStyle}
+                    patternVisibility={attribute === "mode" ? patternVisibility : "all"}
                     compareIds={compareIds}
                     boxIds={boxIds}
                     selectionMode={selectionMode}
                     highlightKind={activeFilter === "anomaly" ? "anomaly" : activeFilter === "none" ? "region" : "filter"}
-                    showSelectionRectangle={analysis.selectedRegion?.source === "rectangle"}
-                    selectionBounds={analysis.selectedRegion?.bounds || null}
+                    selectionGeometry={analysis.selectedRegion?.source === "anomalyRegion" ? null : selectedAoiGeometry}
+                    anomalyRegions={mapAnomalyRegions}
+                    activeAnomalyRegionId={activeAnomalyRegionId}
                     initialView={restoreRequested.current ? analysis.mapView : null}
+                    focusBounds={mapFocus?.bounds || null}
+                    focusToken={mapFocus?.token || 0}
                 />
 
                 <div className="panel-resizer right" onPointerDown={e => startResize("right", e)} role="separator">
@@ -812,6 +954,7 @@ function MapWorkspaceView() {
 
                     {rightTab === "point" && (
                         <div className="workspace-tab-panel point-analysis-tab" role="tabpanel">
+                            <DataBackedCasePanel cases={dataBackedCases} activeId={activeQuickCaseId} onActivate={activateQuickCase} />
                             <div className="analysis-mode-tools">
                                 <span>选点方式</span>
                                 <div>
@@ -823,12 +966,12 @@ function MapWorkspaceView() {
 
                             {compared.length > 0 && (
                                 <section className="compare-panel">
-                                    <div className="chart-head"><div><small>MULTI-POINT · {compared.length}/30</small><h3>多点时间序列对比</h3></div><span>已显示 {curves.length} 条</span></div>
+                                    <div className="chart-head"><div><small>MULTI-POINT · {compared.length}/{MAX_COMPARE_POINTS}</small><h3>多点时间序列对比</h3></div><span>已显示 {curves.length} 条</span></div>
                                     <div className="curve-list-head"><span>勾选需要显示的曲线</span><div><button onClick={() => setCurveIds(compareIds)}>全选</button><button onClick={() => setCurveIds([])}>全不选</button></div></div>
                                     <div className="curve-checklist">
                                         {compared.map((p, j) => (
                                             <div className={"curve-row " + (selected?.id === p.id ? "is-focused" : "")} key={p.id}>
-                                                <label><input type="checkbox" checked={curveIds.includes(p.id)} onChange={() => toggleCurve(p.id)} /><i style={{ background: "hsl(" + ((j * 47) % 360) + " 88% 52%)" }} /><span>{p.id}</span><small>{normalizedMode(p.mode)} · {p.velocity.toFixed(2)} mm/yr</small></label>
+                                                <label><input type="checkbox" checked={curveIds.includes(p.id)} onChange={() => toggleCurve(p.id)} /><i style={{ background: comparisonColor(j) }} /><span>{p.id}</span><small>{normalizedMode(p.mode)} · {p.velocity.toFixed(2)} mm/yr · 当前 {currentDisplacement(p, timeIndex).toFixed(2)} mm</small></label>
                                                 <button onClick={() => setSelected(p)}>详情</button>
                                                 <button className="curve-remove" aria-label={"移除点位 " + p.id} onClick={() => removeCompared(p.id)}>×</button>
                                             </div>
@@ -836,12 +979,13 @@ function MapWorkspaceView() {
                                     </div>
                                     {compareStats && (
                                         <div className="compare-summary">
-                                            <article><span>平均速率</span><b>{compareStats.avgVelocity.toFixed(2)}</b><small>mm/yr</small></article>
-                                            <article><span>平均当前形变</span><b>{compareStats.avgCurrent.toFixed(2)}</b><small>mm</small></article>
-                                            <article><span>平均相干性</span><b>{compareStats.avgCoherence ? compareStats.avgCoherence.toFixed(2) : "—"}</b><small>0—1</small></article>
+                                            <article><span>平均速率</span><b>{compareStats.meanVelocity.toFixed(2)}</b><small>mm/yr</small></article>
+                                            <article><span>速率跨度</span><b>{compareStats.velocitySpread.toFixed(2)}</b><small>{compareStats.minimumVelocity.toFixed(2)}—{compareStats.maximumVelocity.toFixed(2)}</small></article>
+                                            <article><span>当前形变跨度</span><b>{compareStats.currentDisplacementSpread.toFixed(2)}</b><small>{compareStats.minimumCurrentDisplacement.toFixed(2)}—{compareStats.maximumCurrentDisplacement.toFixed(2)} mm</small></article>
+                                            <article><span>模式 / 相干性</span><b>{compareStats.modeCount} 类</b><small>均值 {compareStats.meanCoherence === null ? "—" : compareStats.meanCoherence.toFixed(2)}</small></article>
                                         </div>
                                     )}
-                                    {curves.length ? <CompareChart points={curves} /> : <div className="empty-curves">请在上方勾选要显示的时序曲线</div>}
+                                    {curves.length ? <CompareChart points={curves} exportBusy={exportOperation.state === "running"} onExportData={exportComparison} onExportChart={svg => exportChart(svg, "comparison")} /> : <div className="empty-curves">请在上方勾选要显示的时序曲线</div>}
                                 </section>
                             )}
 
@@ -854,10 +998,12 @@ function MapWorkspaceView() {
                                         <p>{selected.lon.toFixed(6)}° E · {selected.lat.toFixed(6)}° N</p>
                                     </div>
                                     <section className="point-mode-result" aria-label="点位模式结果">
-                                        <article><span>形变模式</span><b>{selectedInsight.modeLabel}</b></article>
-                                        <article><span>模式来源</span><b>{selectedInsight.modeSource}</b></article>
-                                        <article><span>模式置信度</span><b>{selectedInsight.confidenceLabel}</b><small>仅显示 CSV / 模型真实提供值</small></article>
+                                        <article><span>AI 形变模式</span><b>{selectedInsight.modeLabel}</b></article>
+                                        <article><span>模型置信度</span><b>{selectedInsight.confidenceLabel}</b><small>{selected.pasc?.lowConfidence ? "低置信度，建议复核" : "仅显示 CSV / 模型真实提供值"}</small></article>
+                                        <article><span>数据质量</span><b>{selectedDataQuality?.label ?? "未评估"}</b><small>{selectedDataQuality?.reasons.join(" · ") ?? "未提供质量依据"}</small></article>
+                                        <article className="wide"><span>模式来源</span><b>{selectedInsight.modeSource}</b></article>
                                     </section>
+                                    {selectedTopTwo.length > 0 && <section className="point-top-two" aria-label="PASC Top-2 分类结果"><span>TOP-2</span>{selectedTopTwo.map((candidate, index) => <article key={candidate.name}><i style={{ background: candidate.color }} /><small>#{index + 1}</small><b>{candidate.nameZh}</b><strong>{(candidate.probability * 100).toFixed(1)}%</strong></article>)}</section>}
                                     <div className="point-metrics phase-three-metrics">
                                         <article><span>{currentDate} 累计形变</span><b>{currentValue.toFixed(2)}</b><small>mm</small></article>
                                         <article><span>长期速率</span><b>{selected.velocity.toFixed(2)}</b><small>mm / yr</small></article>
@@ -865,19 +1011,21 @@ function MapWorkspaceView() {
                                         <article className="quality-metric"><span>相干性 / 缺测率</span><b>{selected.coherence ? selected.coherence.toFixed(2) : "未提供"}</b><small>{(selected.missingRate * 100).toFixed(1)}% 缺测</small></article>
                                     </div>
                                     <div className="chart-head"><div><small>TIME SERIES · {selected.series.length} 期</small><h3>累计形变时间序列</h3></div><span>mm</span></div>
-                                    <TimeSeriesChart key={selected.id} point={selected} showTrend={showTrend} timeIndex={timeIndex} />
+                                    <TimeSeriesChart key={selected.id} point={selected} showTrend={showTrend} timeIndex={timeIndex} stageAnalysis={selectedStageAnalysis} exportBusy={exportOperation.state === "running"} onExportChart={svg => exportChart(svg, "point")} />
                                     <div className="chart-toggles"><label><input type="checkbox" checked={showTrend} onChange={e => setShowTrend(e.target.checked)} />线性拟合趋势</label><span>阶段速率 {stageVelocity(selected, rangeStart, rangeEnd).toFixed(2)} mm/yr</span></div>
+                                    {selectedStageAnalysis && <section className="point-stage-analysis"><header><span>{selectedStageAnalysis.source === "provided" ? "变化点结果" : "候选变化点 · 序列估算"}</span><b>{selectedStageAnalysis.changeDate}</b></header><div><article><span>前阶段斜率</span><b>{selectedStageAnalysis.slopeBefore.toFixed(2)}</b><small>mm / yr</small></article><article><span>后阶段斜率</span><b>{selectedStageAnalysis.slopeAfter.toFixed(2)}</b><small>mm / yr</small></article></div><p>{selectedStageAnalysis.method}</p></section>}
                                     <section className="point-explanation">
                                         <span>PROGRAMMATIC INTERPRETATION</span>
                                         <h3>点位解释</h3>
+                                        {selectedModeExplanation && <p>{selectedModeExplanation}</p>}
                                         {selectedInsight.explanation.map(sentence => <p key={sentence}>{sentence}</p>)}
                                         <small>解释仅基于当前点位数值、质量指标和已有模式字段，不构成工程安全判断或灾害预警。</small>
                                     </section>
                                     <dl className="point-fields"><div><dt>点位编号</dt><dd>{selected.id}</dd></div><div><dt>当前渲染</dt><dd>{attributeNames[attribute]}</dd></div><div><dt>最近观测</dt><dd>{selected.updated}</dd></div><div><dt>有效期数</dt><dd>{selected.series.length} 期</dd></div></dl>
-                                    <button className="button primary export-button" onClick={exportPoint}>导出单点 CSV ↓</button>
+                                    <button className="button primary export-button" disabled={exportOperation.state === "running"} onClick={exportPoint}>导出单点 CSV ↓</button>
                                 </>
                             ) : !compared.length && (
-                                <section className="point-empty"><b>尚未选择监测点</b><span>选择“单点”查看完整时序，或选择“多点对比”建立最多 30 条曲线。</span></section>
+                                <section className="point-empty"><b>尚未选择监测点</b><span>选择“单点”查看完整时序，或选择“多点对比”建立最多 {MAX_COMPARE_POINTS} 条曲线。</span></section>
                             )}
                         </div>
                     )}
@@ -888,9 +1036,17 @@ function MapWorkspaceView() {
                                 <span>区域工具</span>
                                 <div>
                                     <button className={selectionMode === "box" ? "active" : ""} onClick={() => setSelectionMode("box")}>矩形框选</button>
-                                    <button disabled={!boxPoints.length} onClick={clearRegionSelection}>清除区域</button>
+                                    <button className={selectionMode === "polygon" ? "active" : ""} onClick={() => setSelectionMode("polygon")}>多边形 AOI</button>
+                                    <button disabled={!analysis.selectedRegion} onClick={clearRegionSelection}>清除区域</button>
                                 </div>
                             </div>
+                            {activeFilter === "anomaly" && <AnomalyRegionPanel
+                                result={anomalyRegionResult}
+                                activeRegionId={activeAnomalyRegionId}
+                                onSelect={focusAnomalyRegion}
+                                onShowAll={() => showAllAnomalyPoints(`已恢复全部 ${anomalyDiscovery.points.length.toLocaleString()} 个异常候选点。`)}
+                                onParametersChange={changeAnomalyRegionParameters}
+                            />}
                             {boxStats ? (
                                 <section className={"selection-summary phase-four-region-summary " + (activeFilter === "anomaly" ? "is-anomaly" : "")}>
                                     <header>
@@ -898,19 +1054,22 @@ function MapWorkspaceView() {
                                         <h3>{analysis.selectedRegion?.label || (activeFilter === "none" ? "自定义分析区域" : "当前筛选结果")}</h3>
                                         <p>{analysis.timeRange.startDate}—{analysis.timeRange.endDate} · 当前期 {currentDate}</p>
                                     </header>
-                                    {activeFilter === "anomaly" && <div className="anomaly-result-banner"><b>发现 {anomalyDiscovery.summary.total.toLocaleString()} 个异常监测点</b><span>结果是点位筛选，不代表已识别空间聚集区。</span></div>}
+                                    {activeFilter === "anomaly" && <div className="anomaly-result-banner"><b>{activeAnomalyRegionId ? `正在分析异常区域 ${activeAnomalyRegionId}` : `发现 ${anomalyDiscovery.summary.total.toLocaleString()} 个异常监测点`}</b><span>{activeAnomalyRegionId ? "当前统计来自该区域内真实候选点；边界为监测点分析包络。" : `${anomalyRegionResult.assignedPointCount.toLocaleString()} 点形成 ${anomalyRegionResult.regions.length.toLocaleString()} 个空间支持区域，另有 ${anomalyRegionResult.noisePointCount.toLocaleString()} 个离散候选点。`}</span></div>}
+                                    <div><span>AOI 面积</span><b>{boxStats.areaKm2 === null ? "—" : boxStats.areaKm2 < 1 ? boxStats.areaKm2.toFixed(3) : boxStats.areaKm2.toFixed(2)}</b><small>{boxStats.areaKm2 === null ? "属性筛选无绘制面积" : "km² · WGS84 球面估算"}</small></div>
                                     <div><span>{activeFilter === "none" ? "区域点数" : "筛选点数"}</span><b>{boxPoints.length.toLocaleString()}</b><small>个有效监测点</small></div>
                                     <div><span>平均速率</span><b>{boxStats.avg.toFixed(2)}</b><small>mm/yr</small></div>
-                                    <div><span>平均当前形变</span><b>{boxStats.averageCurrent.toFixed(2)}</b><small>mm</small></div>
+                                    <div><span>中位速率</span><b>{boxStats.medianVelocity.toFixed(2)}</b><small>mm/yr · 抗离群值</small></div>
+                                    <div><span>平均 / 中位当前形变</span><b>{boxStats.averageCurrent.toFixed(2)} / {boxStats.medianCurrentDisplacement.toFixed(2)}</b><small>mm</small></div>
                                     <div><span>最大累计量</span><b>{boxStats.max.toFixed(2)}</b><small>mm · 绝对值</small></div>
                                     <div><span>速率范围</span><b>{boxStats.minVelocity.toFixed(1)}—{boxStats.maxVelocity.toFixed(1)}</b><small>mm/yr</small></div>
-                                    <div><span>平均相干性</span><b>{boxStats.averageCoherence === null ? "未提供" : boxStats.averageCoherence.toFixed(2)}</b><small>{boxStats.quality} 个质量关注点</small></div>
-                                    {activeFilter === "anomaly" && <div className="anomaly-rule-stats"><span>筛选依据</span><small>明显沉降 · {anomalyDiscovery.summary.clearSubsidence.toLocaleString()}</small><small>加速沉降模式 · {anomalyDiscovery.summary.accelerating.toLocaleString()}</small><small>阶段形变模式 · {anomalyDiscovery.summary.pattern.toLocaleString()}</small><small>排除低质量 · {anomalyDiscovery.summary.excludedLowQuality.toLocaleString()}</small></div>}
+                                    <div><span>平均相干性</span><b>{boxStats.averageCoherence === null ? "未提供" : boxStats.averageCoherence.toFixed(2)}</b><small>{boxStats.lowCoherenceCount} 个低相干 · {boxStats.missingDataCount} 个高缺测</small></div>
+                                    {activeFilter === "anomaly" && <div className="anomaly-rule-stats"><span>{activeAnomalyRegion ? `${activeAnomalyRegion.id} 规则证据` : "全部候选筛选依据"}</span><small>明显沉降 · {(activeAnomalyRegion?.clearSubsidenceCount ?? anomalyDiscovery.summary.clearSubsidence).toLocaleString()}</small><small>加速沉降模式 · {(activeAnomalyRegion?.acceleratingCount ?? anomalyDiscovery.summary.accelerating).toLocaleString()}</small><small>阶段形变模式 · {(activeAnomalyRegion?.piecewiseCount ?? anomalyDiscovery.summary.pattern).toLocaleString()}</small><small>{activeAnomalyRegion ? `邻域 ${anomalyRegionResult.parameters.radiusMeters} m · 最少 ${anomalyRegionResult.parameters.minimumPoints} 点` : `排除低质量 · ${anomalyDiscovery.summary.excludedLowQuality.toLocaleString()}`}</small></div>}
                                     <div className="mode-breakdown"><span>形变模式统计</span>{deformationModeOrder.filter(mode => boxStats.modes[mode]).map(mode => <small key={mode} style={{ borderLeft: "4px solid " + colorForMode(mode) }}>{mode} · {boxStats.modes[mode].toLocaleString()} 点 · {((boxStats.modes[mode] / boxPoints.length) * 100).toFixed(0)}%</small>)}</div>
-                                    <div className="region-summary-actions"><Link href="/statistics">进入区域统计</Link><button onClick={clearRegionSelection}>清除区域与结果</button></div>
+                                    <AoiTimeSeriesChart points={boxPoints} exportBusy={exportOperation.state === "running"} onExportData={exportAoiSeries} onExportChart={svg => exportChart(svg, "aoi")} />
+                                    <div className="region-summary-actions phase-six-region-actions"><button disabled={exportOperation.state === "running"} onClick={exportAoiPoints}>导出 AOI 点位 CSV</button><Link href="/statistics">进入区域统计</Link><button onClick={clearRegionSelection}>清除区域与结果</button></div>
                                 </section>
                             ) : (
-                                <section className="region-empty"><b>{activeFilter === "anomaly" ? "暂无可靠异常筛选结果" : "尚未建立分析区域"}</b><span>{activeFilter === "anomaly" ? "当前数据没有通过质量规则且符合异常筛选条件的监测点。" : "点击“矩形框选”后在地图拖动，统计结果会保留在右侧；阈值筛选结果也会汇总到这里。"}</span></section>
+                                <section className="region-empty"><b>{activeFilter === "anomaly" ? "暂无可靠异常筛选结果" : analysis.selectedRegion ? "AOI 内没有监测点" : "尚未建立分析区域"}</b><span>{activeFilter === "anomaly" ? "当前数据没有通过质量规则且符合异常筛选条件的监测点。" : analysis.selectedRegion ? "绘制几何已保留在地图上；请扩大区域或清除后重新绘制。" : "可拖动绘制矩形，或单击添加多边形顶点并双击完成；真实点位统计和聚合时序会保留在右侧。"}</span></section>
                             )}
                         </div>
                     )}
@@ -1035,6 +1194,7 @@ function MapWorkspaceView() {
                     </section>
                 </div>
             )}
+            {ruleSummaryOpen && <AnalysisRuleSummary summary={analysisRuleSummary} onClose={() => setRuleSummaryOpen(false)} onExport={exportRuleSummary} />}
         </main>
     );
 }

@@ -2,7 +2,9 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { RenderAttribute } from "./insar-v2";
+import type { AoiGeometry } from "./aoi-analysis";
 import { PASC_CLASSES, pascColor, pascDisplayName } from "./pasc";
+import type { PatternVisibility } from "./v2-map-analysis";
 
 export type AnalysisTimeRange = {
   startIndex: number;
@@ -22,8 +24,10 @@ export type AnalysisFilters = {
 export type SelectedRegion = {
   bounds: [number, number, number, number];
   pointIds: string[];
+  geometry?: AoiGeometry;
+  regionId?: string;
   label?: string;
-  source?: "rectangle" | "filter" | "anomaly";
+  source?: "rectangle" | "polygon" | "filter" | "anomaly" | "anomalyRegion";
 };
 
 export type SelectedRegionStats = {
@@ -36,6 +40,11 @@ export type SelectedRegionStats = {
   averageCoherence?: number | null;
   minimumVelocity?: number;
   maximumVelocity?: number;
+  areaKm2?: number | null;
+  medianVelocity?: number;
+  medianDisplacement?: number;
+  lowCoherenceCount?: number;
+  missingDataCount?: number;
   velocityHistogram?: Array<{
     min: number;
     max: number;
@@ -55,6 +64,7 @@ export type AnalysisContextState = {
   timeRange: AnalysisTimeRange;
   filters: AnalysisFilters;
   activeColorMode: RenderAttribute;
+  patternVisibility: PatternVisibility;
   selectedPointId: string | null;
   selectedRegion: SelectedRegion | null;
   selectedRegionStats: SelectedRegionStats | null;
@@ -67,6 +77,7 @@ const defaultAnalysisContext: AnalysisContextState = {
   timeRange: { startIndex: 0, endIndex: 0, startDate: "—", endDate: "—" },
   filters: { active: "none", velocityMax: null, coherenceMin: null, resultCount: 0 },
   activeColorMode: "velocity",
+  patternVisibility: "all",
   selectedPointId: null,
   selectedRegion: null,
   selectedRegionStats: null,
@@ -93,7 +104,8 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
       if (stored) {
         try {
           const parsed = JSON.parse(stored) as Partial<AnalysisContextState>;
-          setAnalysis(current => ({ ...current, ...parsed }));
+          const patternVisibility = parsed.patternVisibility === "anomaly" || parsed.patternVisibility === "anomaly_with_undefined" ? parsed.patternVisibility : "all";
+          setAnalysis(current => ({ ...current, ...parsed, patternVisibility }));
         } catch {
           window.sessionStorage.removeItem("lanjifyw-analysis-context-v2");
         }
@@ -138,5 +150,5 @@ export function normalizedMode(mode: string) {
 }
 
 export function colorForMode(mode: string) {
-  return pascColor(mode);
+  return deformationModeColors[normalizedMode(mode)] ?? pascColor(mode);
 }

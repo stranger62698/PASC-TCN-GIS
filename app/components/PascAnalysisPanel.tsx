@@ -1,5 +1,6 @@
 import type { InsarPoint } from "../data/site";
 import { pascApplicabilityPresentation, pascClassById } from "../lib/pasc";
+import { deriveTemporalStageAnalysis, pascModeExplanation, pointDataQuality, topPascCandidates } from "../lib/pasc-product";
 import { PascPatternLegend } from "./PascPatternLegend";
 import { PascProbabilityBars } from "./PascProbabilityBars";
 
@@ -16,6 +17,10 @@ export function PascAnalysisPanel({ point }: { point: InsarPoint | null }) {
   const result = point.pasc;
   const classInfo = result ? pascClassById(result.calibratedLabelId) : null;
   const applicability = result ? pascApplicabilityPresentation(result.spatialApplicability) : null;
+  const topTwo = topPascCandidates(result);
+  const dataQuality = pointDataQuality(point);
+  const stage = deriveTemporalStageAnalysis(point);
+  const explanation = pascModeExplanation(point);
   return (
     <div className="pasc-analysis">
       <section className="pasc-point-stamp">
@@ -28,6 +33,16 @@ export function PascAnalysisPanel({ point }: { point: InsarPoint | null }) {
       </section>
       {result ? <>
         <PascProbabilityBars result={result} />
+        <section className="pasc-product-evidence">
+          <header><span>结果解读</span><small>模式与数据质量分开呈现</small></header>
+          <div className="pasc-top-two">
+            {topTwo.map((candidate, index) => <article key={candidate.name}><i style={{ background: candidate.color }} /><span>Top-{index + 1}</span><b>{candidate.nameZh}</b><strong>{(candidate.probability * 100).toFixed(1)}%</strong></article>)}
+          </div>
+          <div className={`pasc-quality-state is-${dataQuality.level}`}><span>数据质量</span><b>{dataQuality.label}</b><small>{dataQuality.reasons.join(" · ")}</small></div>
+          {stage && <div className="pasc-stage-summary"><span>候选变化点</span><b>{stage.changeDate}</b><small>前段 {stage.slopeBefore.toFixed(2)} · 后段 {stage.slopeAfter.toFixed(2)} mm/yr</small><em>{stage.method}</em></div>}
+          {explanation && <p>{explanation}</p>}
+          <small className="pasc-product-boundary">模式解释不等同于风险结论；请结合空间聚集、数据质量与现场资料复核。</small>
+        </section>
         {applicability && <section className={`pasc-applicability is-${applicability.state}`}>
           <small>{applicability.eyebrow}</small>
           <b>{applicability.line1}</b>

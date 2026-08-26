@@ -1,7 +1,7 @@
 export type RegionalAnalysisInput = {
   datasetName: string;
   regionLabel: string;
-  selectionSource: "rectangle" | "filter" | "anomaly" | "unknown";
+  selectionSource: "rectangle" | "polygon" | "filter" | "anomaly" | "anomalyRegion" | "unknown";
   pointCount: number;
   timeRange: { startDate: string; endDate: string };
   filterDescription: string;
@@ -42,7 +42,7 @@ export async function interpretRegionalAnalysis(input: RegionalAnalysisInput): P
   ];
   const qualityRate = input.qualityCount / input.pointCount * 100;
   const attention = input.qualityCount ? `当前结果中有 ${input.qualityCount.toLocaleString()} 个质量关注点（${qualityRate.toFixed(1)}%），解释区域趋势时应结合相干性和缺测情况。` : input.averageCoherence == null ? "当前数据未提供相干性，无法从该指标判断观测质量。" : "当前选区未发现达到既定阈值的质量关注点。";
-  const nextStep = input.selectionSource === "anomaly" ? "建议查看主要形变模式，并选取代表性点位核对完整时间序列。" : "建议运行异常发现，随后查看重点点位是否具有一致的时间变化特征。";
+  const nextStep = input.selectionSource === "anomaly" || input.selectionSource === "anomalyRegion" ? "建议查看主要形变模式，并选取代表性点位核对完整时间序列。" : "建议运行异常发现，随后查看重点点位是否具有一致的时间变化特征。";
 
   return { engine: "structured-local-demo", engineLabel: "本地结构化解释 · 演示模式", overview, findings, attention, nextStep, createdAt: new Date().toISOString() };
 }
