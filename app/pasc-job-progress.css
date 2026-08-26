@@ -1,0 +1,107 @@
+.pasc-job-progress.is-active i {
+  position: relative;
+  overflow: hidden;
+}
+
+.pasc-job-progress.is-active i::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, .55) 48%, transparent 76%);
+  animation: pasc-progress-sweep 1.7s linear infinite;
+}
+
+.pasc-job-live {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: -10px 0 18px;
+  color: #829ab5;
+  font-size: 9px;
+}
+
+.pasc-job-live > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #8fe5d4;
+}
+
+.pasc-job-live > span i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #28d7b7;
+  box-shadow: 0 0 0 4px rgba(40, 215, 183, .12);
+}
+
+.pasc-job-live > b {
+  margin-left: auto;
+  color: #dce9f7;
+}
+
+.pasc-job-live > small {
+  color: #7188a3;
+}
+
+.pasc-job-stage-flow {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 5px;
+  margin-bottom: 18px;
+}
+
+.pasc-job-stage-flow span {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  color: #607891;
+  font-size: 8px;
+  text-align: center;
+}
+
+.pasc-job-stage-flow span i {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, .13);
+  border-radius: 50%;
+  font-style: normal;
+}
+
+.pasc-job-stage-flow span b {
+  color: inherit;
+  font-size: 8px;
+}
+
+.pasc-job-stage-flow span.active {
+  color: #8fe5d4;
+}
+
+.pasc-job-stage-flow span.active i {
+  border-color: #28d7b7;
+  background: rgba(40, 215, 183, .13);
+}
+
+@keyframes pasc-progress-sweep {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(110%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pasc-job-progress.is-active i::after { animation: none; }
+}
+
+@media (max-width: 680px) {
+  .pasc-job-live {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .pasc-job-live > b { margin-left: 0; }
+  .pasc-job-stage-flow {
+    grid-template-columns: repeat(3, 1fr);
+    row-gap: 12px;
+  }
+}

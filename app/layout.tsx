@@ -3,6 +3,7 @@ import { AnalyticsTracker } from "./components/AnalyticsTracker";
 import "./globals.css";
 
 import "./pasc.css";
+import "./pasc-job-progress.css";
 export const metadata: Metadata = {
   title: "澜迹 InSAR（LANJIFYW）｜城市地表形变智能分析平台",
   description: "面向时序 InSAR 监测成果，快速完成数据理解、异常发现、形变过程分析与辅助解读。",

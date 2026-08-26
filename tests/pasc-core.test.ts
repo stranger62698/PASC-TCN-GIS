@@ -102,7 +102,8 @@ test("production dataset clients no longer call undeployed Cloudflare upload rou
   assert.doesNotMatch(source, /\/api\/uploads|\/api\/datasets/);
   assert.match(source, /private-datasets-client/);
   assert.match(datasetSource, /\/map\?dataset=/);
-  assert.match(datasetSource, /进入地图并自动分类/);
+  assert.match(datasetSource, /createAutomaticClassification\(datasetId\)/);
+  assert.match(datasetSource, /查看实时分类进度/);
   assert.match(mapSource, /runPascOnlineRecognition\(result\.points, meta\.name, nextMapping\.preprocessingState, privateId\)/);
 });
 

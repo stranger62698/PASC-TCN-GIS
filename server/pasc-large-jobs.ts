@@ -128,7 +128,12 @@ export async function listPascLargeJobs(ownerId: string) {
 
 export async function createPascLargeJob(ownerId: string, datasetId: string, enqueue: PascLargeEnqueue) {
   const existing = (await listPascLargeJobs(ownerId)).find(job => job.datasetId === datasetId && !["cancelled", "failed"].includes(job.status));
-  if (existing) return { job: existing, created: false };
+  if (existing) {
+    if (existing.status === "queued" && existing.stage === "queued" && existing.chunks.total === 0) {
+      await enqueue({ kind: "prepare", ownerId, jobId: existing.jobId }, `${existing.jobId}:prepare`);
+    }
+    return { job: existing, created: false };
+  }
   const dataset = await readPrivateJson<DatasetMeta>(datasetMetaPath(ownerId, datasetId));
   if (!dataset) throw new Error("私有数据集不存在。");
   if (!validMapping(dataset.mapping)) throw new Error("请先确认经纬度、至少 20 个日期列、单位、正负号和预处理状态。");
@@ -169,7 +174,16 @@ export async function createPascLargeJob(ownerId: string, datasetId: string, enq
     completedAt: null,
   };
   await writePrivateJson(jobMetaPath(ownerId, jobId), job);
-  await enqueue({ kind: "prepare", ownerId, jobId }, `${jobId}:prepare`);
+  try {
+    await enqueue({ kind: "prepare", ownerId, jobId }, `${jobId}:prepare`);
+  } catch (error) {
+    job.status = "failed";
+    job.stage = "failed";
+    job.error = { code: "PASC_QUEUE_UNAVAILABLE", message: error instanceof Error ? error.message : "后台队列暂时不可用。" };
+    job.completedAt = new Date().toISOString();
+    await saveJob(job);
+    throw error;
+  }
   return { job, created: true };
 }
 
@@ -325,7 +339,16 @@ export async function retryPascLargeJob(ownerId: string, jobId: string, enqueue:
   const message: PascLargeMessage = job.chunks.total
     ? { kind: "infer", ownerId, jobId, batchIndex: nextIndex }
     : { kind: "prepare", ownerId, jobId };
-  await enqueue(message, `${jobId}:manual-retry:${Date.now()}`);
+  try {
+    await enqueue(message, `${jobId}:manual-retry:${Date.now()}`);
+  } catch (error) {
+    job.status = "failed";
+    job.stage = "failed";
+    job.error = { code: "PASC_QUEUE_UNAVAILABLE", message: error instanceof Error ? error.message : "后台队列暂时不可用。" };
+    job.completedAt = new Date().toISOString();
+    await saveJob(job);
+    throw error;
+  }
   return job;
 }
 

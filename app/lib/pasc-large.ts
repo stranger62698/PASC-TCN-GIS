@@ -1,7 +1,7 @@
 import type { InsarPoint } from "../data/site";
 import type { CsvMapping } from "./insar-v2";
-import { PHASE_E_MAX_POINTS, buildPascOnlineRequest, type PascOnlineRequest } from "./pasc-online";
-import { PASC_EXPERIMENTAL_MIN_STEPS } from "./pasc";
+import { PHASE_E_MAX_POINTS, buildPascOnlineRequest, type PascOnlineRequest } from "./pasc-online.js";
+import { PASC_EXPERIMENTAL_MIN_STEPS } from "./pasc.js";
 
 export const PASC_LARGE_MAX_POINTS = 100_000;
 

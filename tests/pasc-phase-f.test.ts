@@ -148,6 +148,9 @@ test("Phase F static integration keeps owner isolation, consumer auth, and bound
   const largeApi = readFileSync("api/pasc-jobs.ts", "utf8");
   const largeWorker = readFileSync("api/pasc-large-worker.ts", "utf8");
   const largeCore = readFileSync("server/pasc-large-jobs.ts", "utf8");
+  const largeBatching = readFileSync("app/lib/pasc-large.ts", "utf8");
+  const datasetPage = readFileSync("app/components/DatasetPage.tsx", "utf8");
+  const staticEntry = readFileSync("static-src/main.tsx", "utf8");
   const vercel = readFileSync("vercel.json", "utf8");
   for (const table of ["pasc_jobs", "pasc_job_events", "pasc_artifacts", "model_versions"]) {
     assert.match(schema, new RegExp(`\\b${table.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())}\\b`));
@@ -170,6 +173,12 @@ test("Phase F static integration keeps owner isolation, consumer auth, and bound
   assert.match(largeWorker, /PASC_LARGE_MAX_ATTEMPTS/);
   assert.match(largeCore, /users\/\$\{identifier\(ownerId/);
   assert.match(largeCore, /results\/\$\{index\}\.json/);
+  assert.match(largeCore, /PASC_QUEUE_UNAVAILABLE/);
+  assert.match(largeBatching, /from "\.\/pasc-online\.js"/);
+  assert.match(largeBatching, /from "\.\/pasc\.js"/);
+  assert.match(datasetPage, /createAutomaticClassification\(datasetId\)/);
+  assert.match(datasetPage, /查看实时分类进度/);
+  assert.match(staticEntry, /\.\.\/app\/pasc\.css/);
   assert.doesNotMatch(panel, /PASC_SERVICE_API_KEY|ownerId|batchSummaries/);
   assert.match(vercel, /queue\/v2beta/);
   assert.match(vercel, /pasc-large-jobs/);

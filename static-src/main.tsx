@@ -1,6 +1,8 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import "../app/globals.css";
+import "../app/pasc.css";
+import "../app/pasc-job-progress.css";
 import { HomePage } from "../app/components/HomePage";
 import { MapWorkspace } from "../app/components/MapWorkspace";
 import { ShowcasePage, CaseDetailPage } from "../app/components/CasePages";

@@ -10,13 +10,28 @@ type JobDetail = { job: PascPublicJob; events: PascJobEvent[] };
 const activeStatuses = new Set(["queued", "running", "retry_wait", "cancelling"]);
 const statusLabels: Record<string, string> = { queued: "排队中", running: "处理中", retry_wait: "等待重试", cancelling: "正在取消", cancelled: "已取消", completed: "已完成", failed: "失败" };
 const stageLabels: Record<string, string> = { queued: "持久队列", downloading: "读取私有 CSV", validating: "校验与解析", preprocessing: "生成分批请求", inference: "逐批推理", cancelling: "取消边界", completed: "完成", cancelled: "已取消", failed: "失败" };
+const stageFlow = ["queued", "downloading", "validating", "preprocessing", "inference", "completed"];
 
-function readError(body: unknown, fallback: string) {
+function readError(body: unknown, fallback: string, status?: number) {
   if (body && typeof body === "object") {
     const error = (body as { error?: { message?: unknown } }).error;
     if (typeof error?.message === "string") return error.message;
   }
-  return fallback;
+  return status ? `${fallback}（HTTP ${status}）` : fallback;
+}
+function remainingLabel(job: PascPublicJob, now: number) {
+  if (job.status === "queued") return "等待服务器接收任务";
+  if (job.status === "retry_wait") return job.retryAt ? `预计 ${new Date(job.retryAt).toLocaleTimeString("zh-CN")} 自动重试` : "等待自动重试";
+  if (job.status !== "running" || !job.startedAt || job.progress <= 0) return activeStatuses.has(job.status) ? "正在准备计算" : "";
+  const elapsed = Math.max(1, now - new Date(job.startedAt).getTime());
+  const remaining = Math.max(0, elapsed * (100 - job.progress) / job.progress);
+  if (remaining < 60_000) return "预计不到 1 分钟";
+  if (remaining < 3_600_000) return `预计约 ${Math.ceil(remaining / 60_000)} 分钟`;
+  return `预计约 ${(remaining / 3_600_000).toFixed(1)} 小时`;
+}
+function updatedLabel(job: PascPublicJob, now: number) {
+  const seconds = Math.max(0, Math.round((now - new Date(job.updatedAt).getTime()) / 1000));
+  return seconds < 5 ? "刚刚更新" : `${seconds} 秒前更新`;
 }
 function eligible(dataset: DatasetOption) {
   const mapping = dataset.mapping;
@@ -32,12 +47,13 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState("");
+  const [clock, setClock] = useState(() => Date.now());
   const selectedDatasetId = datasetId || available[0]?.id || "";
 
   const loadDetail = useCallback(async (jobId: string) => {
     const response = await fetch(`/api/pasc-jobs?op=detail&id=${encodeURIComponent(jobId)}`, { credentials: "include", cache: "no-store" });
     const body = await response.json().catch(() => null) as JobDetail | null;
-    if (!response.ok || !body?.job) throw new Error(readError(body, "任务详情读取失败。"));
+    if (!response.ok || !body?.job) throw new Error(readError(body, "任务详情读取失败。", response.status));
     setDetail(body);
   }, []);
 
@@ -45,7 +61,7 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
     try {
       const response = await fetch("/api/pasc-jobs?op=list", { credentials: "include", cache: "no-store" });
       const body = await response.json().catch(() => null) as { jobs?: PascPublicJob[] } | null;
-      if (!response.ok) throw new Error(readError(body, "任务列表读取失败。"));
+      if (!response.ok) throw new Error(readError(body, "任务列表读取失败。", response.status));
       const next = body?.jobs ?? [];
       setJobs(next);
       const activeId = selectedId || next[0]?.jobId || "";
@@ -60,9 +76,14 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
   useEffect(() => { const timer = window.setTimeout(() => void refresh(), 0); return () => window.clearTimeout(timer); }, [refresh]);
   useEffect(() => {
     if (!jobs.some(job => activeStatuses.has(job.status))) return;
-    const timer = window.setInterval(() => void refresh(true), 4000);
+    const timer = window.setInterval(() => void refresh(true), 2000);
     return () => window.clearInterval(timer);
   }, [jobs, refresh]);
+  useEffect(() => {
+    if (!jobs.some(job => activeStatuses.has(job.status))) return;
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [jobs]);
 
   const createJob = async () => {
     if (!selectedDatasetId || creating) return;
@@ -70,11 +91,11 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
     try {
       const response = await fetch("/api/pasc-jobs?op=create", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ datasetId: selectedDatasetId }) });
       const body = await response.json().catch(() => null) as { job?: PascPublicJob; created?: boolean } | null;
-      if (!response.ok || !body?.job) throw new Error(readError(body, "无法创建大数据任务。"));
+      if (!response.ok || !body?.job) throw new Error(readError(body, "无法创建大数据任务。", response.status));
       setSelectedId(body.job.jobId); setDetail({ job: body.job, events: [] });
       setMessage(body.created === false ? "已恢复该数据集的现有任务，没有重复创建。" : "任务已进入持久队列；关闭页面不会中断。每批最多 500 点，系统会自动串行处理。 ");
       await refresh(true);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "无法创建大数据任务。"); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : "无法创建大数据任务。"); await refresh(true); }
     finally { setCreating(false); }
   };
 
@@ -82,7 +103,7 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
     setMessage("");
     const response = await fetch(`/api/pasc-jobs?op=${op}&id=${encodeURIComponent(jobId)}`, { method: "POST", credentials: "include" });
     const body = await response.json().catch(() => null);
-    if (!response.ok) { setMessage(readError(body, op === "cancel" ? "取消请求失败。" : "重试请求失败。")); return; }
+    if (!response.ok) { setMessage(readError(body, op === "cancel" ? "取消请求失败。" : "重试请求失败。", response.status)); await refresh(true); return; }
     setMessage(op === "cancel" ? "取消请求已保存；任务会在当前批次边界停止。" : "任务已重新进入持久队列。已完成的结果分块不会重复计算。");
     await refresh(true);
   };
@@ -95,7 +116,7 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
   const selected = detail?.job ?? jobs.find(job => job.jobId === selectedId) ?? null;
   const summary = selected?.summary ?? {};
   return (
-    <section className="pasc-job-console" aria-label="PASC-TCN 大数据任务中心">
+    <section id="pasc-job-console" className="pasc-job-console" aria-label="PASC-TCN 大数据任务中心">
       <header className="pasc-job-console-head">
         <div><small>LARGE INSAR · DURABLE QUEUE</small><h2>大数据自动分类</h2><p>适用于上万级监测点：私有 CSV 在服务器端解析，按最多 500 点逐批运行冻结 PASC-TCN，进度与结果持久保存，可自动重试。</p></div>
         <div className="pasc-job-create">
@@ -115,7 +136,9 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
           {!selected && <div className="pasc-job-empty"><b>任务状态会在这里持续更新</b><span>上传后的分类由服务器完成，访问者电脑的显卡不会参与模型推理。</span></div>}
           {selected && <>
             <div className="pasc-job-status-row"><div><span>{statusLabels[selected.status] ?? selected.status}</span><h3>{selected.datasetName}</h3><code>{selected.jobId}</code></div><b>{selected.progress.toFixed(1)}%</b></div>
-            <div className="pasc-job-progress"><i style={{ width: `${Math.max(0, Math.min(100, selected.progress))}%` }}/></div>
+            <div className={`pasc-job-progress ${activeStatuses.has(selected.status) ? "is-active" : ""}`} role="progressbar" aria-label="后台分类进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={selected.progress}><i style={{ width: `${Math.max(0, Math.min(100, selected.progress))}%` }}/></div>
+            <div className="pasc-job-live"><span><i />{activeStatuses.has(selected.status) ? "服务器后台持续运行" : statusLabels[selected.status] ?? selected.status}</span><b>{remainingLabel(selected, clock)}</b><small>{updatedLabel(selected, clock)} · 页面可安全关闭</small></div>
+            <div className="pasc-job-stage-flow" aria-label="后台分类阶段">{stageFlow.map((stage, index) => { const currentIndex = Math.max(0, stageFlow.indexOf(selected.stage)); const active = index <= currentIndex && !["failed", "cancelled"].includes(selected.status); return <span className={active ? "active" : ""} key={stage}><i>{index + 1}</i><b>{stageLabels[stage]}</b></span>; })}</div>
             <div className="pasc-job-metrics">
               <article><span>阶段</span><b>{stageLabels[selected.stage] ?? selected.stage}</b><small>{selected.chunks.current} / {selected.chunks.total || "?"} 批 · 每批 ≤{selected.chunks.size}</small></article>
               <article><span>处理点数</span><b>{selected.points.processed.toLocaleString()}</b><small>识别 {selected.points.predicted.toLocaleString()} · 总候选 {selected.points.total.toLocaleString()}</small></article>

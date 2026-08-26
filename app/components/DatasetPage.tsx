@@ -97,6 +97,22 @@ function enrichQuality(result: DatasetParseResult, inspection: CsvInspection, ma
   };
 }
 
+async function createAutomaticClassification(datasetId: string) {
+  const response = await fetch("/api/pasc-jobs?op=create", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ datasetId }),
+  });
+  const text = await response.text();
+  let body: { job?: { jobId?: string }; created?: boolean; error?: { message?: string } } | null = null;
+  try { body = text ? JSON.parse(text) as typeof body : null; } catch { body = null; }
+  if (!response.ok || !body?.job?.jobId) {
+    throw new Error(body?.error?.message || `后台分类任务创建失败（HTTP ${response.status}）。`);
+  }
+  return body;
+}
+
 export function DatasetPage() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -232,10 +248,26 @@ export function DatasetPage() {
         importDecision: choice,
         recommendedFilter: choice === "recommended" ? { coherenceMin: COHERENCE_LIMIT } : null,
       });
+      setProgress(92);
+      const supportsAutomaticClassification = Boolean(preflight.mapping?.timeCols?.length && preflight.mapping.timeCols.length >= 20 && (quality?.validPoints ?? 0) > 0);
+      let completionMessage = parentId ? "新版本已保存，旧版本未被覆盖。" : "数据已按当前账户私有保存。";
+      if (supportsAutomaticClassification) {
+        setMessage("原始 CSV 已保存，正在自动创建后台分类任务…");
+        try {
+          const classification = await createAutomaticClassification(datasetId);
+          completionMessage += classification.created === false
+            ? " 已恢复该数据集的现有后台分类任务。"
+            : " 后台分类已自动启动，关闭页面不会中断。";
+        } catch (classificationError) {
+          completionMessage += ` 自动分类未能启动：${classificationError instanceof Error ? classificationError.message : "后台服务暂时不可用"}，可在下方任务中心重试。`;
+        }
+      } else {
+        completionMessage += " 当前数据不足 20 个有效观测期，未启动 PASC-TCN 自动分类。";
+      }
       setProgress(100);
       setImportedDatasetId(datasetId);
       setStage("success");
-      setMessage(parentId ? "新版本已保存，旧版本未被覆盖" : "数据已按当前账户私有保存");
+      setMessage(completionMessage);
       trackEvent("dataset_upload_success", { source: "private_storage", file_size_bytes: file.size, chunk_count: chunks, point_count: quality?.validPoints ?? null });
       localStorage.removeItem("lanjifyw-upload-session");
       await refresh();
@@ -348,7 +380,7 @@ export function DatasetPage() {
           </div>}
 
           {stage === "uploading" && <div className="dataset-state-card loading"><span className="eyebrow">PRIVATE UPLOAD</span><h2>正在保存原始 CSV 与质检元数据</h2><p>{message}</p><div className="upload-progress"><i style={{ width: `${progress}%` }}/><span>{progress}%</span></div></div>}
-          {stage === "success" && <div className="dataset-state-card success"><span className="eyebrow">IMPORT COMPLETE</span><h2>数据接入完成</h2><p>{message}</p><div className="workflow-actions"><button className="button ghost" onClick={resetImport}>继续导入</button><Link className="button primary" href={importedDatasetId ? `/map?dataset=${encodeURIComponent(importedDatasetId)}` : "/map"}>进入地图并自动分类</Link></div></div>}
+          {stage === "success" && <div className="dataset-state-card success"><span className="eyebrow">IMPORT COMPLETE</span><h2>数据接入完成</h2><p>{message}</p><div className="workflow-actions"><button className="button ghost" onClick={resetImport}>继续导入</button><a className="button primary" href="#pasc-job-console">查看实时分类进度</a><Link className="button ghost" href={importedDatasetId ? `/map?dataset=${encodeURIComponent(importedDatasetId)}` : "/map"}>进入地图查看数据</Link></div></div>}
           {stage === "error" && <div className="dataset-state-card error"><span className="eyebrow">IMPORT ERROR</span><h2>本次导入未完成</h2><p>{preflight?.error || "请检查文件后重试"}</p><button className="button primary" onClick={resetImport}>返回并重新选择</button></div>}
         </div>
 
