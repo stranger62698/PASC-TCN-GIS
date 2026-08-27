@@ -474,9 +474,9 @@ export function parseMappedCsv(text: string, fileName: string, mapping: CsvMappi
       ...(parsedMode.warning ? [parsedMode.warning] : []),
       ...(velocitySource === "not_available" ? ["未提供速率且时序不足，速率专题不可用。"] : []),
       ...(coherenceSource === "not_available" ? ["未提供 coherence；Phase A 不静默填模型默认值。"] : []),
-      ...(series.length < PASC_EXPERIMENTAL_MIN_STEPS ? ["有效期少于 20，PASC 不可用。"] : series.length < 248 ? [`${series.length}期将按真实日期插值至248期；20—39期仅供探索性判读，40期以上仍为实验性适配。`] : []),
+      ...(series.length < PASC_EXPERIMENTAL_MIN_STEPS ? ["有效期少于 20，PASC 不可用。"] : series.length < 248 ? [`${series.length}个原始观测将先按实际日期补齐为12天等间隔序列；不会强行拉伸到248期。20—39个原始观测仅供探索性判读。`] : []),
       ...(series.length >= PASC_EXPERIMENTAL_MIN_STEPS && inputQuality.medianGapDays !== null && (inputQuality.medianGapDays < 9 || inputQuality.medianGapDays > 15)
-        ? [`中位时相间隔为 ${inputQuality.medianGapDays.toFixed(1)} 天，偏离哨兵约 12 天节奏；会按真实日期插值，但属于时间域偏移。`]
+        ? [`中位时相间隔为 ${inputQuality.medianGapDays.toFixed(1)} 天；会先按实际日期线性插值为每12天一个节点，再执行SG与后续识别。`]
         : []),
     ];
     points.push({

@@ -7,8 +7,8 @@ import { PascProbabilityBars } from "./PascProbabilityBars";
 const sourceLabel = { provided: "数据提供", calculated: "真实日期计算", default: "冻结默认值", not_available: "不可用" } as const;
 const temporalLabel = {
   native_248: "原生248期",
-  adapted_to_248: "已适配至248期",
-  experimental_adapted_to_248: "已按真实日期插值至248期（实验性）",
+  adapted_to_248: "已按12天间隔补齐",
+  experimental_adapted_to_248: "已按实际日期补齐为12天等间隔（实验性）",
   unsupported: "不支持",
 } as const;
 

@@ -49,14 +49,15 @@ class PreprocessingTests(unittest.TestCase):
         filtered = savgol_filter_9_3(source)
         np.testing.assert_allclose(filtered, source, atol=2e-4, rtol=1e-6)
 
-    def test_40_epochs_are_adapted_and_smoothed(self):
+    def test_40_regular_epochs_keep_12_day_grid_and_are_smoothed(self):
         output = preprocess_payload(payload_for(40, state="raw"))
         point = output["points"][0]
         self.assertEqual(point["status"], "adapted_experimental")
-        self.assertEqual(len(point["targetDates"]), 248)
-        self.assertEqual(len(point["preprocessedSeriesMm"]), 248)
-        self.assertEqual(len(point["normalizedSeries"]), 248)
-        self.assertTrue(point["quality"]["adapterApplied"])
+        self.assertEqual(len(point["targetDates"]), 40)
+        self.assertEqual(len(point["preprocessedSeriesMm"]), 40)
+        self.assertEqual(len(point["normalizedSeries"]), 40)
+        self.assertFalse(point["quality"]["adapterApplied"])
+        self.assertEqual(point["quality"]["regularizedEpochs"], 40)
         self.assertTrue(point["quality"]["smoothing"]["applied"])
         self.assertEqual(point["velocity"]["source"], "calculated")
         self.assertEqual(point["velocity"]["method"], "least_squares_real_dates")
@@ -69,22 +70,42 @@ class PreprocessingTests(unittest.TestCase):
         point = output["points"][0]
         self.assertEqual(point["status"], "adapted_experimental")
         self.assertEqual(point["quality"]["effectiveEpochs"], 20)
-        self.assertEqual(len(point["targetDates"]), 248)
+        self.assertEqual(len(point["targetDates"]), 20)
         self.assertIn(
             "PASC_20_TO_39_EXPLORATORY",
             {item["code"] for item in point["quality"]["warnings"]},
         )
 
-    def test_210_epochs_are_automatically_interpolated_to_248(self):
+    def test_210_regular_epochs_are_not_stretched_to_248(self):
         output = preprocess_payload(payload_for(210))
         point = output["points"][0]
         self.assertEqual(point["status"], "adapted_experimental")
-        self.assertTrue(point["quality"]["adapterApplied"])
+        self.assertFalse(point["quality"]["adapterApplied"])
         self.assertEqual(point["quality"]["effectiveEpochs"], 210)
-        self.assertEqual(len(point["targetDates"]), 248)
-        self.assertEqual(len(point["preprocessedSeriesMm"]), 248)
+        self.assertEqual(len(point["targetDates"]), 210)
+        self.assertEqual(len(point["preprocessedSeriesMm"]), 210)
         self.assertEqual(point["targetDates"][0][:10], "2020-01-01")
         self.assertEqual(point["targetDates"][-1][:10], (date(2020, 1, 1) + timedelta(days=209 * 12)).isoformat())
+
+    def test_irregular_dates_are_interpolated_to_calendar_12_day_grid(self):
+        payload = payload_for(46)
+        record = payload["records"][0]
+        date_fields = sorted(key for key in record if key.startswith("D"))
+        sparse_fields = [field for index, field in enumerate(date_fields) if index not in {5, 11, 12, 30}]
+        irregular = {key: value for key, value in record.items() if not key.startswith("D")}
+        irregular.update({field: record[field] for field in sparse_fields})
+        payload["records"] = [irregular]
+        output = preprocess_payload(payload)
+        point = output["points"][0]
+        self.assertEqual(point["quality"]["effectiveEpochs"], 42)
+        self.assertEqual(point["quality"]["regularizedEpochs"], 46)
+        self.assertEqual(point["quality"]["cadenceDays"], 12)
+        self.assertEqual(point["quality"]["adapterMethod"], "linear_calendar_12_day_grid")
+        self.assertEqual(len(point["targetDates"]), 46)
+        self.assertEqual(
+            [(date.fromisoformat(right) - date.fromisoformat(left)).days for left, right in zip(point["targetDates"], point["targetDates"][1:])],
+            [12] * 45,
+        )
 
     def test_non_12_day_248_epochs_are_adapted_and_warned(self):
         output = preprocess_payload(payload_for(248, interval_days=24))
@@ -93,6 +114,7 @@ class PreprocessingTests(unittest.TestCase):
         self.assertTrue(point["quality"]["adapterApplied"])
         self.assertEqual(point["quality"]["medianGapDays"], 24.0)
         self.assertEqual(point["quality"]["cadenceStatus"], "non_12_day_cadence")
+        self.assertEqual(point["quality"]["regularizedEpochs"], 495)
         self.assertIn(
             "PASC_NON_SENTINEL_CADENCE",
             {item["code"] for item in point["quality"]["warnings"]},

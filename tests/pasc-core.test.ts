@@ -242,7 +242,8 @@ test("Phase E request keeps ordinary WebGIS points below 20 out of inference", (
 test("automatic CSV classification splits 3,000 eligible points into bounded requests", () => {
   const source = Array.from({ length: 3_000 }, (_, index) => phaseEPoint(`batch-${index}`));
   const requests = buildPascOnlineRequestBatches([...source, phaseEPoint("ordinary", 19)], "three-thousand.csv", "raw");
-  assert.deepEqual(requests.map(request => request.points.length), [500, 500, 500, 500, 500, 500]);
+  assert.equal(requests.length, 3_000 / PHASE_E_MAX_POINTS);
+  assert.ok(requests.every(request => request.points.length === PHASE_E_MAX_POINTS));
   assert.deepEqual(requests.flatMap(request => request.points.map(point => point.pointId)), source.map(point => point.id));
   assert.throws(
     () => buildPascOnlineRequestBatches(Array.from({ length: PASC_AUTO_CLASSIFY_MAX_POINTS + 1 }, (_, index) => phaseEPoint(`too-large-${index}`)), "too-large.csv", "raw"),

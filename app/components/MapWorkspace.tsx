@@ -7,7 +7,7 @@ import { AnalysisProvider, colorForMode, deformationModeOrder, normalizedMode, u
 import { interpretRegionalAnalysis, type RegionalAnalysisInput, type RegionalInterpretation } from "../lib/ai-analysis";
 import { trackEvent } from "../lib/analytics";
 import { inspectCsv, parseMappedCsv, parseQgisRamp, stageVelocity, type CsvInspection, type CsvMapping, type DatasetParseResult, type RenderAttribute, type RenderStyle } from "../lib/insar-v2";
-import { PASC_AUTO_CLASSIFY_MAX_POINTS, buildPascOnlineRequestBatches, filterPascOnlinePoints, mergePascOnlineResults, onlineErrorMessage, type PascOnlineFilter, type PascOnlineRunState } from "../lib/pasc-online";
+import { PASC_AUTO_CLASSIFY_MAX_POINTS, PHASE_E_MAX_POINTS, buildPascOnlineRequestBatches, filterPascOnlinePoints, mergePascOnlineResults, onlineErrorMessage, type PascOnlineFilter, type PascOnlineRunState } from "../lib/pasc-online";
 import { parsePascMapPreview, pascMapLevelForZoom, type PascPublicJob } from "../lib/pasc-job-client";
 import { filterPointsForPattern, type PatternVisibility } from "../lib/v2-map-analysis";
 import { deriveTemporalStageAnalysis, pascModeExplanation, pointDataQuality, topPascCandidates, type TemporalStageAnalysis } from "../lib/pasc-product";
@@ -643,8 +643,8 @@ function MapWorkspaceView() {
                 const response = await fetch("/api/pasc-jobs?op=create", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ datasetId: sourceDatasetId }) });
                 const body = await response.json().catch(() => null) as { job?: PascPublicJob; created?: boolean; error?: { message?: string } } | null;
                 if (!response.ok || !body?.job) throw new Error(body?.error?.message || "后台分类任务创建失败。");
-                setPascOnlineRun({ ...emptyPascOnlineRun, totalPoints: candidateTotal, totalBatches: Math.ceil(candidateTotal / 500) });
-                setStatus(`已进入后台自动分类 · ${candidateTotal.toLocaleString()} 点 / ${body.job.chunks.total || Math.ceil(candidateTotal / 500)} 批；关闭页面不会中断，请在数据中心查看任务 ${body.job.jobId.slice(0, 8)}。`);
+                setPascOnlineRun({ ...emptyPascOnlineRun, totalPoints: candidateTotal, totalBatches: Math.ceil(candidateTotal / PHASE_E_MAX_POINTS) });
+                setStatus(`已进入后台自动分类 · ${candidateTotal.toLocaleString()} 点 / ${body.job.chunks.total || Math.ceil(candidateTotal / PHASE_E_MAX_POINTS)} 批；关闭页面不会中断，请在数据中心查看任务 ${body.job.jobId.slice(0, 8)}。`);
                 return;
             }
             const requests = buildPascOnlineRequestBatches(sourcePoints, sourceTitle, sourcePreprocessing);

@@ -11,7 +11,8 @@ import {
   type PascTemporalApplicability,
 } from "../types/pasc.js";
 
-export const PHASE_E_MAX_POINTS = 500;
+// Keep each two-stage preprocess/infer exchange below serverless response limits.
+export const PHASE_E_MAX_POINTS = 100;
 export const PASC_AUTO_CLASSIFY_MAX_POINTS = 10_000;
 export const PHASE_E_MAX_BODY_BYTES = 8 * 1024 * 1024;
 export const PHASE_E_DEFAULT_TIMEOUT_MS = 30_000;
@@ -74,6 +75,8 @@ export type PascOnlineInferencePoint = {
     medianGapDays?: number;
     cadenceStatus?: "sentinel_12_day_like" | "non_12_day_cadence";
     adapterApplied: boolean;
+    regularizedEpochs?: number;
+    cadenceDays?: number;
     noiseResidualStd: number | null;
     seriesMean: number;
     seriesStd: number;
@@ -306,7 +309,7 @@ export function mergePascOnlineResults(points: InsarPoint[], value: unknown): { 
       spatialApplicability: result.applicability.spatial as PascSpatialApplicability,
       quality: {
         originalEpochCount: quality.effectiveEpochs,
-        adaptedEpochCount: quality.adapterApplied ? 248 : null,
+        adaptedEpochCount: Number.isFinite(Number(quality.regularizedEpochs)) ? Number(quality.regularizedEpochs) : null,
         startDate: quality.originalStart,
         endDate: quality.originalEnd,
         spanDays: quality.originalSpanDays,
@@ -362,9 +365,23 @@ function upstreamError(status: number, value: unknown) {
   );
 }
 
+function invalidUpstreamJson(response: Response, body: string) {
+  return new PascProxyError(
+    "PASC_PHASE_E_UPSTREAM_INVALID",
+    `PASC-TCN 服务返回了非 JSON 响应（HTTP ${response.status}）；本批结果未写入，将按任务策略重试。`,
+    502,
+    {
+      upstreamStatus: response.status,
+      contentType: response.headers.get("content-type") || "unknown",
+      responseBytes: new TextEncoder().encode(body).byteLength,
+    },
+  );
+}
+
 async function responseJson(response: Response) {
-  try { return await response.json() as unknown; }
-  catch { throw new PascProxyError("PASC_PHASE_E_UPSTREAM_INVALID", "PASC-TCN 服务返回了无效 JSON。", 502); }
+  const body = await response.text();
+  try { return JSON.parse(body) as unknown; }
+  catch { throw invalidUpstreamJson(response, body); }
 }
 
 export async function runPascOnlineProxy(
@@ -395,7 +412,7 @@ export async function runPascOnlineProxy(
     const preprocessedText = await preprocessedResponse.text();
     let preprocessed: unknown;
     try { preprocessed = JSON.parse(preprocessedText) as unknown; }
-    catch { throw new PascProxyError("PASC_PHASE_E_UPSTREAM_INVALID", "PASC-TCN 服务返回了无效 JSON。", 502); }
+    catch { throw invalidUpstreamJson(preprocessedResponse, preprocessedText); }
     if (!preprocessedResponse.ok) throw upstreamError(preprocessedResponse.status, preprocessed);
     const inferenceResponse = await fetchImpl(endpoint("v1/infer"), {
       method: "POST",

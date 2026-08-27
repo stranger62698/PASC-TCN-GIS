@@ -2,8 +2,8 @@ import type { PascCompatibilitySummary } from "../types/pasc";
 
 const temporalLabels = {
   native_248: "原生 248 期",
-  adapted_to_248: "可适配至 248 期",
-  experimental_adapted_to_248: "已按真实日期插值至 248 期（实验性）",
+  adapted_to_248: "可补齐为 12 天等间隔",
+  experimental_adapted_to_248: "将按实际日期补齐为 12 天等间隔（实验性）",
   unsupported: "PASC 不可用",
 } as const;
 const spatialLabels = {
@@ -33,7 +33,7 @@ export function PascCompatibilityCheck({ summary }: { summary: PascCompatibility
       {summary.issues.length > 0
         ? <ul>{summary.issues.map((issue, index) => <li className={issue.severity} key={`${issue.code}-${index}`}><b>{issue.code}</b><span>{issue.message}</span></li>)}</ul>
         : <p className="pasc-clear">协议预检查未发现阻断项。</p>}
-      <footer>确认映射、单位、符号与平滑状态后，≥20 期候选点会按真实日期插值至 248 节点并送往安全代理；20—39 期仅供探索性判读。</footer>
+      <footer>确认映射、单位、符号与平滑状态后，≥20 期候选点会先按实际日期线性插值为每 12 天一个节点，再执行 SG 与模型识别；不会把序列强行拉伸到 248 期。20—39 个原始观测仅供探索性判读。</footer>
     </section>
   );
 }

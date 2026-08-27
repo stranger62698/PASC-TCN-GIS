@@ -415,6 +415,15 @@ class FrozenModelRuntime:
                 has_exact_match, 1:9
             ]
 
+        if query_series.shape[1] != self.reference_series.shape[1]:
+            # The frozen spatial reference has 248 epochs. A different calendar
+            # span must not be stretched to 248 merely to manufacture spatial
+            # similarity; run the temporal/physics classifier with a zero gate.
+            return (
+                indices.astype(np.int64),
+                np.zeros_like(distances, dtype=np.float32),
+                np.zeros(len(query_series), dtype=np.float32),
+            )
         neighbor_series = self.reference_series[indices]
         correlation = np.mean(
             neighbor_series * query_series[:, None, :], axis=2
@@ -567,10 +576,13 @@ class FrozenModelRuntime:
         self,
         points: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        series = np.asarray(
-            [point["normalizedSeries"] for point in points],
-            dtype=np.float32,
-        )
+        lengths = {len(point.get("normalizedSeries", [])) for point in points}
+        if len(lengths) != 1:
+            raise ServiceError(
+                "PASC_PREPROCESSED_ARTIFACT_INVALID",
+                MESSAGES["PASC_PREPROCESSED_ARTIFACT_INVALID"],
+            )
+        series = np.asarray([point["normalizedSeries"] for point in points], dtype=np.float32)
         physics = np.asarray(
             [point["features"]["scaled"] for point in points],
             dtype=np.float32,
@@ -588,7 +600,9 @@ class FrozenModelRuntime:
             dtype=np.float32,
         )
         if (
-            series.shape != (len(points), TARGET_EPOCHS)
+            series.ndim != 2
+            or series.shape[0] != len(points)
+            or series.shape[1] < 9
             or physics.shape
             != (len(points), len(FEATURE_NAMES))
             or not np.all(np.isfinite(series))

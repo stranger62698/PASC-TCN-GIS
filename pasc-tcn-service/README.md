@@ -9,11 +9,13 @@
 - 契约：`pasc-contract-v1`
 - 模型：`pasc-tcn-haikou-v1`
 - 六类顺序固定为 Stable、Linear、Piecewise、Decelerating、Accelerating、Undefined
-- 原生输入为 248 期且中位间隔接近哨兵 12 天；20–247 期按真实日期经 Temporal Adapter 插值至 248 节点并标记为 experimental；20–39 期额外提示低于既有 40 期最低评估证据；少于 20 期不推理；非 12 天节奏返回时间域偏移 warning
+- 先按真实日期排序、去重，再从数据集首日至末日建立严格 12 天日历网格并线性补齐缺测，随后才执行 SG 和后续特征/模型处理；不会把不同长度序列强行拉伸到 248 节点
+- 原生 248 期、严格 12 天间隔继续走冻结黄金路径；其他长度标记为 experimental，20–39 个原始观测额外提示证据有限，少于 20 个原始观测不推理
 - SG 为 window 9 / polynomial 3；逐行 Z-score epsilon 为 `1e-5`
 - 13 维特征、训练 Scaler、动态类 2/3/4 的 1.35 概率校准均冻结
 - 空间参考只包含固定训练集 1,036 行；8 邻居、500 m 半径、180 m 距离尺度
 - 海口参考半径外的城市不会伪造空间证据，返回 `limited_reference`
+- 非 248 节点的 12 天网格不会为匹配空间参考而再次拉伸；此时空间门控归零，只运行时间/物理分类并返回 `limited_reference`
 
 ## 私有模型包
 
@@ -53,7 +55,7 @@ JSON 请求体最多 32 MiB。ASGI lifespan 和内置服务器都会在启动阶
 
 - `GET /v1/models`：模型、运行时、限制与可用状态
 - `POST /v1/validate`：字段、日期、单位、符号及能力级别验证
-- `POST /v1/preprocess`：权威 248 节点预处理；配置签名密钥后返回 HMAC 工件
+- `POST /v1/preprocess`：按日历构造 12 天等间隔序列并执行权威预处理；配置签名密钥后返回 HMAC 工件
 - `POST /v1/infer`：只接受本服务产生且 HMAC 校验通过的 `preprocessed` 工件
 
 推理调用必须携带 `Authorization: Bearer <PASC_SERVICE_API_KEY>`，也支持
@@ -85,8 +87,8 @@ optimizer、backward、fit 或训练入口，也不会按输入 URL 获取数据
 
 WebGIS 使用 D1 租约作为可恢复的拉取队列。消费者不接收用户提供的 URL，只连接
 `PASC_WEBGIS_BASE_URL` 指定的单一来源，并校验所有服务端返回路径仍位于同源的
-`/v1/internal/jobs/` 下。源 CSV 逐行读取，内存中最多保留一个不超过 512 点的
-推理分块；结果写成 attempt/chunk 隔离的 R2 工件。
+`/v1/internal/jobs/` 下。源 CSV 逐行读取；WebGIS 当前按最多 100 点安全分批，服务硬上限仍为 512 点，
+内存中最多保留一个推理分块。结果写成 attempt/chunk 隔离的 R2 工件。
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path src)
@@ -135,7 +137,7 @@ python pasc-tcn-service/tools/generate_phase_d_golden.py `
   --device cpu
 ```
 
-黄金夹具通过正式研究模型独立生成，覆盖 native-248、adapted-40 和外部城市，
-比较 raw 概率/标签、校准概率/最终标签、confidence、空间可靠度和 gate 均值。
+黄金夹具通过正式研究模型独立生成；native-248 继续比较完整黄金结果，其他 12 天网格长度验证可变长推理、
+概率归一、适用性、空间可靠度和 gate 输出。
 Phase C 仍可通过 `tools/run_phase_c_validation.py` 与
 `tools/validate_phase_c_results.py` 离线复核；它不定义支持阈值。

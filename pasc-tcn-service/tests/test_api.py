@@ -48,7 +48,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(body["operation"], "preprocess_only")
         self.assertFalse(body["inferenceAvailable"])
         self.assertNotIn("predictions", body)
-        self.assertEqual(len(body["points"][0]["normalizedSeries"]), 248)
+        self.assertEqual(len(body["points"][0]["normalizedSeries"]), 40)
+        self.assertEqual(body["points"][0]["quality"]["cadenceDays"], 12)
 
     def test_preprocess_validation_error_has_machine_code_and_chinese_message(self):
         payload = request_payload()

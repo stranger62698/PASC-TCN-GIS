@@ -140,10 +140,15 @@ class PhaseDInferenceTests(unittest.TestCase):
         self.assertEqual(body["audit"]["referenceRows"], 1036)
         self.assertEqual(len(body["modelPackage"]["assetSha256"]), 8)
 
-    def test_adapted_40_matches_formal_golden(self):
+    def test_40_epoch_12_day_grid_runs_without_stretching_to_248(self):
         body = self.infer("adapted40")
-        self.assert_golden("adapted40", body["points"])
         result = body["points"][0]
+        self.assertEqual(result["quality"]["regularizedEpochs"], 40)
+        self.assertEqual(result["quality"]["cadenceDays"], 12)
+        self.assertEqual(len(result["probabilities"]), 6)
+        self.assertAlmostEqual(sum(result["probabilities"]), 1.0, places=5)
+        self.assertEqual(result["applicability"]["spatial"], "limited_reference")
+        self.assertEqual(result["spatialReliability"], 0.0)
         self.assertEqual(
             result["applicability"]["temporal"],
             "experimental_adapted_to_248",

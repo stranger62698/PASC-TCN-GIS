@@ -93,7 +93,7 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
       const body = await response.json().catch(() => null) as { job?: PascPublicJob; created?: boolean } | null;
       if (!response.ok || !body?.job) throw new Error(readError(body, "无法创建大数据任务。", response.status));
       setSelectedId(body.job.jobId); setDetail({ job: body.job, events: [] });
-      setMessage(body.created === false ? "已恢复该数据集的现有任务，没有重复创建。" : "任务已进入持久队列；关闭页面不会中断。每批最多 500 点，系统会自动串行处理。 ");
+      setMessage(body.created === false ? "已恢复该数据集的现有任务，没有重复创建。" : "任务已进入持久队列；关闭页面不会中断。系统会按安全批量自动串行处理。 ");
       await refresh(true);
     } catch (error) { setMessage(error instanceof Error ? error.message : "无法创建大数据任务。"); await refresh(true); }
     finally { setCreating(false); }
@@ -118,7 +118,7 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
   return (
     <section id="pasc-job-console" className="pasc-job-console" aria-label="PASC-TCN 大数据任务中心">
       <header className="pasc-job-console-head">
-        <div><small>LARGE INSAR · DURABLE QUEUE</small><h2>大数据自动分类</h2><p>适用于上万级监测点：私有 CSV 在服务器端解析，按最多 500 点逐批运行冻结 PASC-TCN，进度与结果持久保存，可自动重试。</p></div>
+        <div><small>LARGE INSAR · DURABLE QUEUE</small><h2>大数据自动分类</h2><p>适用于上万级监测点：私有 CSV 在服务器端解析，先按实际日期补齐为 12 天等间隔序列，再安全分批运行 PASC-TCN；进度与结果持久保存，可自动重试。</p></div>
         <div className="pasc-job-create">
           <label><span>选择已确认映射的数据集</span><select value={selectedDatasetId} onChange={event => setDatasetId(event.target.value)} disabled={!available.length}>{available.length ? available.map(dataset => <option key={dataset.id} value={dataset.id}>{dataset.name} · {(dataset.qualityReport?.validPoints ?? dataset.pointCount ?? 0).toLocaleString()} 点</option>) : <option>暂无可提交数据集</option>}</select></label>
           <button disabled={!selectedDatasetId || creating} onClick={createJob}>{creating ? "正在创建…" : "开始后台自动分类"}</button>

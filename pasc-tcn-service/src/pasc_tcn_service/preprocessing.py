@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from importlib.resources import files
 from typing import Any
 
@@ -19,6 +19,7 @@ from .contract import (
     SERVICE_VERSION,
     SG_POLYORDER,
     SG_WINDOW,
+    SENTINEL_CADENCE_DAYS,
     SIGN_FACTORS_TO_MODEL_NATIVE,
     TARGET_EPOCHS,
     ZSCORE_EPSILON,
@@ -199,57 +200,42 @@ def _merged_original(dataset: ValidatedDataset, row: dict[str, Any]):
     return dates, np.asarray(values, dtype=np.float32)
 
 
-def _target_dates(start: date, end: date, native_dates=None) -> list[str]:
-    if native_dates is not None:
-        return [item.isoformat() for item in native_dates]
-    start_dt = datetime(start.year, start.month, start.day, tzinfo=timezone.utc)
-    span_seconds = (end - start).days * 86400.0
-    values = []
-    for fraction in np.linspace(0.0, 1.0, TARGET_EPOCHS):
-        target = start_dt + timedelta(seconds=float(fraction) * span_seconds)
-        values.append(target.isoformat(timespec="milliseconds").replace("+00:00", "Z"))
-    return values
-
-
-def _adapt(
+def _regularize_to_sentinel_cadence(
     original_dates,
     original_values: np.ndarray,
-    total_date_count: int,
+    grid_start,
+    grid_end,
 ) -> tuple[np.ndarray, np.ndarray, list[str], bool]:
     day_offsets = np.asarray(
-        [(item - original_dates[0]).days for item in original_dates],
+        [(item - grid_start).days for item in original_dates],
         dtype=np.float32,
     )
-    gaps = np.diff(day_offsets)
-    median_gap_days = float(np.median(gaps)) if len(gaps) else 0.0
-    sentinel_cadence = 9.0 <= median_gap_days <= 15.0
-    native = (
-        len(original_values) == TARGET_EPOCHS
-        and total_date_count == TARGET_EPOCHS
-        and len(original_dates) == TARGET_EPOCHS
-        and sentinel_cadence
-    )
-    if native:
-        years = day_offsets / np.float32(365.25)
-        return (
-            original_values.astype(np.float32, copy=True),
-            years.astype(np.float32),
-            _target_dates(original_dates[0], original_dates[-1], original_dates),
-            False,
-        )
-
-    span = float(day_offsets[-1])
+    span = float((grid_end - grid_start).days)
     if span <= 0:
         raise ServiceError("PASC_PREPROCESS_FAILED", "有效日期跨度必须大于0。")
-    relative = day_offsets / np.float32(span)
-    target_relative = np.linspace(0.0, 1.0, TARGET_EPOCHS, dtype=np.float32)
-    adapted = np.interp(target_relative, relative, original_values).astype(np.float32)
-    target_days = target_relative * np.float32(span)
+    target_days = np.arange(
+        0.0,
+        span + 1.0,
+        float(SENTINEL_CADENCE_DAYS),
+        dtype=np.float32,
+    )
+    if len(target_days) < SG_WINDOW:
+        raise ServiceError(
+            "PASC_PREPROCESS_FAILED",
+            "按12天时间分辨率重建后不足9个节点，无法执行SG平滑。",
+            details={"regularizedEpochs": len(target_days), "minimum": SG_WINDOW},
+        )
+    regularized = np.interp(target_days, day_offsets, original_values).astype(np.float32)
+    exact_grid = len(day_offsets) == len(target_days) and np.array_equal(day_offsets, target_days)
+    target_dates = [
+        (grid_start + timedelta(days=int(offset))).isoformat()
+        for offset in target_days
+    ]
     return (
-        adapted,
+        regularized,
         (target_days / np.float32(365.25)).astype(np.float32),
-        _target_dates(original_dates[0], original_dates[-1]),
-        True,
+        target_dates,
+        not exact_grid,
     )
 
 
@@ -304,7 +290,7 @@ def _preprocess_point(
             "sign_normalization",
             "missing_and_effective_epochs",
             "velocity",
-            "temporal_adapter",
+            "regularize_calendar_to_12_day_grid",
             "savgol",
             "rowwise_zscore",
             "physical_features_13",
@@ -334,10 +320,13 @@ def _preprocess_point(
         * np.float32(sign_factor)
     )
 
-    adapted, years, target_dates, adapter_applied = _adapt(
+    grid_start = dataset.date_groups[0][0].value
+    grid_end = dataset.date_groups[-1][0].value
+    adapted, years, target_dates, adapter_applied = _regularize_to_sentinel_cadence(
         original_dates,
         original_values,
-        len(dataset.date_groups),
+        grid_start,
+        grid_end,
     )
     preprocessing_state = dataset.settings["preprocessingState"]
     gap_days = np.asarray(
@@ -355,14 +344,14 @@ def _preprocess_point(
         warnings.append(
             {
                 "code": "PASC_20_TO_39_EXPLORATORY",
-                "message": "20—39期已按真实日期插值至248期，但低于既有40期最低评估证据，仅供探索性判读。",
+                "message": "原始有效观测仅20—39期；已先按日期补齐为12天等间隔序列，仅供探索性判读。",
             }
         )
     if cadence_status == "non_12_day_cadence":
         warnings.append(
             {
                 "code": "PASC_NON_SENTINEL_CADENCE",
-                "message": f"中位时相间隔为{median_gap_days:.1f}天，偏离哨兵约12天节奏；已按真实日期插值，但属于时间域偏移。",
+                "message": f"中位时相间隔为{median_gap_days:.1f}天；已先按实际日期线性插值到12天等间隔网格，再执行后续处理。",
             }
         )
     if preprocessing_state == "raw":
@@ -454,7 +443,9 @@ def _preprocess_point(
         ),
         "originalSpanDays": (original_dates[-1] - original_dates[0]).days,
         "adapterApplied": adapter_applied,
-        "adapterMethod": "linear_relative_time_0_1" if adapter_applied else "native_248_bypass",
+        "adapterMethod": "linear_calendar_12_day_grid" if adapter_applied else "native_12_day_grid_bypass",
+        "regularizedEpochs": len(target_dates),
+        "cadenceDays": SENTINEL_CADENCE_DAYS,
         "smoothing": smoothing,
         "noiseResidualStd": noise_residual_std,
         "seriesMean": float(means[0, 0]),
@@ -473,7 +464,8 @@ def _preprocess_point(
             "adapter": {
                 "applied": adapter_applied,
                 "method": quality["adapterMethod"],
-                "targetEpochs": TARGET_EPOCHS,
+                "targetEpochs": len(target_dates),
+                "cadenceDays": SENTINEL_CADENCE_DAYS,
             },
             "smoothing": smoothing,
             "featureOrder": list(FEATURE_NAMES),
@@ -485,7 +477,7 @@ def _preprocess_point(
         "pointId": point_id,
         "longitude": float(_value(row, dataset.mapping["longitude"])),
         "latitude": float(_value(row, dataset.mapping["latitude"])),
-        "status": "native_248" if not adapter_applied else "adapted_experimental",
+        "status": "native_248" if not adapter_applied and len(target_dates) == TARGET_EPOCHS else "adapted_experimental",
         "targetDates": target_dates,
         "preprocessedSeriesMm": _json_floats(processed),
         "normalizedSeries": _json_floats(normalized[0]),

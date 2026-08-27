@@ -121,7 +121,7 @@ test("Phase F client validates and converts a bounded map preview", () => {
   assert.equal(pascMapLevelForZoom(13), "map_level_2");
   assert.throws(() => parsePascMapPreview({ contractVersion: "bad", points: [] }));
 });
-test("Large InSAR classification splits 21,610 candidates into 44 bounded batches", () => {
+test("Large InSAR classification splits 21,610 candidates into safe bounded batches", () => {
   const dates = Array.from({ length: 46 }, (_, index) => `2020-01-${String(index % 28 + 1).padStart(2, "0")}`);
   const points = Array.from({ length: 21610 }, (_, index) => ({
     id: `P-${index + 1}`, name: `Point ${index + 1}`, lon: 110 + index / 1_000_000, lat: 20,
@@ -132,11 +132,11 @@ test("Large InSAR classification splits 21,610 candidates into 44 bounded batche
     spatialApplicability: "not_evaluated" as const, warnings: [],
   }));
   const batches = buildPascDurableRequestBatches(points, "21610.csv", "raw");
-  assert.equal(batches.length, 44);
-  assert.equal(batches[0].points.length, 500);
-  assert.equal(batches.at(-1)?.points.length, 110);
+  assert.equal(batches.length, 217);
+  assert.equal(batches[0].points.length, 100);
+  assert.equal(batches.at(-1)?.points.length, 10);
   assert.equal(batches.reduce((sum, batch) => sum + batch.points.length, 0), 21610);
-  assert.ok(batches.every(batch => batch.points.length <= 500));
+  assert.ok(batches.every(batch => batch.points.length <= 100));
 });
 test("Phase F static integration keeps owner isolation, consumer auth, and bounded previews", () => {
   const schema = readFileSync("db/schema.ts", "utf8");
