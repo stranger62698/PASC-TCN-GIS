@@ -23,15 +23,22 @@ export function filterPointsForPattern<T extends Pick<InsarPoint, "mode">>(point
   return visibility === "all" ? [...points] : points.filter(point => isPointVisibleForPattern(point, visibility));
 }
 
-export function patternPointOpacity(mode: string) {
-  const normalized = pascDisplayName(mode);
-  if (normalized === "稳定型") return 0.22;
-  if (normalized === "加速型") return 1;
-  if (anomalyModes.has(normalized)) return 0.9;
-  if (normalized === "未定义型") return 0.55;
-  return 0.35;
+export function filterPointsForModes<T extends Pick<InsarPoint, "mode">>(points: readonly T[], hiddenModes: readonly string[]) {
+  if (!hiddenModes.length) return [...points];
+  const hidden = new Set(hiddenModes.map(pascDisplayName));
+  return points.filter(point => !hidden.has(pascDisplayName(point.mode)));
 }
 
-export function formatFiniteValue(value: number, digits = 2) {
+export function patternPointOpacity(mode: string) {
+  const normalized = pascDisplayName(mode);
+  if (normalized === "未定义型") return 0.28;
+  if (normalized === "未分类") return 0.42;
+  if (normalized === "加速型") return 1;
+  if (normalized === "稳定型") return 0.86;
+  if (anomalyModes.has(normalized)) return 0.94;
+  return 0.82;
+}
+
+export function formatFiniteValue(value: number, digits = 1) {
   return Number.isFinite(value) ? value.toFixed(digits) : "--";
 }

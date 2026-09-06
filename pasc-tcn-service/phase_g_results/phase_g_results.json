@@ -7,19 +7,19 @@
     "modelDefinitionChanged": false,
     "trainingParametersChanged": false,
     "physicalFeaturesChanged": false,
-    "productionSpatialMechanismChanged": false,
+    "productionSpatialMechanismChanged": true,
     "userDataFit": false
   },
   "claims": {
     "externalLabelsAvailable": false,
     "externalAccuracyEvaluated": false,
     "arbitraryCityHighAccuracyClaimed": false,
-    "allowedConclusion": "外区空间参考受限时，产品降级为探索性识别并提示人工判读。"
+    "allowedConclusion": "有局部邻点的上传研究区可启用无标签空间上下文；孤立点回退为时间/物理识别，外区精度仍需标签验证。"
   },
   "requiredProductWording": [
-    "探索性识别结果",
-    "当前数据超出模型主要验证区域，",
-    "建议结合人工判读使用。"
+    "时序 / 物理识别结果",
+    "当前点在 500 米内缺少可用研究区邻点，",
+    "空间门控未启用，请结合人工判读。"
   ],
   "branchEvidence": {
     "coordinateShiftTemporalPhysicalInvariant": {
@@ -28,7 +28,7 @@
       "physicalScaledMaxAbsDiff": 0.0
     },
     "externalSpatialBranchSuppressed": true,
-    "interpretation": "坐标平移不改变时间序列与13维物理特征；固定海口参考不可用时空间可靠性和门控归零，输出主要依赖TCN时间分支与运动学物理特征。"
+    "interpretation": "坐标平移不改变时间序列与13维物理特征；当前稀疏控制批次在500米内没有邻点，所以空间门控归零。密集上传研究区会改用同批无标签邻域。"
   },
   "unitAndSignEquivalence": {
     "unit_cm_equivalent": {
@@ -49,17 +49,18 @@
   },
   "selfNeighborhood": {
     "mode": "diagnostics_only",
-    "predictionApplied": false,
-    "productionEligible": false,
+    "predictionApplied": true,
+    "productionEligible": true,
     "accuracyEvaluated": false,
     "pointCount": 3,
-    "status": "evaluated_not_applied",
+    "status": "evaluated_for_runtime_policy",
     "supportedPointCount": 3,
     "meanCandidateReliability": 0.26757060200154886,
     "maximumCandidateReliability": 0.2960839249061802,
     "meanNearestDistanceMeters": 87.91527503045897,
     "maximumSupportCount": 2,
-    "warning": "Self-neighborhood仅为离线实验，未进入冻结模型预测，也不能替代外部标注精度验证。",
+    "warning": "本函数只测量候选支持；生产推理在冻结参考不可用且500米内存在邻点时启用无标签研究区上下文，仍不能替代外部标注精度验证。",
+    "appliedPointCount": 3,
     "inputConstruction": "synthetic_three_point_external_cluster_80m_spacing",
     "syntheticCoordinates": true
   },
@@ -79,7 +80,7 @@
       ],
       "classAgreementVsNative": 1.0,
       "maximumProbabilityDeltaVsNative": 0.0,
-      "meanConfidence": 0.951415479183197,
+      "meanConfidence": 0.9514155189196268,
       "meanSpatialReliability": 0.6559558113416036,
       "meanSpatialGate": 0.35052429387966794,
       "maximumGapDays": 12,
@@ -100,7 +101,7 @@
         "limited_reference"
       ],
       "classAgreementVsNative": 0.0,
-      "maximumProbabilityDeltaVsNative": 0.5530789569020271,
+      "maximumProbabilityDeltaVsNative": 0.553078968077898,
       "meanConfidence": 0.5673529505729675,
       "meanSpatialReliability": 0.0,
       "meanSpatialGate": 0.0,
@@ -122,8 +123,8 @@
         "limited_reference"
       ],
       "classAgreementVsNative": 0.6666666666666666,
-      "maximumProbabilityDeltaVsNative": 0.5530789569020271,
-      "meanConfidence": 0.8425657351811727,
+      "maximumProbabilityDeltaVsNative": 0.5530790872871876,
+      "meanConfidence": 0.8425657749176025,
       "meanSpatialReliability": 0.0,
       "meanSpatialGate": 0.0,
       "maximumGapDays": 12,
@@ -148,10 +149,10 @@
         "full_reference"
       ],
       "classAgreementVsNative": 1.0,
-      "maximumProbabilityDeltaVsNative": 1.4901161193847656e-08,
+      "maximumProbabilityDeltaVsNative": 1.1920928955078125e-07,
       "meanConfidence": 0.951415479183197,
       "meanSpatialReliability": 0.6559557716051737,
-      "meanSpatialGate": 0.350524274011453,
+      "meanSpatialGate": 0.35052426407734555,
       "maximumGapDays": 12,
       "preprocessingComparison": {
         "normalizedSeriesMaxAbsDiff": 3.5762786865234375e-07,
@@ -175,7 +176,7 @@
       ],
       "classAgreementVsNative": 1.0,
       "maximumProbabilityDeltaVsNative": 0.0,
-      "meanConfidence": 0.951415479183197,
+      "meanConfidence": 0.9514155189196268,
       "meanSpatialReliability": 0.6559558113416036,
       "meanSpatialGate": 0.35052429387966794,
       "maximumGapDays": 12,
@@ -200,8 +201,8 @@
         "full_reference"
       ],
       "classAgreementVsNative": 1.0,
-      "maximumProbabilityDeltaVsNative": 0.002392120659351349,
-      "meanConfidence": 0.9512538313865662,
+      "maximumProbabilityDeltaVsNative": 0.0023920387029647827,
+      "meanConfidence": 0.9512539307276408,
       "meanSpatialReliability": 0.6559998194376627,
       "meanSpatialGate": 0.3508702317873637,
       "maximumGapDays": 24,
@@ -222,8 +223,8 @@
         "full_reference"
       ],
       "classAgreementVsNative": 1.0,
-      "maximumProbabilityDeltaVsNative": 0.031245887279510498,
-      "meanConfidence": 0.9407111406326294,
+      "maximumProbabilityDeltaVsNative": 0.031245678663253784,
+      "meanConfidence": 0.9407112995783488,
       "meanSpatialReliability": 0.656047542889913,
       "meanSpatialGate": 0.3521536240975062,
       "maximumGapDays": 48,
@@ -244,8 +245,8 @@
         "full_reference"
       ],
       "classAgreementVsNative": 1.0,
-      "maximumProbabilityDeltaVsNative": 0.47098594903945923,
-      "meanConfidence": 0.7192127903302511,
+      "maximumProbabilityDeltaVsNative": 0.47098612785339355,
+      "meanConfidence": 0.7192128698031107,
       "meanSpatialReliability": 0.656303862730662,
       "meanSpatialGate": 0.34693193187316257,
       "maximumGapDays": 84,
@@ -253,7 +254,7 @@
       "accuracyEvaluated": false
     }
   ],
-  "generatedAt": "2026-08-24T11:13:38.531349+00:00",
+  "generatedAt": "2026-08-27T07:18:48.234435+00:00",
   "inputs": {
     "fixture": "phase_d_inference_golden.json",
     "bundle": {

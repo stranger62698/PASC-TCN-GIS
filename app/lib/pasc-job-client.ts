@@ -54,10 +54,13 @@ export function parsePascMapPreview(value: unknown): { jobId: string; totalPredi
       calibratedLabelId: classDefinition.id as PascClassId, calibratedLabel: className, probabilities,
       confidence: finite(item.confidence), calibrationChanged: typeof item.calibrationChanged === "boolean" ? item.calibrationChanged : null,
       lowConfidence: item.lowConfidence === true, spatialReliability: finite(item.spatialReliability), spatialGateMean: finite(item.spatialGateMean),
+      spatialReferenceSource: String(item.spatialReferenceSource ?? "none") as PascPointResult["spatialReferenceSource"],
       temporalApplicability: String(applicability.temporal ?? "unsupported") as PascTemporalApplicability,
       spatialApplicability: String(applicability.spatial ?? "not_evaluated") as PascSpatialApplicability,
       quality: {
         originalEpochCount: Math.max(0, Math.floor(finite(quality.effectiveEpochs))), adaptedEpochCount: Number.isFinite(Number(quality.regularizedEpochs)) ? Number(quality.regularizedEpochs) : null,
+        insertedEpochCount: Number.isFinite(Number(quality.insertedEpochs)) ? Number(quality.insertedEpochs) : 0,
+        remainingIrregularIntervals: Number.isFinite(Number(quality.remainingIrregularIntervals)) ? Number(quality.remainingIrregularIntervals) : 0,
         startDate: typeof quality.originalStart === "string" ? quality.originalStart : null, endDate: typeof quality.originalEnd === "string" ? quality.originalEnd : null,
         spanDays: Number.isFinite(Number(quality.originalSpanDays)) ? Number(quality.originalSpanDays) : null, missingRate: finite(quality.missingRate), minimumGapDays: null,
         maximumGapDays: Number.isFinite(Number(quality.maximumGapDays)) ? Number(quality.maximumGapDays) : null, medianGapDays: Number.isFinite(Number(quality.medianGapDays)) ? Number(quality.medianGapDays) : null,

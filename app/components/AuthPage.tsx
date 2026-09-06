@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { authRequest, getSession } from "../lib/auth-client";
+import { BrandMark } from "./SiteShell";
 
 type AuthMode = "login" | "register" | "forgot";
 
@@ -50,15 +51,15 @@ export function AuthPage() {
   return (
     <main className="new-login phase-eight-login">
       <section className="login-scene grid-surface">
-        <Link className="site-brand invert" href="/"><img src="/insar-satellite-v2.png" alt="InSAR 卫星" /><span><b>LANJIFYW</b><small>城市时序 InSAR</small></span></Link>
+        <BrandMark />
         <div className="auth-scene-content">
           <span className="eyebrow">OPEN DEMO · PRIVATE WORKSPACE</span>
           <h1>先体验，<br /><em>再决定是否登录</em></h1>
           <p>公开示例、点位分析、区域统计和 AI 辅助解读均可直接体验；只有保存私人数据和分析记录时才需要账户。</p>
-          <div className="auth-public-actions"><Link className="button primary" href="/map?demo=haikou">体验公开示例 ↗</Link><Link className="button line-light" href="/datasets">检查我的 CSV</Link></div>
+          <div className="auth-public-actions"><Link className="button primary" href="/map?demo=haikou&tour=portfolio">90 秒公开体验 ↗</Link><Link className="button line-light" href="/datasets">检查我的 CSV</Link></div>
           <div className="auth-access-list">
             <article><b>无需登录</b><span>示例地图、点位、区域与 AI 演示</span></article>
-            <article><b>登录后</b><span>保存私人数据集、任务和分析记录</span></article>
+            <article><b>登录后</b><span>解锁最高 1 GiB 本地分析，或保存私人数据与任务</span></article>
             <article><b>数据隐私</b><span>私人数据按用户身份隔离</span></article>
           </div>
         </div>

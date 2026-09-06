@@ -105,6 +105,9 @@ export type RenderStyle = {
   rangeEnd: number;
 };
 
+/** Official GRASS bcyr rule nodes: blue -> cyan -> yellow -> red. */
+export const GRASS_BCYR_COLORS = ["#0000ff", "#00ffff", "#ffff00", "#ff0000"] as const;
+
 const extraAliases = {
   velocity: ["average_velocity", "v", "速率"],
   coherence: ["precision", "accuracy", "相关性", "精度"],
@@ -474,9 +477,9 @@ export function parseMappedCsv(text: string, fileName: string, mapping: CsvMappi
       ...(parsedMode.warning ? [parsedMode.warning] : []),
       ...(velocitySource === "not_available" ? ["未提供速率且时序不足，速率专题不可用。"] : []),
       ...(coherenceSource === "not_available" ? ["未提供 coherence；Phase A 不静默填模型默认值。"] : []),
-      ...(series.length < PASC_EXPERIMENTAL_MIN_STEPS ? ["有效期少于 20，PASC 不可用。"] : series.length < 248 ? [`${series.length}个原始观测将先按实际日期补齐为12天等间隔序列；不会强行拉伸到248期。20—39个原始观测仅供探索性判读。`] : []),
+      ...(series.length < PASC_EXPERIMENTAL_MIN_STEPS ? ["有效期少于 20，PASC 不可用。"] : series.length < 248 ? [`保留${series.length}个原始观测，只在相邻日期缺口大于12天时补值；输出期数由本数据自身缺口决定。20—39个原始观测仅供探索性判读。`] : []),
       ...(series.length >= PASC_EXPERIMENTAL_MIN_STEPS && inputQuality.medianGapDays !== null && (inputQuality.medianGapDays < 9 || inputQuality.medianGapDays > 15)
-        ? [`中位时相间隔为 ${inputQuality.medianGapDays.toFixed(1)} 天；会先按实际日期线性插值为每12天一个节点，再执行SG与后续识别。`]
+        ? [`中位时相间隔为 ${inputQuality.medianGapDays.toFixed(1)} 天；会保留原始日期，仅在大于12天的相邻缺口内按12天步长线性补值。`]
         : []),
     ];
     points.push({
@@ -584,14 +587,24 @@ function hexToRgb(hex: string) {
     : [0, 2, 4].map(index => parseInt(value.slice(index, index + 2), 16));
 }
 
-export function colorFor(value: number, style: RenderStyle) {
-  const colors = style.colors.length >= 2 ? style.colors : ["#e94b4b", "#1677ff"];
-  const ratio = Math.max(0, Math.min(1, (value - style.min) / (style.max - style.min || 1)));
-  const scaled = ratio * (colors.length - 1);
+function interpolatedColor(colors: string[], ratio: number) {
+  const normalized = Number.isFinite(ratio) ? Math.max(0, Math.min(1, ratio)) : .5;
+  const scaled = normalized * (colors.length - 1);
   const index = Math.min(colors.length - 2, Math.floor(scaled));
   const amount = scaled - index;
   const start = hexToRgb(colors[index]), end = hexToRgb(colors[index + 1]);
   return `rgb(${start.map((part, channel) => Math.round(part + (end[channel] - part) * amount)).join(",")})`;
+}
+
+export function colorFor(value: number, style: RenderStyle) {
+  const colors = style.colors.length >= 2 ? style.colors : ["#e94b4b", "#1677ff"];
+  const classified = style.attribute === "velocity" || style.attribute === "displacement" || style.attribute === "stageVelocity";
+  if (classified && style.interval > 0 && style.max > style.min) {
+    const steps = Math.max(1, Math.round((style.max - style.min) / style.interval));
+    const classIndex = value < style.min ? 0 : value > style.max ? steps + 1 : Math.min(steps, Math.floor((value - style.min) / style.interval) + 1);
+    return interpolatedColor(colors, classIndex / (steps + 1));
+  }
+  return interpolatedColor(colors, (value - style.min) / (style.max - style.min || 1));
 }
 
 export function parseQgisRamp(text: string) {

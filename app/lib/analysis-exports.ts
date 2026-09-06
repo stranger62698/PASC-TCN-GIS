@@ -1,5 +1,6 @@
 import type { InsarPoint } from "../data/site.js";
 import { aggregateAoiSeries, type AoiAggregateMethod } from "./aoi-analysis.js";
+import { roundInsarValue } from "./insar-precision.js";
 
 export type ExportCell = string | number | boolean | null | undefined;
 
@@ -16,6 +17,13 @@ export type AnalysisRuleSummaryInput = {
   anomalyMinimumPoints: number;
   selectionSource: string;
   selectedPointCount: number;
+  priorityRuleVersion: string;
+  priorityTailPercent: number;
+  priorityDisplacementThresholdMm: number | null;
+  priorityVelocityThresholdMmPerYear: number | null;
+  priorityCandidateCount: number;
+  priorityReliableCount: number;
+  priorityLimitedCount: number;
 };
 
 export type AnalysisRuleSummary = {
@@ -46,17 +54,17 @@ const pointDates = (point: InsarPoint) => point.dates?.length === point.series.l
 export function pointCsv(point: InsarPoint) {
   const rows: ExportCell[][] = [
     ["point_id", "name", "longitude", "latitude", "velocity_mm_per_year", "coherence", "missing_rate", "mode", "mode_source", "mode_confidence"],
-    [point.id, point.name, point.lon, point.lat, point.velocity, point.coherence || null, point.missingRate, point.mode, point.modeSource || "", point.pasc?.confidence ?? point.modeConfidence ?? null],
+    [point.id, point.name, point.lon, point.lat, roundInsarValue(point.velocity), point.coherence || null, point.missingRate, point.mode, point.modeSource || "", point.pasc?.confidence ?? point.modeConfidence ?? null],
     [],
     ["date", "displacement_mm"],
-    ...pointDates(point).map((date, index) => [date, point.series[index]]),
+    ...pointDates(point).map((date, index) => [date, roundInsarValue(point.series[index])]),
   ];
   return csvText(rows);
 }
 
 export function comparisonCsv(points: readonly InsarPoint[]) {
   const rows: ExportCell[][] = [["point_id", "name", "date", "displacement_mm", "velocity_mm_per_year", "mode", "coherence", "missing_rate"]];
-  points.forEach(point => pointDates(point).forEach((date, index) => rows.push([point.id, point.name, date, point.series[index], point.velocity, point.mode, point.coherence || null, point.missingRate])));
+  points.forEach(point => pointDates(point).forEach((date, index) => rows.push([point.id, point.name, date, roundInsarValue(point.series[index]), roundInsarValue(point.velocity), point.mode, point.coherence || null, point.missingRate])));
   return csvText(rows);
 }
 
@@ -65,7 +73,7 @@ export function aoiPointsCsv(points: readonly InsarPoint[], timeIndex: number) {
     ["point_id", "name", "longitude", "latitude", "velocity_mm_per_year", "current_displacement_mm", "current_date", "coherence", "missing_rate", "mode", "mode_source"],
     ...points.map(point => {
       const index = Math.min(Math.max(0, timeIndex), Math.max(0, point.series.length - 1));
-      return [point.id, point.name, point.lon, point.lat, point.velocity, point.series[index] ?? point.displacement, pointDates(point)[index] || "", point.coherence || null, point.missingRate, point.mode, point.modeSource || ""];
+      return [point.id, point.name, point.lon, point.lat, roundInsarValue(point.velocity), roundInsarValue(point.series[index] ?? point.displacement), pointDates(point)[index] || "", point.coherence || null, point.missingRate, point.mode, point.modeSource || ""];
     }),
   ]);
 }
@@ -75,7 +83,7 @@ export function aoiSeriesCsv(points: readonly InsarPoint[], method: AoiAggregate
   const groups = aggregate.groups.filter(group => enabledModes.includes(group.mode));
   return csvText([
     ["date", `aoi_${method}_displacement_mm`, ...groups.map(group => `${group.mode}_displacement_mm`)],
-    ...aggregate.dates.map((date, index) => [date, aggregate.overall[index], ...groups.map(group => group.values[index])]),
+    ...aggregate.dates.map((date, index) => [date, roundInsarValue(aggregate.overall[index]), ...groups.map(group => roundInsarValue(group.values[index]))]),
   ]);
 }
 
@@ -86,6 +94,7 @@ export function buildAnalysisRuleSummary(input: AnalysisRuleSummaryInput): Analy
     { label: "地图表达", value: input.displayMode, detail: input.displayRange },
     { label: "PASC 显示", value: input.patternVisibility, detail: "只改变显示，不删除原始点" },
     { label: "当前筛选", value: input.activeFilter, detail: `低相干阈值 ${input.coherenceThreshold.toFixed(2)}；高缺测阈值 20%` },
+    { label: "重点核查规则", value: `负向单侧 ${input.priorityTailPercent}% · 双指标交集`, detail: `累计形变量 ≤ ${input.priorityDisplacementThresholdMm?.toFixed(2) ?? "不可计算"} mm；年均速率 ≤ ${input.priorityVelocityThresholdMmPerYear?.toFixed(2) ?? "不可计算"} mm/yr；候选 ${input.priorityCandidateCount}，可靠 ${input.priorityReliableCount}，质量受限 ${input.priorityLimitedCount}；规则 ${input.priorityRuleVersion}` },
     { label: "异常候选规则", value: "速率 ≤ −3 mm/yr，或加速型 / 分段型", detail: "先排除低相干或高缺测点；不是风险评分" },
     { label: "空间支持规则", value: `邻域 ${input.anomalyRadiusMeters} m · 最少 ${input.anomalyMinimumPoints} 点`, detail: "密度连通与分析包络，不是工程边界" },
     { label: "当前分析对象", value: input.selectionSource, detail: `${input.selectedPointCount.toLocaleString()} 个真实监测点` },

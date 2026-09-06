@@ -34,15 +34,18 @@ test("server-renders the LANJIFYW InSAR website", async () => {
   const html = await response.text();
   assert.doesNotMatch(html, developmentPreviewMeta);
   assert.match(html, /LANJIFYW/);
-  assert.match(html, /城市地表形变智能分析平台/);
-  assert.match(html, /体验示例数据/);
+  assert.match(html, /InSAR 形变模式识别工作台/);
+  assert.match(html, /开始 90 秒引导/);
   assert.doesNotMatch(html, /Your site is taking shape/);
 });
 test("server-renders the Phase E map recognition flight-check", async () => {
   const response = await render("/map");
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, />PASC</);
+  assert.match(html, /aria-label="工作台主导航"/);
+  assert.match(html, /aria-label="地图显示属性"/);
+  assert.doesNotMatch(html, /class="map-corner-dock"|class="map-tool-drawer"/);
+  assert.match(html, /模式识别 · PASC/);
   const chunkRoot = new URL("../dist/client/_next/static/chunks/", import.meta.url);
   const mapChunk = (await readdir(chunkRoot)).find(name => name.startsWith("MapWorkspace-") && name.endsWith(".js"));
   assert.ok(mapChunk, "MapWorkspace client chunk must exist");

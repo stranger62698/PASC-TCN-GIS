@@ -63,12 +63,12 @@ class PhaseGPureEvidenceTests(unittest.TestCase):
             self.assertEqual(selected[0], source[0])
             self.assertEqual(selected[-1], source[-1])
 
-    def test_self_neighborhood_is_never_applied_to_predictions(self):
+    def test_self_neighborhood_is_eligible_for_runtime_predictions(self):
         external = preprocess_payload(build_self_neighborhood_experiment_request(self.native))
         diagnostic = self_neighborhood_diagnostics(external["points"])
-        self.assertEqual(diagnostic["status"], "evaluated_not_applied")
+        self.assertEqual(diagnostic["status"], "evaluated_for_runtime_policy")
         self.assertFalse(diagnostic["predictionApplied"])
-        self.assertFalse(diagnostic["productionEligible"])
+        self.assertTrue(diagnostic["productionEligible"])
         self.assertFalse(diagnostic["accuracyEvaluated"])
         self.assertGreater(diagnostic["meanCandidateReliability"], 0.0)
 
@@ -109,12 +109,18 @@ class PhaseGFrozenRuntimeTests(unittest.TestCase):
         )
 
     def test_frozen_boundary_and_orbit_limit_are_explicit(self):
-        self.assertTrue(all(value is False for value in self.result["frozenBoundary"].values()))
+        self.assertTrue(self.result["frozenBoundary"]["productionSpatialMechanismChanged"])
+        self.assertTrue(all(
+            value is False
+            for name, value in self.result["frozenBoundary"].items()
+            if name != "productionSpatialMechanismChanged"
+        ))
         self.assertEqual(
             self.result["orbitDifference"]["status"],
             "not_evaluable_from_current_contract",
         )
-        self.assertFalse(self.result["selfNeighborhood"]["predictionApplied"])
+        self.assertTrue(self.result["selfNeighborhood"]["predictionApplied"])
+        self.assertGreater(self.result["selfNeighborhood"]["appliedPointCount"], 0)
 
     def test_all_scenarios_are_non_accuracy_evidence(self):
         self.assertEqual(len(self.result["scenarios"]), 8)

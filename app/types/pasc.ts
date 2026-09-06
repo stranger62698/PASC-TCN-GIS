@@ -28,6 +28,7 @@ export type PascTemporalApplicability =
   | "experimental_adapted_to_248"
   | "unsupported";
 export type PascSpatialApplicability = "full_reference" | "limited_reference" | "not_evaluated";
+export type PascSpatialReferenceSource = "frozen_training_reference" | "uploaded_research_area" | "none";
 export type PascPreprocessingState = "raw" | "already_smoothed" | "unknown";
 export type PascEpochStatus = "unsupported_19_or_less" | "experimental_20_to_247" | "native_248" | "adapted_over_248";
 export type PascProbabilitySet = Record<PascClassName, number>;
@@ -35,6 +36,8 @@ export type PascProbabilitySet = Record<PascClassName, number>;
 export type PascPointQuality = {
   originalEpochCount: number;
   adaptedEpochCount: number | null;
+  insertedEpochCount?: number;
+  remainingIrregularIntervals?: number;
   startDate: string | null;
   endDate: string | null;
   spanDays: number | null;
@@ -62,6 +65,7 @@ export type PascPointResult = {
   lowConfidence: boolean;
   spatialReliability: number;
   spatialGateMean: number;
+  spatialReferenceSource?: PascSpatialReferenceSource;
   temporalApplicability: PascTemporalApplicability;
   spatialApplicability: PascSpatialApplicability;
   quality: PascPointQuality;

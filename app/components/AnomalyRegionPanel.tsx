@@ -55,7 +55,7 @@ export function AnomalyRegionPanel({
             <button onClick={() => onSelect(region)} aria-pressed={region.id === activeRegionId}>
               <span><i style={{ background: colorForMode(region.dominantMode) }} />{region.id}<small>{region.dominantMode}</small></span>
               <strong>{region.pointCount.toLocaleString()} 点</strong>
-              <em>{region.meanVelocity.toFixed(2)} mm/yr</em>
+              <em>{region.meanVelocity.toFixed(1)} mm/yr</em>
               <small>{region.areaKm2 < .01 ? region.areaKm2.toFixed(4) : region.areaKm2.toFixed(3)} km²</small>
             </button>
           </article>)}
@@ -69,10 +69,10 @@ export function AnomalyRegionPanel({
         <header><span>REGION DETAIL</span><b>{activeRegion.id}</b></header>
         <div>
           <article><span>监测点</span><b>{activeRegion.pointCount}</b><small>区域内候选点</small></article>
-          <article><span>平均 / 中位速率</span><b>{activeRegion.meanVelocity.toFixed(2)} / {activeRegion.medianVelocity.toFixed(2)}</b><small>mm/yr</small></article>
+          <article><span>平均 / 中位速率</span><b>{activeRegion.meanVelocity.toFixed(1)} / {activeRegion.medianVelocity.toFixed(1)}</b><small>mm/yr</small></article>
           <article><span>主要模式</span><b>{activeRegion.dominantMode}</b><small>按点数最多</small></article>
           <article><span>规则证据</span><b>{activeRegion.clearSubsidenceCount} / {activeRegion.acceleratingCount} / {activeRegion.piecewiseCount}</b><small>明显沉降 / 加速 / 分段</small></article>
-          <article><span>最大累计量</span><b>{activeRegion.maximumAbsoluteDisplacement.toFixed(2)}</b><small>mm · 绝对值</small></article>
+          <article><span>最大累计量</span><b>{activeRegion.maximumAbsoluteDisplacement.toFixed(1)}</b><small>mm · 绝对值</small></article>
           <article><span>分析包络</span><b>{activeRegion.areaKm2 < .01 ? activeRegion.areaKm2.toFixed(4) : activeRegion.areaKm2.toFixed(3)}</b><small>km² · 凸包/退化矩形</small></article>
         </div>
         <p>点击区域会定位地图，并把该区域的真实监测点交给现有 AOI 统计与聚合时序。所有结果只描述数据与空间邻近关系。</p>

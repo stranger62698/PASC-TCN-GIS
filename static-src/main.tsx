@@ -1,4 +1,5 @@
 import React from "react";
+import { LanguageProvider } from "../app/lib/language-context";
 import { createRoot } from "react-dom/client";
 import "../app/globals.css";
 import "../app/pasc.css";
@@ -18,7 +19,7 @@ function App(){
   const hashMode=import.meta.env.VITE_HASH_ROUTING==="true";
   const rawPath=hashMode?window.location.hash.slice(1):window.location.pathname.slice(base.length);
   const path=rawPath.replace(/\/$/,"")||"/";
-  if(path==="/map")return <MapWorkspace/>;
+  if(path==="/map")return <div className="map-route-shell"><MapWorkspace/></div>;
   if(path==="/showcase")return <ShowcasePage/>;
   if(path.startsWith("/showcase/")){const id=path.split("/").pop();const item=cases.find(x=>x.key===id);return item?<CaseDetailPage item={item}/>:<HomePage/>}
   if(path==="/statistics")return <StatisticsWorkspace/>;
@@ -29,4 +30,4 @@ function App(){
   if(path==="/login")return <AuthPage/>;
   return <HomePage/>;
 }
-createRoot(document.getElementById("root")!).render(<React.StrictMode><AnalyticsTracker/><App/></React.StrictMode>);
+createRoot(document.getElementById("root")!).render(<React.StrictMode><LanguageProvider><AnalyticsTracker/><App/></LanguageProvider></React.StrictMode>);

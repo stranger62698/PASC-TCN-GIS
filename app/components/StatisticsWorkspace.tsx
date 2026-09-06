@@ -20,7 +20,7 @@ function VelocityHistogram({ stats }: { stats: SelectedRegionStats }) {
     <div className="histogram-y-label">监测点数</div>
     <div className="histogram-plot">
       <i className="histogram-grid g1"/><i className="histogram-grid g2"/><i className="histogram-grid g3"/>
-      {bins.map((bin, index) => <div className="histogram-bin" key={`${bin.min}-${bin.max}`} title={`${bin.min.toFixed(2)}—${bin.max.toFixed(2)} mm/yr：${bin.count} 点`}>
+      {bins.map((bin, index) => <div className="histogram-bin" key={`${bin.min}-${bin.max}`} title={`${bin.min.toFixed(1)}—${bin.max.toFixed(1)} mm/yr：${bin.count} 点`}>
         <span>{bin.count.toLocaleString()}</span>
         <i style={{ height: `${Math.max(4, bin.count / maximumCount * 100)}%`, background: velocityColor(bin.min, bin.max) }}/>
         {(index === 0 || index === Math.floor(bins.length / 2) || index === bins.length - 1) && <small>{bin.min.toFixed(1)}</small>}
@@ -37,7 +37,9 @@ function StatisticsView() {
   const region = analysis.selectedRegion;
   const modeTotal = stats ? Object.values(stats.modeCounts).reduce((sum, value) => sum + value, 0) : 0;
   const query = new URLSearchParams({ restore: "analysis" });
-  if (analysis.datasetId && analysis.datasetId !== "demo-haikou") query.set("dataset", analysis.datasetId);
+  if (analysis.datasetId === "demo-lajia-landslide") query.set("demo", "landslide");
+  else if (analysis.datasetId === "demo-haikou-jiangdong-road") query.set("demo", "road");
+  else if (analysis.datasetId && analysis.datasetId !== "demo-haikou") query.set("dataset", analysis.datasetId);
   const mapHref = `/map?${query.toString()}`;
   const primaryModes = stats ? deformationModeOrder.filter(mode => stats.modeCounts[mode]).sort((a, b) => stats.modeCounts[b] - stats.modeCounts[a]) : [];
   useEffect(() => { if (isReady) trackEvent("statistics_open", { has_region_context: Boolean(stats), point_count: stats?.pointCount ?? 0 }); }, [isReady, stats]);
@@ -60,7 +62,7 @@ function StatisticsView() {
         {!stats ? <div className="analysis-context-empty phase-seven-empty"><span>NO REGION CONTEXT</span><h2>尚未从地图建立区域分析</h2><p>返回地图使用矩形或多边形 AOI、属性筛选或“发现异常”，统计页会自动继承当前分析对象。</p><Link className="button primary" href="/map">前往地图建立分析对象</Link></div> : <>
           <div className="phase-seven-chart-grid">
             <article className="statistics-high-value-card velocity-card">
-              <header><div><span className="eyebrow">VELOCITY DISTRIBUTION</span><h2>区域速率分布</h2><p>观察区域内形变速率的集中区间与两端分布，避免只依赖平均值。</p></div><div className="chart-key-metrics"><span>平均速率<b>{stats.averageVelocity.toFixed(2)} mm/yr</b></span><span>速率范围<b>{stats.minimumVelocity?.toFixed(2) ?? "—"}—{stats.maximumVelocity?.toFixed(2) ?? "—"}</b></span></div></header>
+              <header><div><span className="eyebrow">VELOCITY DISTRIBUTION</span><h2>区域速率分布</h2><p>观察区域内形变速率的集中区间与两端分布，避免只依赖平均值。</p></div><div className="chart-key-metrics"><span>平均速率<b>{stats.averageVelocity.toFixed(1)} mm/yr</b></span><span>速率范围<b>{stats.minimumVelocity?.toFixed(1) ?? "—"}—{stats.maximumVelocity?.toFixed(1) ?? "—"}</b></span></div></header>
               <VelocityHistogram stats={stats}/>
             </article>
             <article className="statistics-high-value-card mode-card">
@@ -71,8 +73,8 @@ function StatisticsView() {
           </div>
           <div className="statistics-evidence-strip">
             <article><span>AOI 面积</span><b>{stats.areaKm2 == null ? "未绘制" : `${stats.areaKm2 < 1 ? stats.areaKm2.toFixed(3) : stats.areaKm2.toFixed(2)} km²`}</b><small>{stats.areaKm2 == null ? "属性筛选不推定空间面积" : "WGS84 球面估算"}</small></article>
-            <article><span>最大累计形变量</span><b>{stats.maximumDisplacement.toFixed(2)} mm</b><small>当前时间范围内绝对值</small></article>
-            <article><span>平均 / 中位当前形变</span><b>{stats.averageDisplacement?.toFixed(2) ?? "—"} / {stats.medianDisplacement?.toFixed(2) ?? "—"} mm</b><small>{analysis.timeRange.endDate}</small></article>
+            <article><span>最大累计形变量</span><b>{stats.timeSeriesAvailable === false ? "未提供" : `${stats.maximumDisplacement.toFixed(1)} mm`}</b><small>{stats.timeSeriesAvailable === false ? "源文件没有逐期累计形变" : "当前时间范围内绝对值"}</small></article>
+            <article><span>平均 / 中位当前形变</span><b>{stats.timeSeriesAvailable === false ? "未提供" : `${stats.averageDisplacement?.toFixed(1) ?? "—"} / ${stats.medianDisplacement?.toFixed(1) ?? "—"} mm`}</b><small>{stats.timeSeriesAvailable === false ? "仅展示速率、质量与模式统计" : analysis.timeRange.endDate}</small></article>
             <article><span>平均相干性</span><b>{stats.averageCoherence == null ? "未提供" : stats.averageCoherence.toFixed(2)}</b><small>低相干 {stats.lowCoherenceCount ?? 0} · 高缺测 {stats.missingDataCount ?? 0}</small></article>
             <article><span>空间范围</span><b>{region ? `${region.bounds[0].toFixed(3)}, ${region.bounds[1].toFixed(3)}` : "—"}</b><small>{region ? `至 ${region.bounds[2].toFixed(3)}, ${region.bounds[3].toFixed(3)}` : "未提供"}</small></article>
           </div>

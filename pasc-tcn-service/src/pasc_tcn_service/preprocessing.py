@@ -203,20 +203,26 @@ def _merged_original(dataset: ValidatedDataset, row: dict[str, Any]):
 def _regularize_to_sentinel_cadence(
     original_dates,
     original_values: np.ndarray,
-    grid_start,
-    grid_end,
-) -> tuple[np.ndarray, np.ndarray, list[str], bool]:
+    acquisition_dates,
+) -> tuple[np.ndarray, np.ndarray, list[str], bool, int, int]:
+    grid_start = acquisition_dates[0]
     day_offsets = np.asarray(
         [(item - grid_start).days for item in original_dates],
         dtype=np.float32,
     )
-    span = float((grid_end - grid_start).days)
-    if span <= 0:
+    if (acquisition_dates[-1] - grid_start).days <= 0:
         raise ServiceError("PASC_PREPROCESS_FAILED", "有效日期跨度必须大于0。")
-    target_days = np.arange(
-        0.0,
-        span + 1.0,
-        float(SENTINEL_CADENCE_DAYS),
+    target_date_values = [acquisition_dates[0]]
+    inserted_epochs = 0
+    for left, right in zip(acquisition_dates, acquisition_dates[1:]):
+        candidate = left + timedelta(days=SENTINEL_CADENCE_DAYS)
+        while candidate < right:
+            target_date_values.append(candidate)
+            inserted_epochs += 1
+            candidate += timedelta(days=SENTINEL_CADENCE_DAYS)
+        target_date_values.append(right)
+    target_days = np.asarray(
+        [(item - grid_start).days for item in target_date_values],
         dtype=np.float32,
     )
     if len(target_days) < SG_WINDOW:
@@ -226,16 +232,22 @@ def _regularize_to_sentinel_cadence(
             details={"regularizedEpochs": len(target_days), "minimum": SG_WINDOW},
         )
     regularized = np.interp(target_days, day_offsets, original_values).astype(np.float32)
-    exact_grid = len(day_offsets) == len(target_days) and np.array_equal(day_offsets, target_days)
-    target_dates = [
-        (grid_start + timedelta(days=int(offset))).isoformat()
-        for offset in target_days
-    ]
+    exact_grid = (
+        inserted_epochs == 0
+        and len(day_offsets) == len(target_days)
+        and np.array_equal(day_offsets, target_days)
+    )
+    remaining_irregular = sum(
+        (right - left).days != SENTINEL_CADENCE_DAYS
+        for left, right in zip(target_date_values, target_date_values[1:])
+    )
     return (
         regularized,
         (target_days / np.float32(365.25)).astype(np.float32),
-        target_dates,
+        [item.isoformat() for item in target_date_values],
         not exact_grid,
+        inserted_epochs,
+        remaining_irregular,
     )
 
 
@@ -290,7 +302,7 @@ def _preprocess_point(
             "sign_normalization",
             "missing_and_effective_epochs",
             "velocity",
-            "regularize_calendar_to_12_day_grid",
+            "fill_only_missing_12_day_acquisitions",
             "savgol",
             "rowwise_zscore",
             "physical_features_13",
@@ -320,13 +332,11 @@ def _preprocess_point(
         * np.float32(sign_factor)
     )
 
-    grid_start = dataset.date_groups[0][0].value
-    grid_end = dataset.date_groups[-1][0].value
-    adapted, years, target_dates, adapter_applied = _regularize_to_sentinel_cadence(
+    acquisition_dates = [group[0].value for group in dataset.date_groups]
+    adapted, years, target_dates, adapter_applied, inserted_epochs, remaining_irregular = _regularize_to_sentinel_cadence(
         original_dates,
         original_values,
-        grid_start,
-        grid_end,
+        acquisition_dates,
     )
     preprocessing_state = dataset.settings["preprocessingState"]
     gap_days = np.asarray(
@@ -344,14 +354,21 @@ def _preprocess_point(
         warnings.append(
             {
                 "code": "PASC_20_TO_39_EXPLORATORY",
-                "message": "原始有效观测仅20—39期；已先按日期补齐为12天等间隔序列，仅供探索性判读。",
+                "message": "原始有效观测仅20—39期；只对大于12天的缺口补值，仅供探索性判读。",
             }
         )
     if cadence_status == "non_12_day_cadence":
         warnings.append(
             {
                 "code": "PASC_NON_SENTINEL_CADENCE",
-                "message": f"中位时相间隔为{median_gap_days:.1f}天；已先按实际日期线性插值到12天等间隔网格，再执行后续处理。",
+                "message": f"中位时相间隔为{median_gap_days:.1f}天；仅在相邻日期缺口内按12天步长线性补值，并保留原始观测日期。",
+            }
+        )
+    if remaining_irregular:
+        warnings.append(
+            {
+                "code": "PASC_RETAINED_IRREGULAR_INTERVALS",
+                "message": f"保留原始日期后仍有{remaining_irregular}个不足12天或非整12天余量的相邻间隔；SG按节点顺序执行，时间适用性为实验性。",
             }
         )
     if preprocessing_state == "raw":
@@ -443,7 +460,10 @@ def _preprocess_point(
         ),
         "originalSpanDays": (original_dates[-1] - original_dates[0]).days,
         "adapterApplied": adapter_applied,
-        "adapterMethod": "linear_calendar_12_day_grid" if adapter_applied else "native_12_day_grid_bypass",
+        "adapterMethod": "linear_gap_fill_12_day_steps" if adapter_applied else "native_12_day_bypass",
+        "sourceDateEpochs": len(acquisition_dates),
+        "insertedEpochs": inserted_epochs,
+        "remainingIrregularIntervals": remaining_irregular,
         "regularizedEpochs": len(target_dates),
         "cadenceDays": SENTINEL_CADENCE_DAYS,
         "smoothing": smoothing,
@@ -466,6 +486,9 @@ def _preprocess_point(
                 "method": quality["adapterMethod"],
                 "targetEpochs": len(target_dates),
                 "cadenceDays": SENTINEL_CADENCE_DAYS,
+                "sourceDateEpochs": len(acquisition_dates),
+                "insertedEpochs": inserted_epochs,
+                "remainingIrregularIntervals": remaining_irregular,
             },
             "smoothing": smoothing,
             "featureOrder": list(FEATURE_NAMES),
@@ -510,7 +533,7 @@ def _preprocess_point(
 
 
 def _preprocess_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Validate and preprocess records into 248 nodes and frozen physical features."""
+    """Validate and fill only missing 12-day acquisitions before feature extraction."""
     dataset = inspect_payload(payload)
     failure = _validation_error(dataset)
     if failure:

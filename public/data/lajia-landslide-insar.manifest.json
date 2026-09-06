@@ -1,0 +1,23 @@
+{
+  "id": "demo-lajia-landslide",
+  "title": "拉加镇滑坡 · 时序 InSAR",
+  "generator": "scripts/prepare-landslide-demo.mjs",
+  "sourceFile": "huapo.csv",
+  "sourceSha256": "b06c176a0a4ada8233572a510a74aa461e789ff18d5cdc975c8a75726e3381a0",
+  "outputSha256": "e527d85eea1d38d7a7fe6811febb248dd1c407807bf243a8e7168b273520dbdc",
+  "coordinateReferenceSystem": "WGS 84 / EPSG:4326",
+  "pointCount": 11354,
+  "invalidRows": 0,
+  "periodCount": 58,
+  "startDate": "20210103",
+  "endDate": "20221224",
+  "bounds": [
+    100.5992,
+    34.65886,
+    100.7025,
+    34.70578
+  ],
+  "displacementUnit": "mm",
+  "precision": "0.1 mm",
+  "classification": "not_provided"
+}

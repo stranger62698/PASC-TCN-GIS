@@ -11,11 +11,35 @@ import {
   type PascTemporalApplicability,
 } from "../types/pasc.js";
 
-// Keep each two-stage preprocess/infer exchange below serverless response limits.
-export const PHASE_E_MAX_POINTS = 100;
+export const PHASE_E_MAX_POINTS = 500;
 export const PASC_AUTO_CLASSIFY_MAX_POINTS = 10_000;
 export const PHASE_E_MAX_BODY_BYTES = 8 * 1024 * 1024;
 export const PHASE_E_DEFAULT_TIMEOUT_MS = 30_000;
+
+export function spatiallyOrderPascCandidates(points: InsarPoint[]) {
+  if (points.length < 2) return [...points];
+  let minimumLongitude = Infinity;
+  let minimumLatitude = Infinity, maximumLatitude = -Infinity;
+  points.forEach(point => {
+    minimumLongitude = Math.min(minimumLongitude, point.lon);
+    minimumLatitude = Math.min(minimumLatitude, point.lat);
+    maximumLatitude = Math.max(maximumLatitude, point.lat);
+  });
+  const meanLatitudeRadians = ((minimumLatitude + maximumLatitude) / 2) * Math.PI / 180;
+  const latitudeCellDegrees = 500 / 110_540;
+  const longitudeCellDegrees = 500 / (111_320 * Math.max(0.2, Math.cos(meanLatitudeRadians)));
+  return points.map((point, sourceIndex) => {
+    const cellX = Math.floor((point.lon - minimumLongitude) / longitudeCellDegrees);
+    const cellY = Math.floor((point.lat - minimumLatitude) / latitudeCellDegrees);
+    return {
+      point,
+      sourceIndex,
+      cellX,
+      cellY,
+    };
+  }).sort((left, right) => left.cellY - right.cellY || left.cellX - right.cellX || left.sourceIndex - right.sourceIndex)
+    .map(item => item.point);
+}
 
 export type PascOnlinePointInput = {
   pointId: string;
@@ -60,6 +84,7 @@ export type PascOnlineInferencePoint = {
   lowConfidence: boolean;
   spatialReliability: number;
   spatialGateMean: number;
+  spatialReferenceSource?: "frozen_training_reference" | "uploaded_research_area" | "none";
   applicability: {
     temporal: "native_248" | "experimental_adapted_to_248";
     spatial: "full_reference" | "limited_reference";
@@ -77,6 +102,8 @@ export type PascOnlineInferencePoint = {
     adapterApplied: boolean;
     regularizedEpochs?: number;
     cadenceDays?: number;
+    insertedEpochs?: number;
+    remainingIrregularIntervals?: number;
     noiseResidualStd: number | null;
     seriesMean: number;
     seriesStd: number;
@@ -148,7 +175,7 @@ export function buildPascOnlineRequest(
   if (preprocessingState !== "raw" && preprocessingState !== "already_smoothed") {
     throw new Error("必须确认 raw / already_smoothed 预处理状态后才能在线识别。");
   }
-  const candidates = points.filter(point => (point.effectiveEpochCount ?? point.series.length) >= PASC_EXPERIMENTAL_MIN_STEPS);
+  const candidates = spatiallyOrderPascCandidates(points.filter(point => (point.effectiveEpochCount ?? point.series.length) >= PASC_EXPERIMENTAL_MIN_STEPS));
   if (!candidates.length) throw new Error("当前数据没有达到 20 个逐点有效期的 PASC 候选点；普通 WebGIS 仍可使用。");
   return {
     contractVersion: PASC_CONTRACT_VERSION,
@@ -305,11 +332,14 @@ export function mergePascOnlineResults(points: InsarPoint[], value: unknown): { 
       lowConfidence: result.lowConfidence,
       spatialReliability: result.spatialReliability,
       spatialGateMean: result.spatialGateMean,
+      spatialReferenceSource: result.spatialReferenceSource ?? "none",
       temporalApplicability: result.applicability.temporal as PascTemporalApplicability,
       spatialApplicability: result.applicability.spatial as PascSpatialApplicability,
       quality: {
         originalEpochCount: quality.effectiveEpochs,
         adaptedEpochCount: Number.isFinite(Number(quality.regularizedEpochs)) ? Number(quality.regularizedEpochs) : null,
+        insertedEpochCount: Number.isFinite(Number(quality.insertedEpochs)) ? Number(quality.insertedEpochs) : 0,
+        remainingIrregularIntervals: Number.isFinite(Number(quality.remainingIrregularIntervals)) ? Number(quality.remainingIrregularIntervals) : 0,
         startDate: quality.originalStart,
         endDate: quality.originalEnd,
         spanDays: quality.originalSpanDays,
@@ -403,27 +433,13 @@ export async function runPascOnlineProxy(
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? PHASE_E_DEFAULT_TIMEOUT_MS);
   const endpoint = (path: string) => new URL(path, base.href.endsWith("/") ? base.href : `${base.href}/`).toString();
   try {
-    const preprocessedResponse = await fetchImpl(endpoint("v1/preprocess"), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    const preprocessedText = await preprocessedResponse.text();
-    let preprocessed: unknown;
-    try { preprocessed = JSON.parse(preprocessedText) as unknown; }
-    catch { throw invalidUpstreamJson(preprocessedResponse, preprocessedText); }
-    if (!preprocessedResponse.ok) throw upstreamError(preprocessedResponse.status, preprocessed);
-    const inferenceResponse = await fetchImpl(endpoint("v1/infer"), {
+    const inferenceResponse = await fetchImpl(endpoint("v1/classify"), {
       method: "POST",
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${options.serviceApiKey}`,
       },
-      // Keep the service-produced JSON bytes lexically stable. Parsing and
-      // re-stringifying in JavaScript can change Python float exponents and
-      // invalidate the service-owned HMAC artifact.
-      body: `{"contractVersion":${JSON.stringify(PASC_CONTRACT_VERSION)},"preprocessed":${preprocessedText}}`,
+      body: JSON.stringify(payload),
       signal: controller.signal,
     });
     const inferred = await responseJson(inferenceResponse);

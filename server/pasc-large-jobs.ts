@@ -9,6 +9,8 @@ import { PASC_CONTRACT_VERSION, PASC_MODEL_VERSION } from "../app/types/pasc.js"
 export const PASC_LARGE_TOPIC = "pasc-large-jobs";
 export const PASC_LARGE_MAX_SOURCE_BYTES = 256 * 1024 * 1024;
 export const PASC_LARGE_MAX_ATTEMPTS = 8;
+export const PASC_LARGE_BATCHES_PER_DELIVERY = 4;
+export const PASC_LARGE_WEBGIS_VERSION = "phase-g-large-v2";
 
 export type PascLargeMessage = {
   kind: "prepare" | "infer";
@@ -127,7 +129,11 @@ export async function listPascLargeJobs(ownerId: string) {
 }
 
 export async function createPascLargeJob(ownerId: string, datasetId: string, enqueue: PascLargeEnqueue) {
-  const existing = (await listPascLargeJobs(ownerId)).find(job => job.datasetId === datasetId && !["cancelled", "failed"].includes(job.status));
+  const existing = (await listPascLargeJobs(ownerId)).find(job => (
+    job.datasetId === datasetId
+    && job.webgisVersion === PASC_LARGE_WEBGIS_VERSION
+    && !["cancelled", "failed"].includes(job.status)
+  ));
   if (existing) {
     if (existing.status === "queued" && existing.stage === "queued" && existing.chunks.total === 0) {
       await enqueue({ kind: "prepare", ownerId, jobId: existing.jobId }, `${existing.jobId}:prepare`);
@@ -155,7 +161,7 @@ export async function createPascLargeJob(ownerId: string, datasetId: string, enq
     mapping: dataset.mapping,
     contractVersion: PASC_CONTRACT_VERSION,
     modelVersion: PASC_MODEL_VERSION,
-    webgisVersion: "phase-g-large-v1",
+    webgisVersion: PASC_LARGE_WEBGIS_VERSION,
     serviceVersion: null,
     status: "queued",
     stage: "queued",
@@ -211,6 +217,7 @@ async function preparePascLargeJob(job: PascLargeJob, enqueue: PascLargeEnqueue)
   await saveJob(job);
   const parsed = parseMappedCsv(Buffer.concat(parts.map(part => Buffer.from(part))).toString("utf8"), job.datasetName, job.mapping, true);
   const requests = buildPascDurableRequestBatches(parsed.points, job.datasetName, job.mapping.preprocessingState);
+  job.chunks.size = PHASE_E_MAX_POINTS;
   job.points.total = requests.reduce((sum, request) => sum + request.points.length, 0);
   job.chunks.total = requests.length;
   job.stage = "preprocessing";
@@ -234,7 +241,7 @@ function aggregateBatchSummaries(job: PascLargeJob) {
   }), { points: 0, predicted: 0, lowConfidence: 0, limitedReference: 0 });
 }
 
-async function inferPascLargeBatch(job: PascLargeJob, batchIndex: number, enqueue: PascLargeEnqueue) {
+async function inferPascLargeBatch(job: PascLargeJob, batchIndex: number, enqueue: PascLargeEnqueue, scheduleNext = true) {
   if (!Number.isInteger(batchIndex) || batchIndex < 0 || batchIndex >= job.chunks.total) throw new Error("任务批次编号无效。");
   if (job.cancelRequested) {
     job.status = "cancelled";
@@ -279,7 +286,9 @@ async function inferPascLargeBatch(job: PascLargeJob, batchIndex: number, enqueu
   }
   await saveJob(job);
   const nextIndex = batchIndex + 1;
-  await enqueue({ kind: "infer", ownerId: job.ownerId, jobId: job.jobId, batchIndex: nextIndex }, `${job.jobId}:infer:${nextIndex}`);
+  if (scheduleNext) {
+    await enqueue({ kind: "infer", ownerId: job.ownerId, jobId: job.jobId, batchIndex: nextIndex }, `${job.jobId}:infer:${nextIndex}`);
+  }
 }
 
 export async function processPascLargeMessage(message: PascLargeMessage, deliveryCount: number, enqueue: PascLargeEnqueue) {
@@ -289,7 +298,32 @@ export async function processPascLargeMessage(message: PascLargeMessage, deliver
   job.attempts.current = Math.max(job.attempts.current, deliveryCount);
   await saveJob(job);
   if (message.kind === "prepare") await preparePascLargeJob(job, enqueue);
-  else await inferPascLargeBatch(job, Number(message.batchIndex), enqueue);
+  else if ((job.chunks.size > PHASE_E_MAX_POINTS || job.chunks.total === 0) && Object.keys(job.batchSummaries).length === 0) {
+    // Jobs prepared before the response-size fix contain persisted 500-point
+    // request blobs. Re-prepare them from the original private CSV so the next
+    // retry adopts the safe batch size without asking the user to upload again.
+    job.status = "queued";
+    job.stage = "queued";
+    job.chunks.current = 0;
+    job.chunks.total = 0;
+    job.chunks.size = PHASE_E_MAX_POINTS;
+    job.error = null;
+    job.retryAt = null;
+    await saveJob(job);
+    await enqueue({ kind: "prepare", ownerId: job.ownerId, jobId: job.jobId }, `${job.jobId}:prepare:safe-${PHASE_E_MAX_POINTS}`);
+  } else {
+    let nextIndex = Number(message.batchIndex);
+    for (let offset = 0; offset < PASC_LARGE_BATCHES_PER_DELIVERY; offset += 1) {
+      await inferPascLargeBatch(job, nextIndex, enqueue, false);
+      if (["completed", "cancelled"].includes(job.status)) return;
+      nextIndex += 1;
+      if (nextIndex >= job.chunks.total) return;
+    }
+    await enqueue(
+      { kind: "infer", ownerId: job.ownerId, jobId: job.jobId, batchIndex: nextIndex },
+      `${job.jobId}:infer:${nextIndex}`,
+    );
+  }
 }
 
 export async function markPascLargeRetry(message: PascLargeMessage, deliveryCount: number, error: unknown) {

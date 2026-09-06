@@ -1,0 +1,42 @@
+{
+  "id": "demo-haikou-jiangdong-road",
+  "title": "海口江东新区主要道路 · 时序 InSAR",
+  "generator": "scripts/prepare-road-demo.mjs",
+  "sourceFile": "cumulative_def_network_1.csv",
+  "sourceSha256": "105727dc5bb26439fc349e24b4bc30928ae8058771b3a38fd94ee16c26da757b",
+  "outputSha256": "1b0f7b5359bb66e94a1b811fb90657030272f4e4a67bba21b6d7b7357c051dfb",
+  "coordinateReferenceSystem": "WGS 84 / EPSG:4326",
+  "sourcePointCount": 27123,
+  "pointCount": 11383,
+  "invalidRows": 0,
+  "periodCount": 175,
+  "startDate": "20180104",
+  "endDate": "20240202",
+  "bounds": [
+    110.37301,
+    19.95289,
+    110.52347,
+    20.07055
+  ],
+  "selection": {
+    "gridMeters": 25,
+    "rule": "one_deterministic_point_nearest_each_25m_grid_cell",
+    "purpose": "保留主要道路空间形态，并让公开网页点数与其他案例保持可比"
+  },
+  "sourceFields": {
+    "datePrefix": "D_",
+    "elevation": "zpos",
+    "rmse": null
+  },
+  "displacementUnit": "mm",
+  "precision": "0.1 mm",
+  "classification": "not_provided",
+  "statistics": {
+    "velocityMinimum": -49.793,
+    "velocityMedian": -3.492,
+    "velocityMaximum": 11.508,
+    "coherenceMinimum": 0.2,
+    "coherenceMedian": 0.493,
+    "coherenceMaximum": 0.864
+  }
+}

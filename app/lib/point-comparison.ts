@@ -112,11 +112,11 @@ export function buildDataBackedQuickCases(points: readonly InsarPoint[], maximum
   const lowestGroup = nearest(evidence, lowest, maximum);
   const cases: DataBackedQuickCase[] = [caseFromPoints({
     id: "lowest-velocity",
-    kicker: "RATE EVIDENCE",
+    kicker: "速率证据",
     title: lowest.velocity < 0 ? "最低速率样本" : "最小速率样本",
     description: "定位当前数据中通过质量筛选的最低年均速率点，并加载它的最近邻用于时序对照。",
     criterion: qualityScreened.length ? "缺测率 ≤ 20%，且相干性未提供或 ≥ 0.75" : "当前数据没有通过默认质量筛选的点，已回退到全部有效点",
-    metric: `${lowest.velocity.toFixed(2)} mm/yr · ${lowest.id}`,
+    metric: `${lowest.velocity.toFixed(1)} mm/yr · ${lowest.id}`,
   }, lowestGroup, lowest.id)];
 
   const preferredModes = ["加速型", "分段型", "线性型", "减速型", "稳定型", "未定义型", "Stepwise（旧版，待确认）", "未分类"];
@@ -133,7 +133,7 @@ export function buildDataBackedQuickCases(points: readonly InsarPoint[], maximum
   }).slice(0, maximum).map(entry => entry[1]);
   if (contrast.length >= 2) cases.push(caseFromPoints({
     id: "pattern-contrast",
-    kicker: "PATTERN EVIDENCE",
+    kicker: "模式证据",
     title: "形变模式对照",
     description: "从当前数据的不同已有模式中各取一个质量较高点，直接叠加时序进行对照。",
     criterion: "每种已有模式至多一个点，优先已有置信度与相干性较高者",

@@ -151,19 +151,19 @@ export function pascApplicabilityPresentation(
   if (spatial === "limited_reference") {
     return {
       state: "limited_spatial",
-      eyebrow: "探索性识别结果",
-      line1: "当前数据超出模型主要验证区域，",
-      line2: "建议结合人工判读使用。",
-      evidence: "空间可靠性与空间门控受限，当前结果主要依赖 TCN 时间分支与运动学物理特征。",
+      eyebrow: "时序 / 物理识别结果",
+      line1: "当前点在 500 米内缺少可用研究区邻点，",
+      line2: "空间门控未启用，请结合人工判读。",
+      evidence: "TCN 时间分支与运动学物理特征已经完成分类。上传研究区存在足够邻点时会自动建立无标签空间上下文；当前点不使用邻点标签，也不会拟合用户数据。",
     };
   }
   if (spatial === "full_reference") {
     return {
       state: "full",
-      eyebrow: "参考区域内识别结果",
-      line1: "当前点具有固定海口空间参考支持。",
+      eyebrow: "空间上下文识别结果",
+      line1: "当前点已获得同一研究区或冻结参考的邻域支持。",
       line2: "请结合置信度、时序曲线和现场资料综合判读。",
-      evidence: "TCN 时间分支、运动学物理特征与固定空间参考共同参与。",
+      evidence: "TCN 时间分支、运动学物理特征与无标签空间邻域共同参与；邻点标签没有进入推理。",
     };
   }
   return {

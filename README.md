@@ -33,11 +33,12 @@ pnpm build
 
 ## PASC Phase A 离线展示
 
-当前契约为 `pasc-contract-v1`，模型结果版本为 `pasc-tcn-haikou-v1`。Level 3 需要至少 20 个逐点有效日期值。20—247 期会按真实采集日期自动插值至 248 节点并标记为 experimental；其中 20—39 期低于既有 40 期最低评估证据，仅供探索性判读。只有 248 期且中位间隔接近哨兵 12 天节奏时标记为 native。时间适用性与空间适用性分别显示。
+当前契约为 `pasc-contract-v1`，模型结果版本为 `pasc-tcn-haikou-v1`。Level 3 需要至少 20 个逐点有效日期值。服务保留每份 CSV 自己的全部原始日期，只在相邻日期间隔大于 12 天时，从左侧日期起按 12 天步长线性补入缺失观测；不会以 248 期为目标，也不会参考其他数据集的期数。非原生序列标记为 experimental；其中 20—39 个原始观测低于既有 40 期最低评估证据，仅供探索性判读。时间适用性与空间适用性分别显示。
 
 - Spatial Demo：`public/data/haikou-insar.csv`，3,094 点、248 期、连续区域约 50m 网格抽稀，保持自然类别不平衡
 - Showcase Demo：`public/data/haikou-pasc-showcase.csv`，3,000 点、248 期、每类 500 点，仅用于六类界面覆盖，不代表科学类别比例
-- 两套 Demo 的来源 SHA-256、脚本版本、范围、点数、期数和类别统计见相邻 manifest
+- 拉加镇滑坡 Demo：`public/data/lajia-landslide-insar.csv`，11,354 点、58 期、2021—2022 年 WGS84 真实时序数据；形变值统一保留 0.1 mm，源数据未提供类别、相干性或坡体分区
+- 各套 Demo 的来源、范围、点数、期数和类别状态见相邻 manifest
 - Phase A 只展示正式离线结果，不执行 Adapter、SG、Python API、checkpoint 或在线推理
 
 验证命令：
@@ -57,8 +58,8 @@ npm run demo:validate
 row-wise Z-score、冻结 13 维物理特征和冻结训练 Scaler，并提供
 `GET /v1/models`、`POST /v1/validate`、`POST /v1/preprocess`。
 
-完整 248 期且中位间隔接近 12 天时绕过插值；20–247 期会按真实日期插值至 248 节点并标记为 experimental；少于 20 期返回
-unsupported 原因。非 12 天节奏仍可执行，但会返回时间域偏移 warning；可靠迁移需独立评估，必要时微调或重训模型。`validate` 与 `preprocess` 本身不加载 checkpoint；Phase D 推理仅通过独立、鉴权且验证签名工件的 `infer` 路由执行。
+完整 248 期且相邻间隔均为 12 天时绕过补值；其他序列保留原始日期，只在大于 12 天的相邻日期缺口中按 12 天步长补值并标记为 experimental；少于 20 个原始观测返回
+unsupported 原因。无法由 12 天步长整除的剩余间隔会保留原日期并返回时间域偏移 warning；可靠迁移需独立评估，必要时微调或重训模型。`validate` 与 `preprocess` 本身不加载 checkpoint；Phase D 推理支持鉴权的组合 `/v1/classify` 路由在服务内存中连续执行预处理和冻结推理，`/v1/infer` 仍只接受服务签名工件。
 运行、请求契约、错误码和 native-248 黄金回归方法见
 [`pasc-tcn-service/README.md`](pasc-tcn-service/README.md)。
 
@@ -74,9 +75,12 @@ unsupported 原因。非 12 天节奏仍可执行，但会返回时间域偏移 
 
 `pasc-tcn-service/` 新增只接收服务签名预处理工件的 `POST /v1/infer`。
 部署时从仓库外的私有模型包加载冻结 M4 checkpoint、Scaler、校准和固定
-1,036 条训练空间参考，启动与每项资产均做 SHA-256 fail-closed 校验。返回
+1,036 条冻结训练空间参考，启动与每项资产均做 SHA-256 fail-closed 校验。对新上传
+研究区，服务会在每个推理批次内使用 500 m 内的无标签邻点构造空间上下文；不读取
+邻点类别、不拟合用户数据，也不要求把数据拉伸到 248 期。返回
 raw/校准六类概率、标签、置信度、空间可靠度、gate、适用性、质量、来源、
-warnings 与完整版本/哈希溯源。外部城市明确返回 `limited_reference`。
+warnings 与完整版本/哈希溯源。仅在当前点既没有冻结参考、又没有同区邻点时返回
+`limited_reference`，此时继续使用时间分支和物理特征。
 
 Phase D 推理边界保持冻结；私有资产被 Git 忽略，推理源码没有
 optimizer、backward、fit 或训练入口。配置、鉴权和验证命令见
@@ -89,15 +93,13 @@ optimizer、backward、fit 或训练入口。配置、鉴权和验证命令见
 等级并仅提交逐点有效期不少于 20 的候选点。少于 20 期的点不会提交推理，
 但仍完整保留普通 WebGIS 浏览与分析能力。
 
-浏览器只调用同源的 POST /api/pasc/infer。该路由要求登录，将规范化的小数据
-先提交 Python 的 /v1/preprocess，再将服务签名工件提交 /v1/infer；服务地址和
+浏览器只调用同源的 POST /api/pasc/infer。该路由要求登录，将规范化数据提交给 Python 的鉴权 `/v1/classify`，预处理与冻结推理在同一服务进程内完成，避免大型中间工件往返；服务地址和
 密钥只从服务端环境变量读取：
 
     PASC_SERVICE_BASE_URL=http://127.0.0.1:8788
     PASC_SERVICE_API_KEY=<至少32字符的服务密钥>
 
-单次服务调用上限为 100 点和 8 MiB；较大的任务会继续在后台自动分批并持续更新进度。
-100 点边界用于避免长时间跨度数据的预处理工件超过 serverless 响应体限制。成功后地图切换到冻结的六类颜色，点详情
+单次 WebGIS 分块上限为 500 点和 8 MiB；较大的任务会继续在后台自动分批并持续更新进度。组合接口不再返回大型预处理工件，因此 21,610 点通常由 217 个 100 点分块减少为约 44 个 500 点分块。成功后地图切换到冻结的六类颜色，点详情
 显示校准后的六类概率、置信度、时间/空间适用性和来源；可筛选低置信度与空间
 适用性有限结果。代理或 Python 服务失败时，当前数据、地图和已有结果不会被
 清空，可以直接重试。
@@ -112,7 +114,7 @@ optimizer、backward、fit 或训练入口。配置、鉴权和验证命令见
 完整时序与大矩阵不会写入 D1 或返回任务列表。
 
 任务以 D1 租约/认领协议作为当前 Sites 部署兼容的 Queue 等价实现。Python 消费者
-流式读取私有 CSV，按最多 100 点调用预处理/推理边界，在每个分块边界报告进度和
+流式读取私有 CSV，按最多 500 点调用组合预处理/推理边界，在每个分块边界报告进度和
 响应取消；租约过期可恢复，失败最多尝试 3 次，工件按 owner/job/attempt/chunk
 隔离并幂等写回。浏览器只访问 owner-scoped 公共任务路由，内部消费者路由使用独立
 的至少 32 字符 bearer key。
@@ -138,12 +140,55 @@ WebGIS 与消费者必须配置同一个仅服务端可见的密钥：
 
 专项验证命令：`pnpm run test:phase-f`、`pnpm run lint:phase-f`，以及
 `python -m unittest discover -s pasc-tcn-service/tests -p test_phase_f.py -v`。
+
+## Phase 5 一键 AI 区域解读
+
+浏览器将当前区域构建为不超过 12 KB 的 `AnalysisSummary`；摘要仅含聚合统计，不包含
+完整 CSV、点位 ID 或完整时序。用户点击“开始 AI 解读”后，只调用同源的
+`POST /api/ai/interpret`，服务端再使用管理员配置的阿里云百炼或 DeepSeek API。
+用户不需要申请 Key，也不会在浏览器中看到服务地址或密钥。模型响应必须通过固定 JSON
+契约校验后才会显示；调用失败不会清空当前地图，仍可切换到 DeepSeek 免费网页备用流程。
+
+默认使用百炼免费体验模型：
+
+    AI_PROVIDER=bailian
+    BAILIAN_API_KEY=<百炼控制台生成的服务端 Key>
+    BAILIAN_MODEL=qwen3.8-flash
+
+截图中带独立免费额度的 DeepSeek 模型也可以继续走百炼，只需把
+`BAILIAN_MODEL` 改为 `deepseek-v4-flash-0731`。以后切换 DeepSeek 官方 API 时配置：
+
+    AI_PROVIDER=deepseek
+    DEEPSEEK_API_KEY=<DeepSeek 服务端 Key>
+    DEEPSEEK_MODEL=deepseek-v4-flash
+
+密钥只能存入本地 `.env.local` 或部署平台的服务端 Secrets，禁止使用 `NEXT_PUBLIC_`
+前缀。生产环境默认要求登录；若确实要向未登录访客开放，可显式设置
+`AI_ALLOW_ANONYMOUS=true`，同时应在部署平台增加持久限流或验证码。接口本身还包含
+20 KB 请求上限、35 秒超时、每身份 10 分钟 20 次的进程内保护，以及 15 分钟同摘要缓存。
+
+AI 面板同时提供可选的“使用我的 API Key”模式。普通用户仍默认使用站点额度；高级用户只选择百炼或 DeepSeek 并填写自己的 Key，不需要输入服务地址。供应商地址和默认模型由服务端固定，个人 Key 仅随单次请求临时经过后端，不写入 Blob、D1、浏览器持久存储或应用日志。关闭或刷新页面后需要重新填写。公开部署必须使用 HTTPS，并应在隐私说明中明确这一处理方式。匿名访客默认可以使用自己的 Key，但不能使用受登录保护的站点额度；管理员可设置 `AI_ALLOW_PERSONAL_ANONYMOUS=false` 关闭匿名个人 Key 模式。
+
+## Phase 6 本地性能与发布验收
+
+Local Worker 会记录 CSV 解析、预处理、模型加载、ONNX 推理、总耗时、平均 batch、
+文件大小、时间步和 provider，并在结果面板展示。单次推荐不超过 21,610 点；约 28 MiB
+起显示大型数据提醒。300 MiB 以内保留全量内存链路；300 MiB—1 GiB 仅在桌面版 Chrome / Edge
+进入 8 MiB 分块模式，每批预处理后立即执行 ONNX，完整预测逐批写入浏览器本地 OPFS，
+地图只接收最多 25,000 个确定性抽样点。该路径不调用 Blob、上传 API 或云端推理；300 MiB
+以上模式需要登录，但登录只负责产品权限，不改变原始文件留在当前设备的边界。大文件批次内空间邻域是明确披露的降级证据，
+不等同于全区邻域推理。超过 1 GiB 会失败关闭并要求拆分文件。
+
+专项命令：`pnpm run test:local-phase6`、`pnpm run test:local-phase6:parity`、
+`pnpm run test:local-phase6:browser`、`pnpm run lint:local-phase6`。正式验收结果见
+`PHASE_6_FINAL_ACCEPTANCE_REPORT.md`。私有 ONNX/空间参考仍只存在于忽略的本地产物，
+因此当前发布边界是本地浏览器运行，而不是包含私有模型的公开静态部署。
 ---
 
 ## Phase G 外区证据与产品适用性
 
-Phase G 增加无外部标签的受控外区稳健性评估，不训练、不拟合，也不改变冻结模型、
-13 维物理特征、校准或空间门控。评估覆盖上海坐标平移控制、cm/mm 单位等价、
+Phase G 增加无外部标签的受控外区稳健性评估，不训练、不拟合，也不改变冻结模型权重、
+13 维物理特征或校准。生产空间策略支持上传研究区自邻域：评估覆盖上海坐标平移控制、cm/mm 单位等价、
 符号等价，以及 40/80/160 节点抽样差异；轨道方向因冻结契约没有对应字段而明确
 标记为不可数值评估。
 
@@ -154,9 +199,10 @@ Phase G 增加无外部标签的受控外区稳健性评估，不训练、不拟
 > 建议结合人工判读使用。
 
 此时空间可靠性和门控受限，结果主要依赖 TCN 时间分支与运动学物理特征。
-Self-neighborhood 只在离线合成坐标簇上测量候选支持，`predictionApplied=false`、
-`productionEligible=false`，不会进入产品预测。Phase G 不提供外区精度结论，
-也不声称适用于任意城市。
+同一上传批次在 500 m 内存在邻点时，Self-neighborhood 会进入产品预测，来源标记为
+`uploaded_research_area`；该分支只使用邻点时序、物理特征、距离和相干性，不使用标签。
+因此同一个模型可以执行多城市推理，但 Phase G 不提供外区精度结论，也不把“可运行”
+表述成“各城市精度已经验证”。
 
 运行与验证：
 

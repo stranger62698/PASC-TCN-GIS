@@ -100,12 +100,29 @@ class PreprocessingTests(unittest.TestCase):
         self.assertEqual(point["quality"]["effectiveEpochs"], 42)
         self.assertEqual(point["quality"]["regularizedEpochs"], 46)
         self.assertEqual(point["quality"]["cadenceDays"], 12)
-        self.assertEqual(point["quality"]["adapterMethod"], "linear_calendar_12_day_grid")
+        self.assertEqual(point["quality"]["adapterMethod"], "linear_gap_fill_12_day_steps")
+        self.assertEqual(point["quality"]["insertedEpochs"], 4)
         self.assertEqual(len(point["targetDates"]), 46)
         self.assertEqual(
             [(date.fromisoformat(right) - date.fromisoformat(left)).days for left, right in zip(point["targetDates"], point["targetDates"][1:])],
             [12] * 45,
         )
+
+    def test_gap_fill_preserves_original_dates_and_only_inserts_inside_gap(self):
+        payload = payload_for(20)
+        record = payload["records"][0]
+        start = date(2020, 1, 1)
+        values = [0, 12, 36, *range(48, 48 + 17 * 12, 12)]
+        rebuilt = {key: value for key, value in record.items() if not key.startswith("D")}
+        for index, offset in enumerate(values):
+            rebuilt["D" + (start + timedelta(days=offset)).strftime("%Y%m%d")] = -float(index)
+        payload["records"] = [rebuilt]
+        point = preprocess_payload(payload)["points"][0]
+        self.assertEqual(point["quality"]["sourceDateEpochs"], 20)
+        self.assertEqual(point["quality"]["insertedEpochs"], 1)
+        self.assertEqual(point["quality"]["regularizedEpochs"], 21)
+        self.assertIn("2020-01-25", point["targetDates"])
+        self.assertIn("2020-02-06", point["targetDates"])
 
     def test_non_12_day_248_epochs_are_adapted_and_warned(self):
         output = preprocess_payload(payload_for(248, interval_days=24))

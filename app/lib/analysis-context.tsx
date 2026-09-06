@@ -34,6 +34,7 @@ export type SelectedRegionStats = {
   pointCount: number;
   averageVelocity: number;
   maximumDisplacement: number;
+  timeSeriesAvailable?: boolean;
   qualityCount: number;
   modeCounts: Record<string, number>;
   averageDisplacement?: number;

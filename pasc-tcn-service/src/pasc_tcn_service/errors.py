@@ -40,5 +40,5 @@ MESSAGES = {
     "PASC_INFERENCE_LIMIT_EXCEEDED": "同步推理点数超过限制。",
     "PASC_INFERENCE_FAILED": "冻结模型推理失败。",
     "PASC_INFERENCE_BUSY": "推理并发已满，请稍后重试。",
-    "PASC_SPATIAL_REFERENCE_LIMITED": "该点缺少海口训练空间参考，空间适用性有限。",
+    "PASC_SPATIAL_REFERENCE_LIMITED": "该点在500米内缺少可用研究区邻点，空间门控未启用。",
 }

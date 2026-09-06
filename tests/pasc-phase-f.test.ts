@@ -132,11 +132,11 @@ test("Large InSAR classification splits 21,610 candidates into safe bounded batc
     spatialApplicability: "not_evaluated" as const, warnings: [],
   }));
   const batches = buildPascDurableRequestBatches(points, "21610.csv", "raw");
-  assert.equal(batches.length, 217);
-  assert.equal(batches[0].points.length, 100);
-  assert.equal(batches.at(-1)?.points.length, 10);
+  assert.equal(batches.length, 44);
+  assert.equal(batches[0].points.length, 500);
+  assert.equal(batches.at(-1)?.points.length, 110);
   assert.equal(batches.reduce((sum, batch) => sum + batch.points.length, 0), 21610);
-  assert.ok(batches.every(batch => batch.points.length <= 100));
+  assert.ok(batches.every(batch => batch.points.length <= 500));
 });
 test("Phase F static integration keeps owner isolation, consumer auth, and bounded previews", () => {
   const schema = readFileSync("db/schema.ts", "utf8");
@@ -144,6 +144,7 @@ test("Phase F static integration keeps owner isolation, consumer auth, and bound
   const routes = readFileSync("app/lib/pasc-job-routes.ts", "utf8");
   const panel = readFileSync("app/components/PascJobPanel.tsx", "utf8");
   const workspace = readFileSync("app/components/MapWorkspace.tsx", "utf8");
+  const map = readFileSync("app/components/WebGisMap.tsx", "utf8");
   const consumer = readFileSync("pasc-tcn-service/src/pasc_tcn_service/job_consumer.py", "utf8");
   const largeApi = readFileSync("api/pasc-jobs.ts", "utf8");
   const largeWorker = readFileSync("api/pasc-large-worker.ts", "utf8");
@@ -162,8 +163,14 @@ test("Phase F static integration keeps owner isolation, consumer auth, and bound
   assert.doesNotMatch(panel, /leaseToken|consumerApiKey|idempotencyKey/);
   assert.match(panel, /取消任务/);
   assert.match(panel, /加载完整分类地图/);
+  assert.match(panel, /PASC_JOB_DETAIL_POLL_MS = 15_000/);
+  assert.match(panel, /document\.visibilityState !== "visible"/);
+  assert.doesNotMatch(panel, /setInterval\(\(\) => void refresh/);
   assert.match(workspace, /parsePascMapPreview/);
   assert.match(workspace, /map\?zoom=/);
+  assert.match(workspace, /PASC_MAP_JOB_POLL_MS = 15_000/);
+  assert.match(workspace, /document\.visibilityState !== "visible"/);
+  assert.doesNotMatch(workspace, /setTimeout\(resolve, 1500\)/);
   assert.match(consumer, /MAX_MAP_POINTS = 5000/);
   assert.match(consumer, /path\.startswith\("\/v1\/internal\/jobs\/"\)/);
   assert.doesNotMatch(consumer, /optimizer|\.backward\(|\.fit\(|requests\.get\(.*url/);
@@ -174,11 +181,21 @@ test("Phase F static integration keeps owner isolation, consumer auth, and bound
   assert.match(largeCore, /users\/\$\{identifier\(ownerId/);
   assert.match(largeCore, /results\/\$\{index\}\.json/);
   assert.match(largeCore, /PASC_QUEUE_UNAVAILABLE/);
+  assert.match(largeCore, /job\.chunks\.size > PHASE_E_MAX_POINTS \|\| job\.chunks\.total === 0/);
+  assert.match(largeCore, /prepare:safe-/);
+  assert.match(largeCore, /PASC_LARGE_BATCHES_PER_DELIVERY = 4/);
+  assert.match(largeCore, /PASC_LARGE_WEBGIS_VERSION = "phase-g-large-v2"/);
+  assert.match(largeCore, /job\.webgisVersion === PASC_LARGE_WEBGIS_VERSION/);
+  assert.match(largeCore, /offset < PASC_LARGE_BATCHES_PER_DELIVERY/);
   assert.match(largeBatching, /from "\.\/pasc-online\.js"/);
   assert.match(largeBatching, /from "\.\/pasc\.js"/);
   assert.match(datasetPage, /createAutomaticClassification\(datasetId\)/);
   assert.match(datasetPage, /查看实时分类进度/);
   assert.match(staticEntry, /\.\.\/app\/pasc\.css/);
+  assert.match(workspace, /setLivePascPoints\(\[\.\.\.classified\.values\(\)\]\)/);
+  assert.match(workspace, /window\.setTimeout\(resolve, PASC_MAP_JOB_POLL_MS\)/);
+  assert.match(map, /livePascLayer/);
+  assert.match(map, /实时分类上图/);
   assert.doesNotMatch(panel, /PASC_SERVICE_API_KEY|ownerId|batchSummaries/);
   assert.match(vercel, /queue\/v2beta/);
   assert.match(vercel, /pasc-large-jobs/);

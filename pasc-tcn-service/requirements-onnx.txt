@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# Phase 1 export and CPU parity validation only.
+onnx==1.22.0
+onnxruntime==1.29.0

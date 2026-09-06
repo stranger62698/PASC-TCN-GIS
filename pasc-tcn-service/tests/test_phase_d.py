@@ -154,6 +154,18 @@ class PhaseDInferenceTests(unittest.TestCase):
             "experimental_adapted_to_248",
         )
 
+    def test_classify_combines_preprocess_and_infer_without_large_intermediate_response(self):
+        status, body = self.call(
+            "POST",
+            "/v1/classify",
+            FIXTURE["scenarioRequests"]["adapted40"],
+            authorized=True,
+        )
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["operation"], "inference_only")
+        self.assertEqual(body["summary"]["predicted"], 1)
+        self.assertNotIn("normalizedSeries", body["points"][0])
+
     def test_concurrency_queue_timeout_is_deterministic(self):
         artifact = self.preprocess("adapted40")
         points = verify_preprocessed(artifact)["points"]
@@ -182,6 +194,42 @@ class PhaseDInferenceTests(unittest.TestCase):
             "PASC_SPATIAL_REFERENCE_LIMITED",
             [warning["code"] for warning in result["warnings"]],
         )
+
+    def test_dense_external_research_area_uses_unlabeled_local_neighbors(self):
+        request = copy.deepcopy(FIXTURE["scenarioRequests"]["external"])
+        template = request["records"][0]
+        request["datasetName"] = "Dalian dense research area"
+        request["records"] = []
+        for index in range(9):
+            row = copy.deepcopy(template)
+            row["fid"] = f"dalian-{index}"
+            row["xpos"] = 121.4737 + index * 0.00045
+            row["ypos"] = 38.9140
+            request["records"].append(row)
+        status, body = self.call(
+            "POST",
+            "/v1/classify",
+            request,
+            authorized=True,
+        )
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["summary"]["limitedReference"], 0)
+        self.assertFalse(body["audit"]["userDataFit"])
+        self.assertTrue(body["audit"]["researchAreaSpatialContext"])
+        for result in body["points"]:
+            self.assertEqual(
+                result["spatialReferenceSource"],
+                "uploaded_research_area",
+            )
+            self.assertEqual(
+                result["applicability"]["spatial"],
+                "full_reference",
+            )
+            self.assertGreater(result["spatialReliability"], 0.0)
+            self.assertIn(
+                "PASC_RESEARCH_AREA_SPATIAL_CONTEXT",
+                [warning["code"] for warning in result["warnings"]],
+            )
 
     def test_infer_requires_service_authorization(self):
         artifact = self.preprocess("adapted40")

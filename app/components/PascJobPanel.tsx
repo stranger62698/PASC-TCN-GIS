@@ -8,6 +8,7 @@ import type { PascJobEvent, PascPublicJob } from "../lib/pasc-job-client";
 type DatasetOption = { id: string; name: string; pointCount?: number; qualityReport?: { validPoints?: number }; mapping?: CsvMapping; status?: string };
 type JobDetail = { job: PascPublicJob; events: PascJobEvent[] };
 const activeStatuses = new Set(["queued", "running", "retry_wait", "cancelling"]);
+const PASC_JOB_DETAIL_POLL_MS = 15_000;
 const statusLabels: Record<string, string> = { queued: "排队中", running: "处理中", retry_wait: "等待重试", cancelling: "正在取消", cancelled: "已取消", completed: "已完成", failed: "失败" };
 const stageLabels: Record<string, string> = { queued: "持久队列", downloading: "读取私有 CSV", validating: "校验与解析", preprocessing: "生成分批请求", inference: "逐批推理", cancelling: "取消边界", completed: "完成", cancelled: "已取消", failed: "失败" };
 const stageFlow = ["queued", "downloading", "validating", "preprocessing", "inference", "completed"];
@@ -50,40 +51,69 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
   const [clock, setClock] = useState(() => Date.now());
   const selectedDatasetId = datasetId || available[0]?.id || "";
 
-  const loadDetail = useCallback(async (jobId: string) => {
-    const response = await fetch(`/api/pasc-jobs?op=detail&id=${encodeURIComponent(jobId)}`, { credentials: "include", cache: "no-store" });
-    const body = await response.json().catch(() => null) as JobDetail | null;
-    if (!response.ok || !body?.job) throw new Error(readError(body, "任务详情读取失败。", response.status));
-    setDetail(body);
+  const mergeJob = useCallback((job: PascPublicJob) => {
+    setJobs(current => {
+      const next = [job, ...current.filter(item => item.jobId !== job.jobId)];
+      return next.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    });
   }, []);
 
-  const refresh = useCallback(async (quiet = false) => {
+  const loadDetail = useCallback(async (jobId: string, signal?: AbortSignal) => {
+    const response = await fetch(`/api/pasc-jobs?op=detail&id=${encodeURIComponent(jobId)}`, { credentials: "include", cache: "no-store", signal });
+    const body = await response.json().catch(() => null) as JobDetail | null;
+    if (!response.ok || !body?.job) throw new Error(readError(body, "任务详情读取失败。", response.status));
+    if (signal?.aborted) return null;
+    setDetail(body);
+    mergeJob(body.job);
+    return body;
+  }, [mergeJob]);
+
+  const refresh = useCallback(async (quiet = false, preferredId = "") => {
     try {
       const response = await fetch("/api/pasc-jobs?op=list", { credentials: "include", cache: "no-store" });
       const body = await response.json().catch(() => null) as { jobs?: PascPublicJob[] } | null;
       if (!response.ok) throw new Error(readError(body, "任务列表读取失败。", response.status));
       const next = body?.jobs ?? [];
       setJobs(next);
-      const activeId = selectedId || next[0]?.jobId || "";
+      const activeId = preferredId && next.some(job => job.jobId === preferredId) ? preferredId : next[0]?.jobId || "";
       if (activeId) { setSelectedId(activeId); await loadDetail(activeId); }
       else setDetail(null);
       if (!quiet) setMessage("");
     } catch (error) {
       if (!quiet) setMessage(error instanceof Error ? error.message : "任务服务暂时不可用。");
     } finally { setLoading(false); }
-  }, [loadDetail, selectedId]);
+  }, [loadDetail]);
+
+  const selected = detail?.job.jobId === selectedId ? detail.job : jobs.find(job => job.jobId === selectedId) ?? null;
+  const selectedJobId = selected?.jobId ?? "";
+  const selectedStatus = selected?.status ?? "";
 
   useEffect(() => { const timer = window.setTimeout(() => void refresh(), 0); return () => window.clearTimeout(timer); }, [refresh]);
   useEffect(() => {
-    if (!jobs.some(job => activeStatuses.has(job.status))) return;
-    const timer = window.setInterval(() => void refresh(true), 2000);
-    return () => window.clearInterval(timer);
-  }, [jobs, refresh]);
+    if (!selectedJobId || !activeStatuses.has(selectedStatus)) return;
+    let inFlight = false;
+    const controller = new AbortController();
+    const pollSelectedJob = async () => {
+      if (document.visibilityState !== "visible" || inFlight) return;
+      inFlight = true;
+      try { await loadDetail(selectedJobId, controller.signal); }
+      catch (error) { if (!(error instanceof DOMException && error.name === "AbortError")) return; }
+      finally { inFlight = false; }
+    };
+    const timer = window.setInterval(() => void pollSelectedJob(), PASC_JOB_DETAIL_POLL_MS);
+    const resumeWhenVisible = () => { if (document.visibilityState === "visible") void pollSelectedJob(); };
+    document.addEventListener("visibilitychange", resumeWhenVisible);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", resumeWhenVisible);
+    };
+  }, [loadDetail, selectedJobId, selectedStatus]);
   useEffect(() => {
-    if (!jobs.some(job => activeStatuses.has(job.status))) return;
+    if (!activeStatuses.has(selectedStatus)) return;
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [jobs]);
+  }, [selectedStatus]);
 
   const createJob = async () => {
     if (!selectedDatasetId || creating) return;
@@ -93,19 +123,21 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
       const body = await response.json().catch(() => null) as { job?: PascPublicJob; created?: boolean } | null;
       if (!response.ok || !body?.job) throw new Error(readError(body, "无法创建大数据任务。", response.status));
       setSelectedId(body.job.jobId); setDetail({ job: body.job, events: [] });
+      mergeJob(body.job);
       setMessage(body.created === false ? "已恢复该数据集的现有任务，没有重复创建。" : "任务已进入持久队列；关闭页面不会中断。系统会按安全批量自动串行处理。 ");
-      await refresh(true);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "无法创建大数据任务。"); await refresh(true); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : "无法创建大数据任务。"); }
     finally { setCreating(false); }
   };
 
   const mutateJob = async (jobId: string, op: "cancel" | "retry") => {
     setMessage("");
     const response = await fetch(`/api/pasc-jobs?op=${op}&id=${encodeURIComponent(jobId)}`, { method: "POST", credentials: "include" });
-    const body = await response.json().catch(() => null);
-    if (!response.ok) { setMessage(readError(body, op === "cancel" ? "取消请求失败。" : "重试请求失败。", response.status)); await refresh(true); return; }
+    const body = await response.json().catch(() => null) as { job?: PascPublicJob } | null;
+    if (!response.ok || !body?.job) { setMessage(readError(body, op === "cancel" ? "取消请求失败。" : "重试请求失败。", response.status)); return; }
+    const job = body.job;
+    mergeJob(job);
+    setDetail(current => current?.job.jobId === job.jobId ? { ...current, job } : current);
     setMessage(op === "cancel" ? "取消请求已保存；任务会在当前批次边界停止。" : "任务已重新进入持久队列。已完成的结果分块不会重复计算。");
-    await refresh(true);
   };
 
   const selectJob = async (jobId: string) => {
@@ -113,12 +145,11 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
     try { await loadDetail(jobId); } catch (error) { setMessage(error instanceof Error ? error.message : "任务详情读取失败。"); }
   };
 
-  const selected = detail?.job ?? jobs.find(job => job.jobId === selectedId) ?? null;
   const summary = selected?.summary ?? {};
   return (
     <section id="pasc-job-console" className="pasc-job-console" aria-label="PASC-TCN 大数据任务中心">
       <header className="pasc-job-console-head">
-        <div><small>LARGE INSAR · DURABLE QUEUE</small><h2>大数据自动分类</h2><p>适用于上万级监测点：私有 CSV 在服务器端解析，先按实际日期补齐为 12 天等间隔序列，再安全分批运行 PASC-TCN；进度与结果持久保存，可自动重试。</p></div>
+        <div><small>LARGE INSAR · DURABLE QUEUE</small><h2>大数据自动分类</h2><p>适用于上万级监测点：私有 CSV 在服务器端解析，保留原始日期并只补相邻日期间缺失的 12 天观测，再安全分批运行 PASC-TCN；进度与结果持久保存，可自动重试。</p></div>
         <div className="pasc-job-create">
           <label><span>选择已确认映射的数据集</span><select value={selectedDatasetId} onChange={event => setDatasetId(event.target.value)} disabled={!available.length}>{available.length ? available.map(dataset => <option key={dataset.id} value={dataset.id}>{dataset.name} · {(dataset.qualityReport?.validPoints ?? dataset.pointCount ?? 0).toLocaleString()} 点</option>) : <option>暂无可提交数据集</option>}</select></label>
           <button disabled={!selectedDatasetId || creating} onClick={createJob}>{creating ? "正在创建…" : "开始后台自动分类"}</button>
@@ -128,7 +159,7 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
       {message && <div className="pasc-job-message" role="status">{message}</div>}
       <div className="pasc-job-layout">
         <aside className="pasc-job-list" aria-label="任务列表">
-          <div><b>最近任务</b><button onClick={() => void refresh()} disabled={loading}>{loading ? "读取中" : "刷新"}</button></div>
+          <div><b>最近任务</b><button onClick={() => void refresh(false, selectedId)} disabled={loading}>{loading ? "读取中" : "刷新"}</button></div>
           {!loading && !jobs.length && <p>还没有大数据分类任务。</p>}
           {jobs.map(job => <button key={job.jobId} className={selectedId === job.jobId ? "active" : ""} onClick={() => void selectJob(job.jobId)}><span><b>{job.datasetName}</b><i className={`is-${job.status}`}>{statusLabels[job.status] ?? job.status}</i></span><small>{stageLabels[job.stage] ?? job.stage} · {job.progress.toFixed(1)}%</small><em><i style={{ width: `${Math.max(0, Math.min(100, job.progress))}%` }}/></em></button>)}
         </aside>
@@ -137,7 +168,7 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
           {selected && <>
             <div className="pasc-job-status-row"><div><span>{statusLabels[selected.status] ?? selected.status}</span><h3>{selected.datasetName}</h3><code>{selected.jobId}</code></div><b>{selected.progress.toFixed(1)}%</b></div>
             <div className={`pasc-job-progress ${activeStatuses.has(selected.status) ? "is-active" : ""}`} role="progressbar" aria-label="后台分类进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={selected.progress}><i style={{ width: `${Math.max(0, Math.min(100, selected.progress))}%` }}/></div>
-            <div className="pasc-job-live"><span><i />{activeStatuses.has(selected.status) ? "服务器后台持续运行" : statusLabels[selected.status] ?? selected.status}</span><b>{remainingLabel(selected, clock)}</b><small>{updatedLabel(selected, clock)} · 页面可安全关闭</small></div>
+            <div className="pasc-job-live"><span><i />{activeStatuses.has(selected.status) ? "服务器后台持续运行" : statusLabels[selected.status] ?? selected.status}</span><b>{remainingLabel(selected, clock)}</b><small>{updatedLabel(selected, clock)} · 15 秒低频同步，页面隐藏时暂停</small></div>
             <div className="pasc-job-stage-flow" aria-label="后台分类阶段">{stageFlow.map((stage, index) => { const currentIndex = Math.max(0, stageFlow.indexOf(selected.stage)); const active = index <= currentIndex && !["failed", "cancelled"].includes(selected.status); return <span className={active ? "active" : ""} key={stage}><i>{index + 1}</i><b>{stageLabels[stage]}</b></span>; })}</div>
             <div className="pasc-job-metrics">
               <article><span>阶段</span><b>{stageLabels[selected.stage] ?? selected.stage}</b><small>{selected.chunks.current} / {selected.chunks.total || "?"} 批 · 每批 ≤{selected.chunks.size}</small></article>

@@ -1,8 +1,8 @@
 """Phase G external-region evidence utilities.
 
-This module evaluates the frozen preprocessing/inference contract. It does not
-change the model, fit user data, or inject self-neighborhood evidence into
-production predictions.
+This module evaluates the frozen preprocessing/inference contract and the
+unlabelled research-area neighborhood policy. It does not change model weights,
+fit user data, or use neighbor labels.
 """
 
 from __future__ import annotations
@@ -17,9 +17,9 @@ from .contract import CONTRACT_VERSION, TARGET_EPOCHS
 from .inference import infer_payload
 from .preprocessing import preprocess_payload
 
-EXPLORATORY_TITLE = "探索性识别结果"
-EXPLORATORY_LINE_1 = "当前数据超出模型主要验证区域，"
-EXPLORATORY_LINE_2 = "建议结合人工判读使用。"
+EXPLORATORY_TITLE = "时序 / 物理识别结果"
+EXPLORATORY_LINE_1 = "当前点在 500 米内缺少可用研究区邻点，"
+EXPLORATORY_LINE_2 = "空间门控未启用，请结合人工判读。"
 EXTERNAL_TARGET = {"name": "Shanghai coordinate-shift control", "longitude": 121.4737, "latitude": 31.2304}
 
 
@@ -122,7 +122,7 @@ def build_self_neighborhood_experiment_request(
     for index, row in enumerate(transformed["records"]):
         row[longitude_field] = longitude + ((index - center) * spacing_meters / meters_per_degree)
         row[latitude_field] = latitude
-    transformed["datasetName"] = f'{request.get("datasetName", "dataset")}-self-neighborhood-diagnostic-only'
+    transformed["datasetName"] = f'{request.get("datasetName", "dataset")}-self-neighborhood-control'
     return transformed
 def compare_preprocessed(
     reference: dict[str, Any], candidate: dict[str, Any]
@@ -157,7 +157,7 @@ def self_neighborhood_diagnostics(
     distance_scale_meters: float = 180.0,
     reference_latitude_degrees: float = 20.0,
 ) -> dict[str, Any]:
-    """Measure batch-internal support without applying it to model predictions."""
+    """Measure whether a batch has enough local support for the runtime policy."""
     supported = [point for point in points if point.get("status") != "unsupported"]
     base = {
         "mode": "diagnostics_only",
@@ -196,13 +196,14 @@ def self_neighborhood_diagnostics(
         support_counts.append(int(np.count_nonzero(raw_weight > 0.0)))
     return {
         **base,
-        "status": "evaluated_not_applied",
+        "status": "evaluated_for_runtime_policy",
+        "productionEligible": bool(any(count > 0 for count in support_counts)),
         "supportedPointCount": int(sum(count > 0 for count in support_counts)),
         "meanCandidateReliability": float(np.mean(reliabilities)),
         "maximumCandidateReliability": float(np.max(reliabilities)),
         "meanNearestDistanceMeters": float(np.mean(nearest_distances)),
         "maximumSupportCount": max(support_counts),
-        "warning": "Self-neighborhood仅为离线实验，未进入冻结模型预测，也不能替代外部标注精度验证。",
+        "warning": "本函数只测量候选支持；生产推理在冻结参考不可用且500米内存在邻点时启用无标签研究区上下文，仍不能替代外部标注精度验证。",
     }
 
 
@@ -298,6 +299,13 @@ def evaluate_phase_g(fixture: dict[str, Any]) -> dict[str, Any]:
         name: compare_preprocessed(native_preprocessed, artifacts[name][0])
         for name in ("unit_cm_equivalent", "sign_positive_equivalent")
     }
+    self_request = build_self_neighborhood_experiment_request(native_request)
+    self_preprocessed, self_inference = _infer_request(self_request)
+    self_diagnostics = self_neighborhood_diagnostics(self_preprocessed["points"])
+    self_applied_count = sum(
+        point.get("spatialReferenceSource") == "uploaded_research_area"
+        for point in self_inference["points"]
+    )
     return {
         "phase": "G",
         "contractVersion": fixture["contractVersion"],
@@ -307,20 +315,20 @@ def evaluate_phase_g(fixture: dict[str, Any]) -> dict[str, Any]:
             "modelDefinitionChanged": False,
             "trainingParametersChanged": False,
             "physicalFeaturesChanged": False,
-            "productionSpatialMechanismChanged": False,
+            "productionSpatialMechanismChanged": True,
             "userDataFit": False,
         },
         "claims": {
             "externalLabelsAvailable": False,
             "externalAccuracyEvaluated": False,
             "arbitraryCityHighAccuracyClaimed": False,
-            "allowedConclusion": "外区空间参考受限时，产品降级为探索性识别并提示人工判读。",
+            "allowedConclusion": "有局部邻点的上传研究区可启用无标签空间上下文；孤立点回退为时间/物理识别，外区精度仍需标签验证。",
         },
         "requiredProductWording": [EXPLORATORY_TITLE, EXPLORATORY_LINE_1, EXPLORATORY_LINE_2],
         "branchEvidence": {
             "coordinateShiftTemporalPhysicalInvariant": external_comparison,
             "externalSpatialBranchSuppressed": spatial_suppressed,
-            "interpretation": "坐标平移不改变时间序列与13维物理特征；固定海口参考不可用时空间可靠性和门控归零，输出主要依赖TCN时间分支与运动学物理特征。",
+            "interpretation": "坐标平移不改变时间序列与13维物理特征；当前稀疏控制批次在500米内没有邻点，所以空间门控归零。密集上传研究区会改用同批无标签邻域。",
         },
         "unitAndSignEquivalence": equivalence,
         "orbitDifference": {
@@ -329,9 +337,9 @@ def evaluate_phase_g(fixture: dict[str, Any]) -> dict[str, Any]:
             "productAction": "保留人工元数据检查，不宣称轨道泛化能力。",
         },
         "selfNeighborhood": {
-            **self_neighborhood_diagnostics(
-                preprocess_payload(build_self_neighborhood_experiment_request(native_request))["points"]
-            ),
+            **self_diagnostics,
+            "predictionApplied": self_applied_count > 0,
+            "appliedPointCount": self_applied_count,
             "inputConstruction": "synthetic_three_point_external_cluster_80m_spacing",
             "syntheticCoordinates": True,
         },

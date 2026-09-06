@@ -14,6 +14,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "next/image": fileURLToPath(new URL("./static-src/shims/next-image.tsx", import.meta.url)),
       "next/link": fileURLToPath(new URL("./static-src/shims/next-link.tsx", import.meta.url)),
       "next/navigation": fileURLToPath(new URL("./static-src/shims/next-navigation.ts", import.meta.url)),
       "next/dynamic": fileURLToPath(new URL("./static-src/shims/next-dynamic.tsx", import.meta.url)),

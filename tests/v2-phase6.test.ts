@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { InsarPoint } from "../app/data/site.js";
 import { aoiPointsCsv, aoiSeriesCsv, buildAnalysisRuleSummary, comparisonCsv, csvText, pointCsv, safeExportName } from "../app/lib/analysis-exports.js";
+import { decodeInsarValue, quantizeInsarSeries, roundInsarValue } from "../app/lib/insar-precision.js";
 
 const point = (id: string, mode: string, series: number[], dates = ["2024-01", "2024-02"]): InsarPoint => ({
   id,
@@ -34,6 +35,16 @@ test("Phase 6 filenames remove Windows-invalid characters deterministically", ()
   assert.equal(safeExportName("   "), "lanjifyw-insar");
 });
 
+test("InSAR results round to one decimal after computation and use compact tenth-millimeter storage", () => {
+  assert.equal(roundInsarValue(-12.345), -12.3);
+  const compact = quantizeInsarSeries(Float32Array.from([0, -1.26, 8.94]));
+  assert.ok(compact.values instanceof Int16Array);
+  assert.equal(compact.values.byteLength, 6);
+  assert.deepEqual(Array.from(compact.values, value => decodeInsarValue(value, compact.scale)), [0, -1.3, 8.9]);
+  const wide = quantizeInsarSeries(Float32Array.from([4000]));
+  assert.ok(wide.values instanceof Int32Array);
+});
+
 test("Phase 6 point and comparison exports retain IDs, dates, modes, and escaped names", () => {
   const a = point("A", "稳定型", [0, -1]), b = point("B", "加速型", [0, -4]);
   const single = pointCsv(a), compared = comparisonCsv([a, b]);
@@ -42,6 +53,7 @@ test("Phase 6 point and comparison exports retain IDs, dates, modes, and escaped
   assert.match(single, /2024-02,-1/);
   assert.equal(compared.split("\r\n").filter(Boolean).length, 5);
   assert.match(compared, /B,"点位,B",2024-02,-4/);
+  assert.match(pointCsv(point("C", "线性型", [0, -1.26])), /2024-02,-1.3/);
 });
 
 test("Phase 6 AOI exports preserve selected points and the active aggregate view", () => {
@@ -55,9 +67,11 @@ test("Phase 6 AOI exports preserve selected points and the active aggregate view
 });
 
 test("Phase 6 rule summary records transparent thresholds and the safety boundary", () => {
-  const summary = buildAnalysisRuleSummary({ datasetName: "海口 Spatial Demo", datasetId: "demo-haikou", timeRange: { startDate: "2017-03", endDate: "2025-05" }, displayMode: "形变模式", displayRange: "PASC 固定六类配色", patternVisibility: "仅异常模式", activeFilter: "质量筛选后的异常候选", coherenceThreshold: .75, anomalyRadiusMeters: 200, anomalyMinimumPoints: 3, selectionSource: "异常区域 AR-01", selectedPointCount: 12 });
-  assert.equal(summary.items.length, 8);
+  const summary = buildAnalysisRuleSummary({ datasetName: "海口 Spatial Demo", datasetId: "demo-haikou", timeRange: { startDate: "2017-03", endDate: "2025-05" }, displayMode: "形变模式", displayRange: "PASC 固定六类配色", patternVisibility: "仅异常模式", activeFilter: "质量筛选后的异常候选", coherenceThreshold: .75, anomalyRadiusMeters: 200, anomalyMinimumPoints: 3, selectionSource: "异常区域 AR-01", selectedPointCount: 12, priorityRuleVersion: "negative-tail-v1", priorityTailPercent: 5, priorityDisplacementThresholdMm: -83.2, priorityVelocityThresholdMmPerYear: -9.4, priorityCandidateCount: 14, priorityReliableCount: 4, priorityLimitedCount: 10 });
+  assert.equal(summary.items.length, 9);
   assert.match(summary.text, /低相干阈值 0.75/);
+  assert.match(summary.text, /负向单侧 5% · 双指标交集/);
+  assert.match(summary.text, /规则 negative-tail-v1/);
   assert.match(summary.text, /邻域 200 m · 最少 3 点/);
   assert.match(summary.boundary, /不构成工程安全判断/);
   assert.doesNotMatch(summary.text, /风险评分：/);

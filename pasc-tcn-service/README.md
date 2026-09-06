@@ -9,13 +9,13 @@
 - 契约：`pasc-contract-v1`
 - 模型：`pasc-tcn-haikou-v1`
 - 六类顺序固定为 Stable、Linear、Piecewise、Decelerating、Accelerating、Undefined
-- 先按真实日期排序、去重，再从数据集首日至末日建立严格 12 天日历网格并线性补齐缺测，随后才执行 SG 和后续特征/模型处理；不会把不同长度序列强行拉伸到 248 节点
+- 先按真实日期排序、去重并完整保留；仅当相邻日期间隔大于 12 天时，从左侧日期起每 12 天线性补入一个缺失观测，随后才执行 SG 和后续特征/模型处理；不会建立覆盖首尾的强制网格，也不会把序列拉伸到 248 节点
 - 原生 248 期、严格 12 天间隔继续走冻结黄金路径；其他长度标记为 experimental，20–39 个原始观测额外提示证据有限，少于 20 个原始观测不推理
 - SG 为 window 9 / polynomial 3；逐行 Z-score epsilon 为 `1e-5`
 - 13 维特征、训练 Scaler、动态类 2/3/4 的 1.35 概率校准均冻结
-- 空间参考只包含固定训练集 1,036 行；8 邻居、500 m 半径、180 m 距离尺度
-- 海口参考半径外的城市不会伪造空间证据，返回 `limited_reference`
-- 非 248 节点的 12 天网格不会为匹配空间参考而再次拉伸；此时空间门控归零，只运行时间/物理分类并返回 `limited_reference`
+- 模型包保留固定训练集 1,036 行作为已知区域参考；空间参数为 8 邻居、500 m 半径、180 m 距离尺度
+- 海口参考半径外会优先使用同一上传研究区的无标签邻点，只编码邻点时序和物理特征，不读取标签、不训练或拟合用户数据
+- 非 248 节点的输入不会为匹配固定参考而再次拉伸；有同长度局部邻点时仍可启用研究区空间门控，孤立点才回退为时间/物理分类并返回 `limited_reference`
 
 ## 私有模型包
 
@@ -55,8 +55,9 @@ JSON 请求体最多 32 MiB。ASGI lifespan 和内置服务器都会在启动阶
 
 - `GET /v1/models`：模型、运行时、限制与可用状态
 - `POST /v1/validate`：字段、日期、单位、符号及能力级别验证
-- `POST /v1/preprocess`：按日历构造 12 天等间隔序列并执行权威预处理；配置签名密钥后返回 HMAC 工件
+- `POST /v1/preprocess`：保留原始日期，仅在大于 12 天的相邻日期缺口中补值并执行权威预处理；配置签名密钥后返回 HMAC 工件
 - `POST /v1/infer`：只接受本服务产生且 HMAC 校验通过的 `preprocessed` 工件
+- `POST /v1/classify`：鉴权后在服务进程内连续执行预处理与推理，不把大型中间工件返回给 WebGIS
 
 推理调用必须携带 `Authorization: Bearer <PASC_SERVICE_API_KEY>`，也支持
 `X-PASC-Service-Key`。请求示例：
@@ -87,7 +88,7 @@ optimizer、backward、fit 或训练入口，也不会按输入 URL 获取数据
 
 WebGIS 使用 D1 租约作为可恢复的拉取队列。消费者不接收用户提供的 URL，只连接
 `PASC_WEBGIS_BASE_URL` 指定的单一来源，并校验所有服务端返回路径仍位于同源的
-`/v1/internal/jobs/` 下。源 CSV 逐行读取；WebGIS 当前按最多 100 点安全分批，服务硬上限仍为 512 点，
+`/v1/internal/jobs/` 下。源 CSV 逐行读取；WebGIS 当前按最多 500 点安全分批，服务硬上限仍为 512 点，
 内存中最多保留一个推理分块。结果写成 attempt/chunk 隔离的 R2 工件。
 
 ```powershell
@@ -117,7 +118,7 @@ $env:PYTHONPATH = (Resolve-Path src)
 python tools/run_phase_g_external_evaluation.py --device cpu
 ```
 
-坐标平移控制独立验证时间/物理预处理不变且空间参考受限；单位与符号使用语义等价
+坐标平移控制独立验证时间/物理预处理不变以及稀疏批次空间门控回退；单位与符号使用语义等价
 输入；40/80/160 节点场景只报告相对冻结 248 基准的类别一致率和概率差。
 所有场景都标记 `accuracyEvaluated=false`。对于 `limited_reference`，产品固定显示：
 
@@ -125,8 +126,9 @@ python tools/run_phase_g_external_evaluation.py --device cpu
 > 当前数据超出模型主要验证区域，
 > 建议结合人工判读使用。
 
-Self-neighborhood 使用明确标记的合成
-80 m 间距外区坐标，仅计算候选可靠性，从不进入 `infer_payload`。
+Self-neighborhood 使用明确标记的合成 80 m 间距外区坐标，同时核验候选可靠性与
+`infer_payload` 的 `uploaded_research_area` 分支。该测试证明运行路径已接通，不代表外区
+分类精度已经由标签验证。
 ## 验证
 
 ```powershell
@@ -137,7 +139,7 @@ python pasc-tcn-service/tools/generate_phase_d_golden.py `
   --device cpu
 ```
 
-黄金夹具通过正式研究模型独立生成；native-248 继续比较完整黄金结果，其他 12 天网格长度验证可变长推理、
+黄金夹具通过正式研究模型独立生成；native-248 继续比较完整黄金结果，其他补值后长度验证可变长推理、
 概率归一、适用性、空间可靠度和 gate 输出。
 Phase C 仍可通过 `tools/run_phase_c_validation.py` 与
 `tools/validate_phase_c_results.py` 离线复核；它不定义支持阈值。

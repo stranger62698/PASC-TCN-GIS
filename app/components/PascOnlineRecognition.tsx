@@ -38,6 +38,7 @@ export function PascOnlineRecognition({
   const blocked = !mappingConfirmed || blockingIssues.length > 0 || candidatePoints === 0;
   const busy = runState.status === "running";
   const confirmedState = preprocessingState === "raw" || preprocessingState === "already_smoothed";
+  const progress = runState.totalPoints > 0 ? Math.min(100, runState.processedPoints / runState.totalPoints * 100) : 0;
   const stages = [
     { key: "upload", label: "上传与映射", detail: mappingConfirmed ? `${totalPoints.toLocaleString()} 点已载入` : "等待确认字段映射", state: stageState(mappingConfirmed) },
     { key: "confirm", label: "单位 / 符号 / 平滑", detail: confirmedState ? (preprocessingState === "raw" ? "raw · 服务端执行 SG" : "already_smoothed · 不重复平滑") : "需要显式确认", state: stageState(confirmedState, mappingConfirmed && !confirmedState) },
@@ -49,7 +50,7 @@ export function PascOnlineRecognition({
   return (
     <section className="pasc-online-card" aria-label="PASC-TCN CSV 自动分类">
       <header>
-        <div><small>BOUNDED PRIVATE INFERENCE</small><h3>CSV 自动分类</h3></div>
+        <div><small>PASC-TCN · 私有推理</small><h3>CSV 自动分类</h3></div>
         <span>{candidatePoints.toLocaleString()} 候选 · {Math.ceil(candidatePoints / PHASE_E_MAX_POINTS).toLocaleString()} 批</span>
       </header>
       <ol className="pasc-online-stages">
@@ -60,6 +61,12 @@ export function PascOnlineRecognition({
           </li>
         ))}
       </ol>
+
+      {busy && <div className="pasc-live-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
+        <div><span>后台分类进度</span><b>{progress.toFixed(1)}%</b></div>
+        <em><i style={{ width: `${progress}%` }} /></em>
+        <small>{runState.processedPoints.toLocaleString()} / {runState.totalPoints.toLocaleString()} 点 · {runState.completedBatches} / {runState.totalBatches} 批</small>
+      </div>}
 
       {overLimit && <div className="pasc-online-notice" role="status"><b>已切换为后台大数据分类</b><span>当前 {candidatePoints.toLocaleString()} 个候选点将进入持久队列，按最多 {PHASE_E_MAX_POINTS} 点自动分批；关闭页面不会中断。</span><Link href="/datasets">打开任务进度模块 ↗</Link></div>}
       {!overLimit && blockingIssues.length > 0 && <div className="pasc-online-notice is-blocked" role="alert"><b>仍有确认项</b><span>{blockingIssues[0]}</span></div>}
@@ -77,7 +84,7 @@ export function PascOnlineRecognition({
 
       <div className="pasc-online-actions">
         <button className="pasc-online-run" disabled={blocked || busy} onClick={onRun}>
-          {busy ? "正在自动执行预处理与分类…" : runState.status === "error" ? "重试自动分类" : hasResults ? "重新分类当前数据" : overLimit ? "创建或恢复后台任务" : "自动分类待启动"}
+          {busy ? "正在执行缺口补值与分类…" : runState.status === "error" ? "重试自动分类" : hasResults ? "重新分类当前数据" : overLimit ? "创建或恢复后台任务" : "自动分类待启动"}
         </button>
         <small>验证并导入后自动开始 · 同源代理 · 服务密钥不进入浏览器 · API 失败不清空数据 · 任一批失败不更新地图</small>
       </div>

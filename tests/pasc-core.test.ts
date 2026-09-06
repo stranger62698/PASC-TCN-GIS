@@ -13,6 +13,7 @@ import {
   filterPascOnlinePoints,
   mergePascOnlineResults,
   runPascOnlineProxy,
+  spatiallyOrderPascCandidates,
   toPascServicePayload,
   type PascOnlineResponse,
 } from "../app/lib/pasc-online";
@@ -251,6 +252,19 @@ test("automatic CSV classification splits 3,000 eligible points into bounded req
   );
 });
 
+test("PASC candidates are ordered by spatial locality without changing tied source order", () => {
+  const west1 = { ...phaseEPoint("west-1"), lon: 121.0, lat: 39.0 };
+  const east1 = { ...phaseEPoint("east-1"), lon: 122.0, lat: 39.0 };
+  const west2 = { ...phaseEPoint("west-2"), lon: 121.0002, lat: 39.0001 };
+  const east2 = { ...phaseEPoint("east-2"), lon: 122.0002, lat: 39.0001 };
+  const ordered = spatiallyOrderPascCandidates([west1, east1, west2, east2]);
+  assert.deepEqual(new Set(ordered.slice(0, 2).map(point => point.id)), new Set(["west-1", "west-2"]));
+  assert.deepEqual(
+    spatiallyOrderPascCandidates([phaseEPoint("same-1"), phaseEPoint("same-2")]).map(point => point.id),
+    ["same-1", "same-2"],
+  );
+});
+
 test("production inference proxy is session-protected and keeps service configuration server-side", () => {
   const source = readFileSync("api/pasc/infer.ts", "utf8");
   assert.match(source, /getRequestUser\(request\.headers\.cookie\)/);
@@ -285,11 +299,8 @@ test("Phase E proxy uses only configured upstream and hides the service key", as
   const fetchImpl: typeof fetch = async (input, init) => {
     const url = String(input);
     const headers = new Headers(init?.headers);
-    const firstCall = calls.length === 0;
     calls.push({ url, authorization: headers.get("authorization"), body: String(init?.body ?? "") });
-    return new Response(firstCall
-      ? '{"operation":"preprocess_only","epsilon":1e-07,"integrity":{"signed":true}}'
-      : JSON.stringify(output), {
+    return new Response(JSON.stringify(output), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
@@ -300,13 +311,9 @@ test("Phase E proxy uses only configured upstream and hides the service key", as
     serviceApiKey: secret,
     fetchImpl,
   });
-  assert.deepEqual(calls.map(call => call.url), [
-    "https://pasc.internal/base/v1/preprocess",
-    "https://pasc.internal/base/v1/infer",
-  ]);
-  assert.equal(calls[0].authorization, null);
-  assert.equal(calls[1].authorization, `Bearer ${secret}`);
-  assert.match(calls[1].body, /"epsilon":1e-07/);
+  assert.deepEqual(calls.map(call => call.url), ["https://pasc.internal/base/v1/classify"]);
+  assert.equal(calls[0].authorization, `Bearer ${secret}`);
+  assert.match(calls[0].body, /"datasetName":"small.csv"/);
   assert.equal(JSON.stringify(result).includes(secret), false);
 });
 
@@ -392,16 +399,13 @@ test("Phase E merge trusts calibrated service output and enables PASC filters", 
   assert.deepEqual(filterPascOnlinePoints(points, "lowConfidence").map(point => point.id), ["P-1"]);
   assert.deepEqual(filterPascOnlinePoints(points, "limitedReference").map(point => point.id), ["P-1"]);
 });
-test("Phase E synchronous small-data flow runs preprocess, infer, merge, and filter end to end", async () => {
+test("Phase E synchronous small-data flow runs combined classify, merge, and filter end to end", async () => {
   const sourcePoints = [phaseEPoint("P-1"), phaseEPoint("ordinary", 19)];
   const request = buildPascOnlineRequest(sourcePoints, "small.csv", "already_smoothed");
   const calls: string[] = [];
   const fetchImpl: typeof fetch = async (input) => {
     calls.push(String(input));
-    const body = calls.length === 1
-      ? { operation: "preprocess_only", integrity: { signed: true, signature: "service-owned" } }
-      : phaseEResponse();
-    return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    return new Response(JSON.stringify(phaseEResponse()), { status: 200, headers: { "content-type": "application/json" } });
   };
   const inferred = await runPascOnlineProxy(request, {
     serviceBaseUrl: "https://pasc.internal/",
@@ -409,7 +413,7 @@ test("Phase E synchronous small-data flow runs preprocess, infer, merge, and fil
     fetchImpl,
   });
   const merged = mergePascOnlineResults(sourcePoints, inferred).points;
-  assert.deepEqual(calls, ["https://pasc.internal/v1/preprocess", "https://pasc.internal/v1/infer"]);
+  assert.deepEqual(calls, ["https://pasc.internal/v1/classify"]);
   assert.equal(merged[0].pasc?.calibratedLabel, "Stable");
   assert.equal(merged[1], sourcePoints[1]);
   assert.deepEqual(filterPascOnlinePoints(merged, "limitedReference").map(point => point.id), ["P-1"]);

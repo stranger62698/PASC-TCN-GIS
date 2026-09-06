@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   PRIMARY_ANALYSIS_MODES,
   filterPointsForPattern,
+  filterPointsForModes,
   formatFiniteValue,
   patternPointOpacity,
 } from "../app/lib/v2-map-analysis.js";
@@ -24,26 +25,36 @@ test("anomaly-only visibility is reversible and optionally includes Undefined", 
   assert.equal(points.length, 7, "filtering must not mutate the source collection");
 });
 
-test("PASC visual hierarchy de-emphasizes Stable and emphasizes Accelerating", () => {
-  assert.equal(patternPointOpacity("Stable"), 0.22);
-  assert.ok(patternPointOpacity("Stable") < patternPointOpacity("Undefined"));
-  assert.ok(patternPointOpacity("Undefined") < patternPointOpacity("Linear"));
+test("defined PASC classes stay legible while only Undefined remains strongly transparent", () => {
+  assert.equal(patternPointOpacity("Stable"), 0.86);
+  assert.ok(patternPointOpacity("Undefined") < patternPointOpacity("Stable"));
+  assert.ok(patternPointOpacity("Stable") < patternPointOpacity("Linear"));
   assert.equal(patternPointOpacity("Accelerating"), 1);
+});
+
+test("QGIS-style mode visibility can independently hide and restore every category", () => {
+  assert.deepEqual(filterPointsForModes(points, ["稳定型", "加速型"]).map(point => point.mode), ["Linear", "Piecewise", "Decelerating", "Undefined", "unknown"]);
+  assert.equal(filterPointsForModes(points, []).length, points.length);
 });
 
 test("missing numeric map values render as a neutral placeholder", () => {
   assert.equal(formatFiniteValue(Number.NaN), "--");
   assert.equal(formatFiniteValue(Number.POSITIVE_INFINITY), "--");
-  assert.equal(formatFiniteValue(12.345), "12.35");
+  assert.equal(formatFiniteValue(12.345), "12.3");
 });
 
 test("workspace wiring preserves the full point set for map extent", () => {
   const workspace = readFileSync("app/components/MapWorkspace.tsx", "utf8");
   const map = readFileSync("app/components/WebGisMap.tsx", "utf8");
   const context = readFileSync("app/lib/analysis-context.tsx", "utf8");
-  assert.match(workspace, /<AnalysisModeSwitch value=\{attribute\}/);
+  assert.match(workspace, /aria-label="地图显示属性" value=\{attribute\}/);
   assert.match(workspace, /patternVisibility=\{attribute === "mode" \? patternVisibility : "all"\}/);
+  assert.match(workspace, /hiddenModes=\{attribute === "mode" \? hiddenModes : \[\]\}/);
+  assert.match(workspace, /filteredPointIds=\{filteredMapPointIds\}/);
   assert.match(map, /displayPoints\.forEach/);
+  assert.match(map, /onToggleMode\(mode\)/);
+  assert.match(workspace, /onClick=\{applyThreshold\}/);
+  assert.doesNotMatch(map, /onApplyVelocityFilter/);
   assert.match(map, /lastPoints\.current!==points/);
   assert.match(context, /patternVisibility: PatternVisibility/);
 });

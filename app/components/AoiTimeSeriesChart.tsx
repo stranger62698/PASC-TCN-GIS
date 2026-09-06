@@ -75,7 +75,7 @@ export function AoiTimeSeriesChart({ points, exportBusy = false, onExportData, o
           </>}
           <rect className="aoi-chart-hitbox" x={left} y={top} width={plotWidth} height={plotHeight} onPointerMove={handlePointer} />
         </svg>
-        {hoverIndex !== null && <div className="aoi-chart-tooltip"><b>{series.dates[hoverIndex]}</b><span>区域{method === "median" ? "中位" : "平均"}：{series.overall[hoverIndex]?.toFixed(2) ?? "—"} mm</span>{visibleGroups.map(group => <span key={group.mode}><i style={{ background: colorForMode(group.mode) }} />{group.mode}：{group.values[hoverIndex]?.toFixed(2) ?? "—"} mm</span>)}</div>}
+        {hoverIndex !== null && <div className="aoi-chart-tooltip"><b>{series.dates[hoverIndex]}</b><span>区域{method === "median" ? "中位" : "平均"}：{series.overall[hoverIndex]?.toFixed(1) ?? "—"} mm</span>{visibleGroups.map(group => <span key={group.mode}><i style={{ background: colorForMode(group.mode) }} />{group.mode}：{group.values[hoverIndex]?.toFixed(1) ?? "—"} mm</span>)}</div>}
       </div>
       <div className="aoi-mode-curves">
         <span>按模式叠加曲线（可选）</span>

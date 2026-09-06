@@ -13,6 +13,7 @@ from .contract import (
     MIN_EXPERIMENTAL_EPOCHS,
     MODEL_VERSION,
     SERVICE_VERSION,
+    SENTINEL_CADENCE_DAYS,
     TARGET_EPOCHS,
 )
 from .errors import MESSAGES, ServiceError
@@ -27,6 +28,7 @@ KNOWN_PATHS = {
     "/v1/validate",
     "/v1/preprocess",
     "/v1/infer",
+    "/v1/classify",
 }
 
 
@@ -39,6 +41,10 @@ def model_catalog() -> dict[str, Any]:
             {
                 "modelVersion": MODEL_VERSION,
                 "targetEpochs": TARGET_EPOCHS,
+                "trainingReferenceEpochs": TARGET_EPOCHS,
+                "gapFillCadenceDays": SENTINEL_CADENCE_DAYS,
+                "gapFillPolicy": "preserve_source_dates_and_fill_only_missing_12_day_steps",
+                "variableLengthExperimental": True,
                 "minimumExperimentalEpochs": MIN_EXPERIMENTAL_EPOCHS,
                 "featureOrder": list(FEATURE_NAMES),
                 "scalerArtifactVersion": SCALER["artifactVersion"],
@@ -49,6 +55,7 @@ def model_catalog() -> dict[str, Any]:
                 "inferenceRequirements": {
                     "authorization": "service_bearer_or_x_pasc_service_key",
                     "preprocessedArtifact": "signed_pasc_preprocessed_v1",
+                    "combinedEndpoint": "/v1/classify",
                 },
                 "runtime": runtime,
             }
@@ -86,14 +93,20 @@ def dispatch(
             "/v1/validate",
             "/v1/preprocess",
             "/v1/infer",
+            "/v1/classify",
         }:
-            if path == "/v1/infer":
+            if path in {"/v1/infer", "/v1/classify"}:
                 authorize_inference(headers)
             payload = _decode_json(raw_body)
             if path == "/v1/validate":
                 return 200, validate_payload(payload)
             if path == "/v1/preprocess":
                 return 200, preprocess_payload(payload)
+            if path == "/v1/classify":
+                artifact = preprocess_payload(payload)
+                return 200, infer_payload(
+                    {"contractVersion": CONTRACT_VERSION, "preprocessed": artifact}
+                )
             return 200, infer_payload(payload)
         if path in KNOWN_PATHS:
             raise ServiceError(
@@ -111,7 +124,7 @@ def dispatch(
     except Exception:
         code = (
             "PASC_INFERENCE_FAILED"
-            if path == "/v1/infer"
+            if path in {"/v1/infer", "/v1/classify"}
             else "PASC_PREPROCESS_FAILED"
         )
         error = ServiceError(

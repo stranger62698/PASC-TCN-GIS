@@ -355,25 +355,38 @@ class FrozenModelRuntime:
                     },
                 )
 
-    def _encode_reference_nodes(self):
-        parts = []
+    def _encode_nodes(
+        self,
+        series_values: np.ndarray,
+        physics_values: np.ndarray,
+    ):
+        node_parts = []
+        physics_parts = []
         torch = self.torch
         with torch.inference_mode():
             for start in range(
-                0, len(self.reference_series), self.batch_size
+                0, len(series_values), self.batch_size
             ):
                 stop = min(
-                    start + self.batch_size, len(self.reference_series)
+                    start + self.batch_size, len(series_values)
                 )
                 series = torch.from_numpy(
-                    self.reference_series[start:stop]
+                    series_values[start:stop]
                 ).unsqueeze(1).to(self.device)
                 physics = torch.from_numpy(
-                    self.reference_physics[start:stop]
+                    physics_values[start:stop]
                 ).to(self.device)
-                node, _ = self.model.encode_node(series, physics)
-                parts.append(node)
-        return torch.cat(parts, dim=0)
+                node, physics_feature = self.model.encode_node(series, physics)
+                node_parts.append(node)
+                physics_parts.append(physics_feature)
+        return torch.cat(node_parts, dim=0), torch.cat(physics_parts, dim=0)
+
+    def _encode_reference_nodes(self):
+        nodes, _ = self._encode_nodes(
+            self.reference_series,
+            self.reference_physics,
+        )
+        return nodes
 
     def _project(
         self,
@@ -387,6 +400,22 @@ class FrozenModelRuntime:
             * math.cos(math.radians(latitude0))
         )
         y = latitude.astype(np.float64) * 110540.0
+        return np.column_stack([x, y]).astype(np.float32)
+
+    @staticmethod
+    def _project_research_area(
+        longitude: np.ndarray,
+        latitude: np.ndarray,
+    ) -> np.ndarray:
+        """Local metric approximation centered on the uploaded study area."""
+        longitude0 = float(np.mean(longitude))
+        latitude0 = float(np.mean(latitude))
+        x = (
+            (longitude.astype(np.float64) - longitude0)
+            * 111320.0
+            * math.cos(math.radians(latitude0))
+        )
+        y = (latitude.astype(np.float64) - latitude0) * 110540.0
         return np.column_stack([x, y]).astype(np.float32)
 
     def _query_neighbors(
@@ -478,26 +507,117 @@ class FrozenModelRuntime:
             reliability,
         )
 
+    def _query_research_area_neighbors(
+        self,
+        coordinates: np.ndarray,
+        series: np.ndarray,
+        coherence: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Build unlabeled local context from the current uploaded batch.
+
+        A fixed-radius spatial hash avoids allocating a point-by-point distance
+        matrix. No labels, fitting, gradients, or parameter updates are used.
+        """
+        point_count = len(series)
+        neighbor_count = int(self.config["neighbors"])
+        radius = float(self.config["radiusMeters"])
+        indices = np.zeros((point_count, neighbor_count), dtype=np.int64)
+        weights = np.zeros((point_count, neighbor_count), dtype=np.float32)
+        reliability = np.zeros(point_count, dtype=np.float32)
+        if point_count < 2:
+            return indices, weights, reliability
+
+        cells: dict[tuple[int, int], list[int]] = {}
+        cell_keys: list[tuple[int, int]] = []
+        for index, coordinate in enumerate(coordinates):
+            key = (
+                math.floor(float(coordinate[0]) / radius),
+                math.floor(float(coordinate[1]) / radius),
+            )
+            cell_keys.append(key)
+            cells.setdefault(key, []).append(index)
+
+        distance_scale = float(self.config["distanceScaleMeters"])
+        for index, (cell_x, cell_y) in enumerate(cell_keys):
+            candidates: list[tuple[float, int]] = []
+            for offset_x in (-1, 0, 1):
+                for offset_y in (-1, 0, 1):
+                    for candidate in cells.get(
+                        (cell_x + offset_x, cell_y + offset_y),
+                        (),
+                    ):
+                        if candidate == index:
+                            continue
+                        delta = (
+                            coordinates[candidate].astype(np.float64)
+                            - coordinates[index].astype(np.float64)
+                        )
+                        distance = float(np.sqrt(np.sum(delta * delta)))
+                        if distance <= radius:
+                            candidates.append((distance, candidate))
+            candidates.sort(key=lambda item: (item[0], item[1]))
+            selected = candidates[:neighbor_count]
+            if not selected:
+                continue
+            selected_indices = np.asarray(
+                [item[1] for item in selected],
+                dtype=np.int64,
+            )
+            distances = np.asarray(
+                [item[0] for item in selected],
+                dtype=np.float32,
+            )
+            correlation = np.mean(
+                series[selected_indices] * series[index][None, :],
+                axis=1,
+            )
+            temporal_similarity = (
+                np.clip((correlation + 1.0) / 2.0, 0.0, 1.0) ** 2
+            )
+            spatial_weight = np.exp(
+                -0.5 * (distances / distance_scale) ** 2
+            )
+            coherence_weight = np.sqrt(
+                np.clip(
+                    coherence[index] * coherence[selected_indices],
+                    0.0,
+                    1.0,
+                )
+            )
+            raw_weight = (
+                spatial_weight
+                * (0.15 + 0.85 * temporal_similarity)
+                * coherence_weight
+            ).astype(np.float32)
+            raw_sum = float(np.sum(raw_weight))
+            if raw_sum <= 0.0:
+                continue
+            count = len(selected_indices)
+            indices[index, :count] = selected_indices
+            weights[index, :count] = raw_weight / raw_sum
+            reliability[index] = np.float32(
+                1.0
+                - math.exp(
+                    -raw_sum / max(count * 0.35, 1e-6)
+                )
+            )
+        return indices, weights, reliability
+
     def _infer_core(
         self,
-        series: np.ndarray,
-        physics: np.ndarray,
+        nodes,
+        physics_features,
         neighbor_indices: np.ndarray,
         neighbor_weights: np.ndarray,
         reliability: np.ndarray,
+        reference_nodes,
     ) -> tuple[np.ndarray, np.ndarray]:
         probabilities = []
         gate_means = []
         torch = self.torch
         with torch.inference_mode():
-            for start in range(0, len(series), self.batch_size):
-                stop = min(start + self.batch_size, len(series))
-                series_tensor = torch.from_numpy(
-                    series[start:stop]
-                ).unsqueeze(1).to(self.device)
-                physics_tensor = torch.from_numpy(
-                    physics[start:stop]
-                ).to(self.device)
+            for start in range(0, len(nodes), self.batch_size):
+                stop = min(start + self.batch_size, len(nodes))
                 index_tensor = torch.from_numpy(
                     neighbor_indices[start:stop]
                 ).to(self.device)
@@ -508,10 +628,9 @@ class FrozenModelRuntime:
                     reliability[start:stop]
                 ).to(self.device)
 
-                node, physics_feature = self.model.encode_node(
-                    series_tensor, physics_tensor
-                )
-                neighbor_node = self.reference_nodes[index_tensor]
+                node = nodes[start:stop]
+                physics_feature = physics_features[start:stop]
+                neighbor_node = reference_nodes[index_tensor]
                 context = torch.sum(
                     weight_tensor.unsqueeze(-1) * neighbor_node,
                     dim=1,
@@ -622,12 +741,54 @@ class FrozenModelRuntime:
             series,
             coherence,
         )
-        raw_probabilities, gate_means = self._infer_core(
+        area_coordinates = self._project_research_area(
+            longitude,
+            latitude,
+        )
+        area_indices, area_weights, area_reliability = (
+            self._query_research_area_neighbors(
+                area_coordinates,
+                series,
+                coherence,
+            )
+        )
+        use_area_context = (
+            (reliability <= 0.0)
+            & (area_reliability > 0.0)
+        )
+        query_nodes, query_physics_features = self._encode_nodes(
             series,
             physics,
+        )
+        reference_nodes = self.torch.cat(
+            [self.reference_nodes, query_nodes],
+            dim=0,
+        )
+        if np.any(use_area_context):
+            indices[use_area_context] = (
+                area_indices[use_area_context]
+                + len(self.reference_series)
+            )
+            weights[use_area_context] = area_weights[use_area_context]
+            reliability[use_area_context] = area_reliability[
+                use_area_context
+            ]
+        reference_sources = np.where(
+            use_area_context,
+            "uploaded_research_area",
+            np.where(
+                reliability > 0.0,
+                "frozen_training_reference",
+                "none",
+            ),
+        )
+        raw_probabilities, gate_means = self._infer_core(
+            query_nodes,
+            query_physics_features,
             indices,
             weights,
             reliability,
+            reference_nodes,
         )
         calibrated = raw_probabilities.copy()
         calibrated[
@@ -641,13 +802,15 @@ class FrozenModelRuntime:
                 final,
                 reliability_value,
                 gate,
+                reference_source,
             )
-            for point, raw, final, reliability_value, gate in zip(
+            for point, raw, final, reliability_value, gate, reference_source in zip(
                 points,
                 raw_probabilities,
                 calibrated,
                 reliability,
                 gate_means,
+                reference_sources,
             )
         ]
 
@@ -673,6 +836,7 @@ class FrozenModelRuntime:
         calibrated: np.ndarray,
         reliability: np.float32,
         gate_mean: np.float32,
+        reference_source: str,
     ) -> dict[str, Any]:
         raw_result = self._class_result(raw)
         calibrated_result = self._class_result(calibrated)
@@ -688,8 +852,18 @@ class FrozenModelRuntime:
                 {
                     "code": "PASC_SPATIAL_REFERENCE_LIMITED",
                     "message": (
-                        "该点缺少海口训练空间参考，"
-                        "空间适用性有限。"
+                        "该点在500米范围内缺少足够研究区邻点，"
+                        "空间门控未启用；时间与物理分类仍已执行。"
+                    ),
+                }
+            )
+        elif reference_source == "uploaded_research_area":
+            warnings.append(
+                {
+                    "code": "PASC_RESEARCH_AREA_SPATIAL_CONTEXT",
+                    "message": (
+                        "空间分支使用当前上传研究区的无标签邻点；"
+                        "未使用邻点类别，也未拟合或修改模型参数。"
                     ),
                 }
             )
@@ -723,6 +897,7 @@ class FrozenModelRuntime:
             ),
             "spatialReliability": float(reliability),
             "spatialGateMean": float(gate_mean),
+            "spatialReferenceSource": reference_source,
             "applicability": {
                 "temporal": temporal,
                 "spatial": spatial,
@@ -890,6 +1065,7 @@ def infer_payload(payload: Any) -> dict[str, Any]:
         "audit": {
             "assetHashesVerified": True,
             "referenceRows": len(runtime.reference_series),
+            "researchAreaSpatialContext": True,
             "device": str(runtime.device),
             "modelExecuted": True,
             "userDataFit": False,
