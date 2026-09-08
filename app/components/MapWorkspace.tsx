@@ -1,4 +1,5 @@
 "use client";
+import { WorkspaceSelect } from "./WorkspaceSelect";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
@@ -57,9 +58,11 @@ const defaultColorRange = (attribute: RenderAttribute): { min: number; max: numb
 };
 const FIELD_ASSOCIATION_LIMIT_METERS = 500;
 const attributeNames: Record<RenderAttribute, string> = { velocity: "年均速率", displacement: "当前期累计形变", stageVelocity: "阶段速率", mode: "形变模式", coherence: "相干性", missing: "缺测率" };
-type MapToolIconName = "workspace" | "analysis" | "tools" | "statistics" | "screenshot" | "rules" | "export" | "import";
+type MapToolIconName = "layers" | "select" | "workspace" | "analysis" | "tools" | "statistics" | "screenshot" | "rules" | "export" | "import";
 function MapToolIcon({ name }: { name: MapToolIconName }) {
     const common = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+    if (name === "layers") return <svg {...common}><path d="m12 3 9 5-9 5-9-5 9-5ZM3 12l9 5 9-5M3 16l9 5 9-5" /></svg>;
+    if (name === "select") return <svg {...common}><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>;
     if (name === "workspace") return <svg {...common}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M8 4v16M8 9h13" /></svg>;
     if (name === "analysis") return <svg {...common}><path d="M4 19V5M4 19h16" /><path d="m7 15 4-5 3 3 5-7" /><circle cx="11" cy="10" r="1" /><circle cx="14" cy="13" r="1" /><circle cx="19" cy="6" r="1" /></svg>;
     if (name === "tools") return <svg {...common}><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2" /><circle cx="8" cy="17" r="2" /></svg>;
@@ -1237,12 +1240,17 @@ function MapWorkspaceView() {
                     <small>{points.length.toLocaleString()} 点 · {periodCount} 期</small>
                 </button>
                 <div className="workspace-view-toolbar" role="group" aria-label="地图视图操作">
-                    <label>显示<select aria-label="地图显示属性" value={attribute} onChange={e => setAttribute(e.target.value as RenderAttribute)}>{Object.entries(attributeNames).map(([key, name]) => <option key={key} value={key} disabled={(!hasTimeSeries && (key === "displacement" || key === "stageVelocity")) || (key === "coherence" && !hasCoherence) || (key === "mode" && !hasModes)}>{name}</option>)}</select></label>
-                    <label>选择<select aria-label="地图选择方式" value={selectionMode} onChange={e => chooseSelection(e.target.value as typeof selectionMode)}>
-                        <option value="single">单点查看</option><option value="compare">多点对比</option><option value="box">矩形框选</option><option value="polygon">多边形框选</option>
-                    </select></label>
-                    <button onClick={() => openLeft("layers")}>底图 / 图层</button>
-                    <button aria-pressed={swipeEnabled} disabled={!swipeEnabled && (!dataReady || !visible.points || !hasModes)} title="对照年均速率与已有形变模式；无分类数据时不可用" onClick={() => { if (!swipeEnabled) setSelectionMode("single"); setSwipeEnabled(value => !value); }}>{swipeEnabled ? "退出卷帘" : "卷帘对比"}</button>
+                    <WorkspaceSelect label="地图显示属性" value={attribute} onChange={setAttribute} icon={<MapToolIcon name="layers" />}
+                        options={Object.entries(attributeNames).map(([key, name]) => ({ value: key as RenderAttribute, label: name, disabled: (!hasTimeSeries && (key === "displacement" || key === "stageVelocity")) || (key === "coherence" && !hasCoherence) || (key === "mode" && !hasModes) }))} />
+                    <WorkspaceSelect label="地图选择方式" value={selectionMode} onChange={chooseSelection} icon={<MapToolIcon name="select" />}
+                        options={[
+                            { value: "single", label: "单点查看", description: "点击监测点，查看形变时序" },
+                            { value: "compare", label: "多点对比", description: "选择多个点，对照变化曲线" },
+                            { value: "box", label: "矩形框选", description: "拖拽框选，统计区域形变" },
+                            { value: "polygon", label: "多边形框选", description: "沿边界选区，分析目标范围" },
+                        ]} />
+                    <button className="workspace-view-action" onClick={() => openLeft("layers")}><MapToolIcon name="layers" /><span>底图 / 图层</span></button>
+                    <button className="workspace-view-action workspace-swipe-action" aria-pressed={swipeEnabled} disabled={!swipeEnabled && (!dataReady || !visible.points || !hasModes)} title="对照年均速率与已有形变模式；无分类数据时不可用" onClick={() => { if (!swipeEnabled) setSelectionMode("single"); setSwipeEnabled(value => !value); }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3" /><path d="M12 2v20M7 9v6M17 9v6" /></svg><span>{swipeEnabled ? "退出卷帘" : "卷帘对比"}</span></button>
                 </div>
                 {surface === "export" && <aside className="workspace-export-drawer" aria-label="导出材料">
                     <header className="panel-head"><span>导出材料</span><button aria-label="关闭导出" onClick={closeSurface}>×</button></header>

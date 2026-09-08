@@ -30,6 +30,10 @@ export function WorkspaceHeader({ active, onChange, onHelp }: {
       </button>)}
     </nav>
     <div className="workspace-header-utilities">
+      <Link className="workspace-home-link" href="/" aria-label={text("返回首页", "Back to home")}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7M5 9v11h5v-6h4v6h5V9" /></svg>
+        <span>{text("返回首页", "Home")}</span>
+      </Link>
       <button onClick={onHelp}>{text("帮助", "Help")}</button>
       <LanguageSwitch compact />
       <Link href={account ? "/datasets" : "/login"}>{account ? text("我的数据", "My data") : text("登录", "Sign in")}</Link>
