@@ -1,0 +1,126 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+.trigger {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid #c9e0ff;
+  border-radius: 50%;
+  background: #eef6ff;
+  color: #2474cc;
+  cursor: pointer;
+  touch-action: manipulation;
+  box-shadow: 0 2px 5px rgb(33 93 160 / 5%);
+  transition: color 140ms ease, background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.trigger:hover,
+.trigger[data-open] {
+  border-color: #247bf2;
+  background: #247bf2;
+  color: #fff;
+  box-shadow: 0 3px 10px rgb(36 123 242 / 18%);
+}
+
+.trigger:focus-visible {
+  outline: 3px solid #83bdff;
+  outline-offset: 3px;
+}
+
+.trigger svg {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.popup {
+  position: fixed;
+  z-index: 10000;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: 15px 17px;
+  border: 1px solid #c4ddfb;
+  border-radius: 13px;
+  background: linear-gradient(150deg, #f1f7ff, #fff 72%);
+  box-shadow: 0 10px 32px rgb(20 59 110 / 14%), 0 2px 6px rgb(20 59 110 / 5%);
+  color: #385372;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.75;
+  text-align: left;
+  letter-spacing: normal;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  animation: appear 120ms ease-out;
+}
+
+.popup::before {
+  position: absolute;
+  left: var(--hint-arrow-x);
+  width: 9px;
+  height: 9px;
+  border: solid #c4ddfb;
+  border-width: 1px 0 0 1px;
+  background: #f1f7ff;
+  content: "";
+  pointer-events: none;
+}
+
+.popup[data-placement="bottom"]::before {
+  top: -5px;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.popup[data-placement="top"]::before {
+  bottom: -5px;
+  background: #fff;
+  transform: translateX(-50%) rotate(225deg);
+}
+
+.title {
+  display: block;
+  margin-bottom: 5px;
+  color: #104888;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.content {
+  max-height: calc(100dvh - 96px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.content p {
+  margin: 0;
+}
+
+.content p + p {
+  margin-top: 7px;
+}
+
+@keyframes appear {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (pointer: coarse) {
+  .trigger { width: 36px; height: 36px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trigger { transition: none; }
+  .popup { animation: none; }
+}
