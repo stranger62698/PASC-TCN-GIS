@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, type PointerEvent } from "react";
+import { useChartWidth } from "../lib/use-chart-width";
 import type { InsarPoint } from "../data/site";
 import { colorForMode, deformationModeOrder, normalizedMode } from "../lib/analysis-context";
 import { aggregateAoiSeries, type AoiAggregateMethod } from "../lib/aoi-analysis";
@@ -27,9 +28,10 @@ export function AoiTimeSeriesChart({ points, exportBusy = false, onExportData, o
   const visibleGroups = availableGroups.filter(group => enabledModes.includes(group.mode));
   const allValues = [...series.overall, ...visibleGroups.flatMap(group => group.values)]
     .filter((value): value is number => value !== null && Number.isFinite(value));
+  const width = useChartWidth(svgRef, 420, Boolean(points.length && series.dates.length && allValues.length));
   if (!points.length || !series.dates.length || !allValues.length) return null;
 
-  const width = 420, height = 238, left = 51, right = 18, top = 20, bottom = 42;
+  const height = 260, left = 51, right = 18, top = 20, bottom = 42;
   const plotWidth = width - left - right, plotHeight = height - top - bottom;
   const minimum = Math.min(...allValues), maximum = Math.max(...allValues), range = maximum - minimum || 1;
   const x = (index: number) => left + index / Math.max(1, series.dates.length - 1) * plotWidth;
@@ -64,11 +66,11 @@ export function AoiTimeSeriesChart({ points, exportBusy = false, onExportData, o
             <line x1={left} y1={top} x2={left} y2={height - bottom} />
             <line x1={left} y1={height - bottom} x2={width - right} y2={height - bottom} />
             {yTicks.map((value, index) => <text key={index} x={left - 7} y={y(value) + 4} textAnchor="end">{value.toFixed(1)}</text>)}
-            {xTicks.map(index => <text key={index} x={x(index)} y={height - bottom + 17} textAnchor="middle">{axisDate(series.dates[index])}</text>)}
+            {xTicks.map(index => <text key={index} x={x(index)} y={height - bottom + 17} textAnchor={index === 0 ? "start" : index === series.dates.length - 1 ? "end" : "middle"}>{axisDate(series.dates[index])}</text>)}
             <text className="axis-title" transform={`translate(13 ${(top + height - bottom) / 2}) rotate(-90)`} textAnchor="middle">累计形变 (mm)</text>
           </g>
-          {visibleGroups.map(group => <polyline key={group.mode} className="aoi-mode-line" style={{ stroke: colorForMode(group.mode) }} points={linePoints(group.values)} />)}
-          <polyline className="aoi-overall-line" points={linePoints(series.overall)} />
+          {visibleGroups.map(group => <polyline fill="none" key={group.mode} className="aoi-mode-line" style={{ stroke: colorForMode(group.mode) }} points={linePoints(group.values)} />)}
+          <polyline fill="none" className="aoi-overall-line" points={linePoints(series.overall)} />
           {hoverIndex !== null && <>
             <line className="aoi-hover-line" x1={x(hoverIndex)} y1={top} x2={x(hoverIndex)} y2={height - bottom} />
             {series.overall[hoverIndex] !== null && <circle className="aoi-hover-point" cx={x(hoverIndex)} cy={y(series.overall[hoverIndex] as number)} r="4" />}

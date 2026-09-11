@@ -1,5 +1,7 @@
 "use client";
 import { WorkspaceSelect } from "./WorkspaceSelect";
+import { ResizableAnalysisPanel } from "./ResizableAnalysisPanel";
+import { useChartWidth } from "../lib/use-chart-width";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
@@ -211,7 +213,8 @@ function TimeSeriesChart({ point, showTrend, timeIndex, stageAnalysis, exportBus
     const hi = Math.max(...values);
     const range = hi - lo || 1;
     const count = Math.max(1, values.length - 1);
-    const width = 400, height = 250, left = 54, right = 18, top = 20, bottom = 46;
+    const width = useChartWidth(svgRef, 400);
+    const height = 260, left = 70, right = 18, top = 20, bottom = 46;
     const plotW = width - left - right, plotH = height - top - bottom;
     const x = (index: number) => left + (index / count) * plotW;
     const y = (value: number) => top + ((hi - value) / range) * plotH;
@@ -255,14 +258,14 @@ function TimeSeriesChart({ point, showTrend, timeIndex, stageAnalysis, exportBus
                     <line x1={left} y1={top} x2={left} y2={height - bottom} />
                     <line x1={left} y1={height - bottom} x2={width - right} y2={height - bottom} />
                     {yTicks.map((tick, index) => <g key={`yl-${index}`}><line x1={left - 4} y1={tick.pos} x2={left} y2={tick.pos} /><text x={left - 7} y={tick.pos + 4} textAnchor="end">{tick.value.toFixed(1)}</text></g>)}
-                    {xTicks.map((tick, index) => <g key={`xl-${index}`}><line x1={x(tick)} y1={height - bottom} x2={x(tick)} y2={height - bottom + 4} /><text x={x(tick)} y={height - bottom + 16} textAnchor="middle">{axisDate(dates[tick] || String(tick))}</text></g>)}
+                    {xTicks.map((tick, index) => <g key={`xl-${index}`}><line x1={x(tick)} y1={height - bottom} x2={x(tick)} y2={height - bottom + 4} /><text x={x(tick)} y={height - bottom + 16} textAnchor={index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle"}>{axisDate(dates[tick] || String(tick))}</text></g>)}
                     <text className="axis-title" x={(left + width - right) / 2} y={height - 7} textAnchor="middle">观测日期</text>
                     <text className="axis-title" transform={`translate(14 ${(top + height - bottom) / 2}) rotate(-90)`} textAnchor="middle">累计形变 (mm)</text>
                 </g>
                 {zeroVisible && <line className="chart-zero-line" x1={left} y1={y(0)} x2={width - right} y2={y(0)} />}
-                {showTrend && <polyline className="trend-line" points={trend} />}
+                {showTrend && <polyline fill="none" className="trend-line" points={trend} />}
                 {changeVisible && <g className="chart-change-point"><line x1={changeX} y1={top} x2={changeX} y2={height - bottom} /><text x={Math.min(width - right - 4, changeX + 5)} y={top + 13}>候选变化点 {stageAnalysis?.changeDate}</text></g>}
-                <polyline className="data-line" points={points} />
+                <polyline fill="none" className="data-line" points={points} />
                 {values.map((value, index) => (index % dotStep === 0 || index === count) ? <circle className="observed-dot" key={index} cx={x(index)} cy={y(value)} r="2.2" /> : null)}
                 {currentVisible && <circle className="current-time-dot" cx={x(currentLocalIndex)} cy={y(values[currentLocalIndex] ?? values.at(-1) ?? 0)} r="3.6" />}
                 <rect className="chart-hit-area" x={left} y={top} width={plotW} height={plotH} />
@@ -301,12 +304,13 @@ function CompareChart({ points, exportBusy, onExportData, onExportChart }: {
     onExportChart: (svg: SVGSVGElement) => void;
 }) {
     const shown = points.slice(0, MAX_COMPARE_POINTS), [hoverIndex, setHoverIndex] = useState<number | null>(null), svgRef = useRef<SVGSVGElement>(null), values = shown.flatMap(p => p.series).filter(Number.isFinite);
+    const width = useChartWidth(svgRef, 400, Boolean(shown.length && values.length));
     if (!shown.length || !values.length) return null;
-    const lo = Math.min(...values), hi = Math.max(...values), range = hi - lo || 1, width = 400, height = 235, left = 54, right = 18, top = 18, bottom = 44, plotW = width - left - right, plotH = height - top - bottom, maxCount = Math.max(1, ...shown.map(p => p.series.length - 1)), x = (i: number, count: number) => left + (i / Math.max(1, count)) * plotW, y = (v: number) => top + ((hi - v) / range) * plotH, yTicks = Array.from({ length: 5 }, (_, i) => ({ value: hi - (range * i) / 4, pos: top + (plotH * i) / 4 })), xTicks = Array.from({ length: 5 }, (_, i) => Math.round((maxCount * i) / 4)), dates = shown[0]?.dates || demoDates.slice(0, shown[0]?.series.length || 0);
-    const pointerMove = (event: ReactPointerEvent<SVGSVGElement>) => { const rect = event.currentTarget.getBoundingClientRect(), ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)); setHoverIndex(Math.round(ratio * maxCount)); };
+    const lo = Math.min(...values), hi = Math.max(...values), range = hi - lo || 1, height = 260, left = 70, right = 18, top = 18, bottom = 44, plotW = width - left - right, plotH = height - top - bottom, maxCount = Math.max(1, ...shown.map(p => p.series.length - 1)), x = (i: number, count: number) => left + (i / Math.max(1, count)) * plotW, y = (v: number) => top + ((hi - v) / range) * plotH, yTicks = Array.from({ length: 5 }, (_, i) => ({ value: hi - (range * i) / 4, pos: top + (plotH * i) / 4 })), xTicks = Array.from({ length: 5 }, (_, i) => Math.round((maxCount * i) / 4)), dates = shown[0]?.dates || demoDates.slice(0, shown[0]?.series.length || 0);
+    const pointerMove = (event: ReactPointerEvent<SVGSVGElement>) => { const rect = event.currentTarget.getBoundingClientRect(), ratio = Math.max(0, Math.min(1, (((event.clientX - rect.left) / rect.width) * width - left) / plotW)); setHoverIndex(Math.round(ratio * maxCount)); };
     const pointIndexAtHover = (point: InsarPoint) => Math.round(((hoverIndex ?? 0) / maxCount) * Math.max(0, point.series.length - 1));
     const hoverDate = hoverIndex === null ? "" : dates[Math.round((hoverIndex / maxCount) * Math.max(0, dates.length - 1))] || `第 ${hoverIndex + 1} 期`;
-    return <div className="compare-chart"><svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="最多五点累计形变时序对比，横轴为观测日期，纵轴为累计形变毫米" onPointerMove={pointerMove} onPointerLeave={() => setHoverIndex(null)}><g className="chart-grid">{yTicks.map((tick, i) => <line key={`y-${i}`} x1={left} y1={tick.pos} x2={width - right} y2={tick.pos}/>)}{xTicks.map((tick, i) => <line key={`x-${i}`} x1={x(tick, maxCount)} y1={top} x2={x(tick, maxCount)} y2={height - bottom}/>)}</g><g className="chart-axes"><line x1={left} y1={top} x2={left} y2={height - bottom}/><line x1={left} y1={height - bottom} x2={width - right} y2={height - bottom}/>{yTicks.map((tick, i) => <text key={i} x={left - 7} y={tick.pos + 4} textAnchor="end">{tick.value.toFixed(1)}</text>)}{xTicks.map((tick, i) => <text key={i} x={x(tick, maxCount)} y={height - bottom + 16} textAnchor="middle">{axisDate(dates[Math.round((tick / maxCount) * Math.max(0, dates.length - 1))] || String(tick))}</text>)}<text className="axis-title" x={(left + width - right) / 2} y={height - 6} textAnchor="middle">观测日期</text><text className="axis-title" transform={`translate(14 ${(top + height - bottom) / 2}) rotate(-90)`} textAnchor="middle">累计形变 (mm)</text></g>{shown.map((p, j) => <polyline key={p.id} style={{ stroke: comparisonColor(j) }} points={p.series.map((v, i) => `${x(i, p.series.length - 1)},${y(v)}`).join(" ")}/>)}{hoverIndex !== null && <g className="compare-hover"><line x1={x(hoverIndex, maxCount)} y1={top} x2={x(hoverIndex, maxCount)} y2={height - bottom}/>{shown.map((point, index) => { const value = point.series[pointIndexAtHover(point)]; return Number.isFinite(value) ? <circle key={point.id} cx={x(pointIndexAtHover(point), point.series.length - 1)} cy={y(value)} r="3.8" style={{ fill: comparisonColor(index) }}/> : null; })}</g>}</svg><div className="compare-legend">{shown.map((p, j) => <span key={p.id}><i style={{ background: comparisonColor(j) }}/>{p.id}</span>)}</div>{hoverIndex !== null && <div className="compare-hover-readout"><b>{hoverDate}</b>{shown.map((point, index) => { const value = point.series[pointIndexAtHover(point)]; return <span key={point.id}><i style={{ background: comparisonColor(index) }}/>{point.id}<strong>{Number.isFinite(value) ? `${value.toFixed(1)} mm` : "—"}</strong></span>; })}</div>}<div className="chart-export-actions"><button disabled={exportBusy} onClick={onExportData}>导出对比数据 CSV</button><button disabled={exportBusy} onClick={() => svgRef.current && onExportChart(svgRef.current)}>导出对比图 PNG</button></div></div>;
+    return <div className="compare-chart"><svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="最多五点累计形变时序对比，横轴为观测日期，纵轴为累计形变毫米" onPointerMove={pointerMove} onPointerLeave={() => setHoverIndex(null)}><g className="chart-grid">{yTicks.map((tick, i) => <line key={`y-${i}`} x1={left} y1={tick.pos} x2={width - right} y2={tick.pos}/>)}{xTicks.map((tick, i) => <line key={`x-${i}`} x1={x(tick, maxCount)} y1={top} x2={x(tick, maxCount)} y2={height - bottom}/>)}</g><g className="chart-axes"><line x1={left} y1={top} x2={left} y2={height - bottom}/><line x1={left} y1={height - bottom} x2={width - right} y2={height - bottom}/>{yTicks.map((tick, i) => <text key={i} x={left - 7} y={tick.pos + 4} textAnchor="end">{tick.value.toFixed(1)}</text>)}{xTicks.map((tick, i) => <text key={i} x={x(tick, maxCount)} y={height - bottom + 16} textAnchor={i === 0 ? "start" : i === xTicks.length - 1 ? "end" : "middle"}>{axisDate(dates[Math.round((tick / maxCount) * Math.max(0, dates.length - 1))] || String(tick))}</text>)}<text className="axis-title" x={(left + width - right) / 2} y={height - 6} textAnchor="middle">观测日期</text><text className="axis-title" transform={`translate(14 ${(top + height - bottom) / 2}) rotate(-90)`} textAnchor="middle">累计形变 (mm)</text></g>{shown.map((p, j) => <polyline key={p.id} fill="none" style={{ stroke: comparisonColor(j) }} points={p.series.map((v, i) => `${x(i, p.series.length - 1)},${y(v)}`).join(" ")}/>)}{hoverIndex !== null && <g className="compare-hover"><line x1={x(hoverIndex, maxCount)} y1={top} x2={x(hoverIndex, maxCount)} y2={height - bottom}/>{shown.map((point, index) => { const value = point.series[pointIndexAtHover(point)]; return Number.isFinite(value) ? <circle key={point.id} cx={x(pointIndexAtHover(point), point.series.length - 1)} cy={y(value)} r="3.8" style={{ fill: comparisonColor(index) }}/> : null; })}</g>}</svg><div className="compare-legend">{shown.map((p, j) => <span key={p.id}><i style={{ background: comparisonColor(j) }}/>{p.id}</span>)}</div>{hoverIndex !== null && <div className="compare-hover-readout"><b>{hoverDate}</b>{shown.map((point, index) => { const value = point.series[pointIndexAtHover(point)]; return <span key={point.id}><i style={{ background: comparisonColor(index) }}/>{point.id}<strong>{Number.isFinite(value) ? `${value.toFixed(1)} mm` : "—"}</strong></span>; })}</div>}<div className="chart-export-actions"><button disabled={exportBusy} onClick={onExportData}>导出对比数据 CSV</button><button disabled={exportBusy} onClick={() => svgRef.current && onExportChart(svgRef.current)}>导出对比图 PNG</button></div></div>;
 }
 export function MapWorkspace() {
     return <AnalysisProvider><MapWorkspaceView /></AnalysisProvider>;
@@ -1196,7 +1200,7 @@ function MapWorkspaceView() {
         setLeftTab("layers");
         if (bounds) setMapFocus({ bounds: [bounds.west, bounds.south, bounds.east, bounds.north], token: Date.now() });
     };
-    const shellStyle = { "--drawer-width": surface && !(surface === "left" && leftTab === "data") ? "380px" : "0px" } as CSSProperties, currentValue = selected ? (selected.series[Math.min(timeIndex, selected.series.length - 1)] ?? selected.displacement) : 0;
+    const shellStyle = { "--drawer-width": surface && !(surface === "left" && leftTab === "data") ? surface === "right" ? "var(--analysis-panel-width, 380px)" : "380px" : "0px" } as CSSProperties, currentValue = selected ? (selected.series[Math.min(timeIndex, selected.series.length - 1)] ?? selected.displacement) : 0;
     const selectedInsight = selected ? buildPointInsight(selected, coherenceThreshold) : null;
     const selectedStageAnalysis = selected && selected.series.length >= 2 ? deriveTemporalStageAnalysis(selected) : null;
     const selectedTopTwo = selected ? topPascCandidates(selected.pasc) : [];
@@ -1467,7 +1471,7 @@ function MapWorkspaceView() {
                     onFieldPhotoOpen={openFieldPhoto}
                 />
 
-                <aside className={"gis-detail phase-two-detail analysis-workbench-panel workspace-task-drawer " + (rightCollapsed ? "is-collapsed" : "")}>
+                <ResizableAnalysisPanel collapsed={rightCollapsed} label={rightTaskTitles[rightTab]} className={"gis-detail phase-two-detail analysis-workbench-panel workspace-task-drawer " + (rightCollapsed ? "is-collapsed" : "")}>
                     <div className="panel-head"><span>{rightTaskTitles[rightTab]}</span><button aria-label="关闭分析结果" onClick={closeSurface}>×</button></div>
                     {rightTab === "action" ? inspectionNavigation : analysisNavigation}
                     {rightTab === "point" && (
@@ -1720,7 +1724,7 @@ function MapWorkspaceView() {
                             </section>
                         </div>
                     )}
-                </aside>
+                </ResizableAnalysisPanel>
             </section>
 
             <section className="workspace-print-summary">

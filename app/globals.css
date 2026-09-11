@@ -1225,3 +1225,21 @@ h1,h2,h3,h4,h5,h6,.site-brand b{font-family:var(--font-title);font-weight:700}
 .compact-home-cta>div{margin-top:28px}
 @media(max-width:760px){.case-gallery-heading{gap:20px;margin-bottom:26px}.case-gallery-heading>.home-browse-hint{padding-bottom:0}}
 @media(max-width:620px){.hero-method-badge{grid-template-columns:54px minmax(0,1fr) auto;gap:10px;padding:13px}.hero-method-badge b{font-size:14px}}
+
+/* The right analysis drawer can expand without rescaling chart typography. */
+@media(min-width:768px){
+ .map-route-shell .navigation-workspace .gis-detail.workspace-task-drawer{width:var(--analysis-panel-width,380px)}
+ .analysis-panel-resizer{position:absolute;z-index:950;top:0;bottom:0;right:calc(var(--analysis-panel-width,380px) - 6px);width:12px;cursor:col-resize;touch-action:none;outline:none}
+ .analysis-panel-resizer:before{content:"";position:absolute;inset:0 4px;background:transparent;transition:background .15s}
+ .analysis-panel-resizer>span{position:absolute;top:50%;left:3px;width:6px;height:64px;border:1px solid #b7d3f4;border-radius:8px;background:#e5f1ff;transform:translateY(-50%);box-shadow:0 2px 6px #1b66bb14}
+ .analysis-panel-resizer:hover:before,.analysis-panel-resizer:focus-visible:before,.analysis-panel-resizer.is-dragging:before{background:#85baff}
+ .analysis-panel-resizer:hover>span,.analysis-panel-resizer:focus-visible>span,.analysis-panel-resizer.is-dragging>span{background:#1677ff;border-color:#1677ff}
+ .analysis-panel-resizer:focus-visible>span{outline:3px solid #a8d0ff;outline-offset:3px}
+}
+@media(max-width:767px){.analysis-panel-resizer{display:none}}
+@media print{.analysis-panel-resizer{display:none!important}}
+
+@media(min-width:768px){.has-task-drawer .workspace-view-toolbar{flex-wrap:wrap}}
+@media(min-width:768px) and (max-width:1500px){.has-task-drawer .workspace-view-toolbar{max-width:calc(100% - var(--drawer-width) - 32px)}}
+
+.analysis-workbench-panel .aoi-series-plot svg{height:auto}

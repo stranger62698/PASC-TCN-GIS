@@ -112,21 +112,55 @@ export function downloadText(content: string, filename: string, type = "text/pla
   URL.revokeObjectURL(url);
 }
 
-function readableStyles() {
-  return [...document.styleSheets].flatMap(sheet => {
-    try { return [...sheet.cssRules].map(rule => rule.cssText); }
-    catch { return []; }
-  }).join("\n");
+// SVG exports have no surrounding page: resolve ancestor selectors and CSS variables
+// before cloning so curves, axes and translucent regions keep their actual appearance.
+const svgPresentationProperties = [
+  "color", "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity",
+  "stroke-dasharray", "stroke-dashoffset", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit",
+  "opacity", "vector-effect", "paint-order", "font-family", "font-size", "font-weight", "font-style",
+  "font-variant", "letter-spacing", "word-spacing", "text-anchor", "dominant-baseline", "alignment-baseline",
+  "text-decoration", "visibility", "display", "shape-rendering", "text-rendering",
+] as const;
+
+export function cloneSvgForExport(svg: SVGSVGElement) {
+  const clone = svg.cloneNode(true) as SVGSVGElement;
+  const originals = [svg, ...svg.querySelectorAll<SVGElement>("*")];
+  const copies = [clone, ...clone.querySelectorAll<SVGElement>("*")];
+  originals.forEach((node, index) => {
+    const computed = getComputedStyle(node);
+    const target = copies[index];
+    if (!target?.style) return;
+    svgPresentationProperties.forEach(property => {
+      const value = computed.getPropertyValue(property);
+      if (value) target.style.setProperty(property, value);
+    });
+  });
+  // Live hover overlays are interaction feedback, not part of an exported result.
+  clone.querySelectorAll("style,.chart-hover,.compare-hover,.aoi-hover-line,.aoi-hover-point").forEach(node => node.remove());
+  const viewBox = svg.viewBox.baseVal, rect = svg.getBoundingClientRect();
+  const originalWidth = Math.max(1, viewBox.width || rect.width || 800);
+  const originalHeight = Math.max(1, viewBox.height || rect.height || 450);
+  let minX = viewBox.x || 0, minY = viewBox.y || 0;
+  let maxX = minX + originalWidth, maxY = minY + originalHeight;
+  try {
+    const bounds = svg.getBBox();
+    if ([bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite)) {
+      minX = Math.min(minX, bounds.x); minY = Math.min(minY, bounds.y);
+      maxX = Math.max(maxX, bounds.x + bounds.width); maxY = Math.max(maxY, bounds.y + bounds.height);
+    }
+  } catch { /* A detached SVG can still export using its declared viewBox. */ }
+  const padding = 8, width = maxX - minX + padding * 2, height = maxY - minY + padding * 2;
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("viewBox", `${minX - padding} ${minY - padding} ${width} ${height}`);
+  clone.setAttribute("width", String(width)); clone.setAttribute("height", String(height));
+  clone.style.removeProperty("width"); clone.style.removeProperty("height");
+  clone.style.removeProperty("max-width"); clone.style.removeProperty("max-height");
+  return { clone, width, height };
 }
 
 export async function downloadSvgPng(svg: SVGSVGElement, filename: string, scale = 2) {
-  const clone = svg.cloneNode(true) as SVGSVGElement;
-  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-  const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
-  style.textContent = readableStyles();
-  clone.prepend(style);
-  const viewBox = svg.viewBox.baseVal, rect = svg.getBoundingClientRect(), width = Math.max(1, viewBox.width || rect.width || 800), height = Math.max(1, viewBox.height || rect.height || 450);
-  clone.setAttribute("width", String(width)); clone.setAttribute("height", String(height));
+  await document.fonts?.ready;
+  const { clone, width, height } = cloneSvgForExport(svg);
   const source = new XMLSerializer().serializeToString(clone), url = URL.createObjectURL(new Blob([source], { type: "image/svg+xml;charset=utf-8" }));
   try {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => { const next = new Image(), timer = window.setTimeout(() => reject(new Error("图表导出超时，请重试")), 8000); next.onload = () => { window.clearTimeout(timer); resolve(next); }; next.onerror = () => { window.clearTimeout(timer); reject(new Error("图表图像编码失败")); }; next.src = url; });
