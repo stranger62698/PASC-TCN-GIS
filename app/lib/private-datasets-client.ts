@@ -1,7 +1,42 @@
 export const PRIVATE_DATASET_ENDPOINT = "/api/private-datasets";
 export const PRIVATE_DATASET_CHUNK_SIZE = 4 * 1024 * 1024;
 
-type ErrorBody = { error?: unknown };
+type ErrorBody = { error?: unknown; code?: unknown; retryable?: unknown; requestId?: unknown };
+
+export class PrivateDatasetRequestError extends Error {
+  status: number;
+  code: string;
+  retryable: boolean;
+  requestId?: string;
+  constructor(message: string, status: number, code: string, retryable: boolean, requestId?: string) {
+    super(message);
+    this.name = "PrivateDatasetRequestError";
+    this.status = status;
+    this.code = code;
+    this.retryable = retryable;
+    this.requestId = requestId;
+  }
+}
+
+function responseError(response: Response, fallback: string, body?: ErrorBody | null) {
+  const nested = body?.error && typeof body.error === "object" ? body.error as { message?: unknown; code?: unknown; retryable?: unknown } : null;
+  const serverMessage = typeof body?.error === "string" ? body.error : nested?.message;
+  const code = body?.code ?? nested?.code;
+  const inferredCode = response.status === 401 ? "PRIVATE_DATASET_AUTH_REQUIRED" : response.status === 404 ? "PRIVATE_DATASET_ENDPOINT_MISSING" : "PRIVATE_DATASET_REQUEST_FAILED";
+  const message = typeof serverMessage === "string" && serverMessage.trim() ? serverMessage : response.status === 401 ? "登录状态已过期，请重新登录后重试；当前文件和字段映射仍保留。" : response.status === 404 ? `${fallback}：生产接口不存在或尚未部署。` : `${fallback}（HTTP ${response.status}）。`;
+  return new PrivateDatasetRequestError(message, response.status,
+    typeof code === "string" && /^[A-Z][A-Z0-9_]{2,80}$/.test(code) ? code : inferredCode,
+    typeof (body?.retryable ?? nested?.retryable) === "boolean" ? Boolean(body?.retryable ?? nested?.retryable) : response.status === 408 || response.status === 429 || response.status >= 500,
+    typeof body?.requestId === "string" ? body.requestId.slice(0, 100) : undefined);
+}
+
+async function privateDatasetFetch(fetchImpl: typeof fetch, url: string, init: RequestInit): Promise<Response> {
+  try { return await fetchImpl(url, init); }
+  catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    throw new PrivateDatasetRequestError("无法连接云端数据服务，请检查网络后重试；当前文件和字段映射仍保留。", 0, "PRIVATE_DATASET_NETWORK_UNAVAILABLE", true);
+  }
+}
 
 export function privateDatasetUrl(parameters: Record<string, string | number>) {
   const query = new URLSearchParams(Object.entries(parameters).map(([key, value]) => [key, String(value)]));
@@ -14,20 +49,19 @@ export async function readPrivateDatasetResponse<T>(response: Response, fallback
   if (text) {
     try { body = JSON.parse(text) as unknown; }
     catch {
-      if (!response.ok) throw new Error(response.status === 404 ? `${fallback}：生产接口不存在或尚未部署。` : fallback);
-      throw new Error(`${fallback}：服务返回了无效数据。`);
+      if (!response.ok) throw responseError(response, fallback);
+      throw new PrivateDatasetRequestError(`${fallback}：服务返回了无效数据。`, response.status, "PRIVATE_DATASET_RESPONSE_INVALID", true);
     }
   }
   if (!response.ok) {
-    const error = body && typeof body === "object" ? (body as ErrorBody).error : null;
-    throw new Error(typeof error === "string" && error.trim() ? error : fallback);
+    throw responseError(response, fallback, body && typeof body === "object" && !Array.isArray(body) ? body as ErrorBody : null);
   }
-  if (!body || typeof body !== "object") throw new Error(`${fallback}：服务没有返回有效数据。`);
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new PrivateDatasetRequestError(`${fallback}：服务没有返回有效数据。`, response.status, "PRIVATE_DATASET_RESPONSE_INVALID", true);
   return body as T;
 }
 
 export async function listPrivateDatasets<T>(fetchImpl: typeof fetch = fetch) {
-  const response = await fetchImpl(privateDatasetUrl({ op: "list" }), { credentials: "include", cache: "no-store" });
+  const response = await privateDatasetFetch(fetchImpl, privateDatasetUrl({ op: "list" }), { credentials: "include", cache: "no-store" });
   return readPrivateDatasetResponse<T>(response, "私有数据服务暂时不可用");
 }
 
@@ -37,7 +71,7 @@ export async function uploadPrivateDatasetChunk(
   body: Blob,
   fetchImpl: typeof fetch = fetch,
 ) {
-  const response = await fetchImpl(privateDatasetUrl({ op: "chunk", id: datasetId, index }), {
+  const response = await privateDatasetFetch(fetchImpl, privateDatasetUrl({ op: "chunk", id: datasetId, index }), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/octet-stream" },
@@ -51,7 +85,7 @@ export async function completePrivateDataset<T>(
   metadata: Record<string, unknown>,
   fetchImpl: typeof fetch = fetch,
 ) {
-  const response = await fetchImpl(privateDatasetUrl({ op: "complete", id: datasetId }), {
+  const response = await privateDatasetFetch(fetchImpl, privateDatasetUrl({ op: "complete", id: datasetId }), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -65,7 +99,7 @@ export async function patchPrivateDataset<T>(
   patch: Record<string, unknown>,
   fetchImpl: typeof fetch = fetch,
 ) {
-  const response = await fetchImpl(privateDatasetUrl({ id: datasetId }), {
+  const response = await privateDatasetFetch(fetchImpl, privateDatasetUrl({ id: datasetId }), {
     method: "PATCH",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -75,7 +109,7 @@ export async function patchPrivateDataset<T>(
 }
 
 export async function deletePrivateDataset(datasetId: string, fetchImpl: typeof fetch = fetch) {
-  const response = await fetchImpl(privateDatasetUrl({ id: datasetId }), { method: "DELETE", credentials: "include" });
+  const response = await privateDatasetFetch(fetchImpl, privateDatasetUrl({ id: datasetId }), { method: "DELETE", credentials: "include" });
   return readPrivateDatasetResponse<{ ok: true }>(response, "数据集删除失败");
 }
 
@@ -84,7 +118,7 @@ export async function readPrivateDatasetSource(datasetId: string, chunks: number
   const pieces: Uint8Array[] = [];
   let totalBytes = 0;
   for (let index = 0; index < chunks; index += 1) {
-    const response = await fetchImpl(privateDatasetUrl({ op: "chunk", id: datasetId, index }), { credentials: "include", cache: "no-store" });
+    const response = await privateDatasetFetch(fetchImpl, privateDatasetUrl({ op: "chunk", id: datasetId, index }), { credentials: "include", cache: "no-store" });
     if (!response.ok) {
       await readPrivateDatasetResponse(response, `第 ${index + 1} 个分块读取失败`);
       throw new Error(`第 ${index + 1} 个分块读取失败`);

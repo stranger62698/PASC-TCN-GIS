@@ -5,6 +5,7 @@ export type AnomalyRegionParameters = {
   radiusMeters: number;
   minimumPoints: number;
   maximumCandidates?: number;
+  sameDirection?: boolean;
 };
 
 export type AnomalyRegion = {
@@ -27,6 +28,7 @@ export type AnomalyRegion = {
   clearSubsidenceCount: number;
   acceleratingCount: number;
   piecewiseCount: number;
+  direction?: "negative" | "positive" | "mixed";
 };
 
 export type AnomalyRegionResult = {
@@ -46,6 +48,7 @@ const clampParameters = (parameters: AnomalyRegionParameters): Required<AnomalyR
   radiusMeters: Math.max(25, Math.min(5_000, Number.isFinite(parameters.radiusMeters) ? parameters.radiusMeters : 200)),
   minimumPoints: Math.max(2, Math.min(50, Math.round(Number.isFinite(parameters.minimumPoints) ? parameters.minimumPoints : 3))),
   maximumCandidates: Math.max(1_000, parameters.maximumCandidates ?? DEFAULT_MAXIMUM_CANDIDATES),
+  sameDirection: parameters.sameDirection ?? false,
 });
 
 function cross(origin: AoiCoordinate, first: AoiCoordinate, second: AoiCoordinate) {
@@ -90,9 +93,10 @@ export function buildAnomalyRegions(
   parameters: AnomalyRegionParameters,
   timeIndex: number,
   modeForPoint: (point: InsarPoint) => string = point => point.mode || "未分类",
+  currentValueForPoint: (point: InsarPoint) => number = point => point.series[timeIndex],
 ): AnomalyRegionResult {
   const resolved = clampParameters(parameters);
-  const method = `网格索引密度连通：邻域半径 ${resolved.radiusMeters} m，核心点至少 ${resolved.minimumPoints} 个；边界为候选点凸包。`;
+  const method = `DBSCAN 密度连通：球面邻域半径 ${resolved.radiusMeters} m，核心邻域至少 ${resolved.minimumPoints} 个不同坐标点（含自身）${resolved.sameDirection ? "，正负方向分别聚集" : ""}；边界为候选点凸包。`;
   if (candidates.length > resolved.maximumCandidates) {
     return { status: "too_large", candidateCount: candidates.length, assignedPointCount: 0, noisePointCount: candidates.length, regions: [], parameters: resolved, method };
   }
@@ -100,71 +104,98 @@ export function buildAnomalyRegions(
     return { status: "ready", candidateCount: 0, assignedPointCount: 0, noisePointCount: 0, regions: [], parameters: resolved, method };
   }
 
-  const ordered = [...candidates].sort((a, b) => a.lon - b.lon || a.lat - b.lat || a.id.localeCompare(b.id));
-  const referenceLatitude = ordered.reduce((sum, point) => sum + point.lat, 0) / ordered.length;
-  const metersPerLongitudeDegree = 111_320 * Math.max(.1, Math.cos(referenceLatitude * Math.PI / 180));
-  const projected = ordered.map(point => ({ x: point.lon * metersPerLongitudeDegree, y: point.lat * METERS_PER_LATITUDE_DEGREE }));
-  const cells = new Map<string, number[]>();
-  projected.forEach((point, index) => {
-    const key = `${Math.floor(point.x / resolved.radiusMeters)}:${Math.floor(point.y / resolved.radiusMeters)}`;
-    const bucket = cells.get(key);
-    if (bucket) bucket.push(index);
-    else cells.set(key, [index]);
+  const ordered = candidates.filter(point => Number.isFinite(point.lon) && Number.isFinite(point.lat)
+    && Math.abs(point.lon) <= 180 && Math.abs(point.lat) <= 90)
+    .sort((a, b) => a.lon - b.lon || a.lat - b.lat || a.id.localeCompare(b.id));
+  // Co-located observations share one density vote; retain every observation in output.
+  const siteMap = new Map<string, InsarPoint[]>();
+  for (const point of ordered) {
+    const key = `${point.lon}:${point.lat}:${resolved.sameDirection ? Math.sign(point.velocity) : 0}`;
+    const observations = siteMap.get(key);
+    if (observations) observations.push(point);
+    else siteMap.set(key, [point]);
+  }
+  const sites = [...siteMap.values()];
+  // A 3D sphere grid avoids latitude distortion and handles the date line.
+  const earthRadius = 6_371_008.8;
+  const chordRadius = 2 * earthRadius * Math.sin(resolved.radiusMeters / (2 * earthRadius));
+  const projected = sites.map(([point]) => {
+    const latitude = point.lat * Math.PI / 180, longitude = point.lon * Math.PI / 180;
+    const x = earthRadius * Math.cos(latitude) * Math.cos(longitude);
+    const y = earthRadius * Math.cos(latitude) * Math.sin(longitude);
+    const z = earthRadius * Math.sin(latitude);
+    return { x, y, z, cellX: Math.floor(x / chordRadius), cellY: Math.floor(y / chordRadius), cellZ: Math.floor(z / chordRadius), direction: resolved.sameDirection ? Math.sign(point.velocity) : 0 };
   });
-  const neighbors = (index: number) => {
-    const point = projected[index], cellX = Math.floor(point.x / resolved.radiusMeters), cellY = Math.floor(point.y / resolved.radiusMeters);
-    const found: number[] = [];
-    for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
-      for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
-        (cells.get(`${cellX + offsetX}:${cellY + offsetY}`) || []).forEach(candidateIndex => {
-          const candidate = projected[candidateIndex];
-          if (Math.hypot(point.x - candidate.x, point.y - candidate.y) <= resolved.radiusMeters) found.push(candidateIndex);
-        });
+  const cellKey = (index: number) => {
+    const point = projected[index];
+    return `${point.cellX}:${point.cellY}:${point.cellZ}:${point.direction}`;
+  };
+  const cells = new Map<string, Set<number>>();
+  projected.forEach((_, index) => {
+    const key = cellKey(index), bucket = cells.get(key);
+    if (bucket) bucket.add(index);
+    else cells.set(key, new Set([index]));
+  });
+  const neighbors = (index: number, buckets = cells, limit = Infinity) => {
+    const point = projected[index], found: number[] = [];
+    for (let dx = -1; dx <= 1; dx += 1) {
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dz = -1; dz <= 1; dz += 1) {
+          const bucket = buckets.get(`${point.cellX + dx}:${point.cellY + dy}:${point.cellZ + dz}:${point.direction}`);
+          if (!bucket) continue;
+          for (const candidateIndex of bucket) {
+            const candidate = projected[candidateIndex];
+            if ((point.x - candidate.x) ** 2 + (point.y - candidate.y) ** 2 + (point.z - candidate.z) ** 2 <= chordRadius ** 2) {
+              found.push(candidateIndex);
+              if (found.length >= limit) return found;
+            }
+          }
+        }
       }
     }
-    return found.sort((a, b) => a - b);
+    return found;
   };
-
-  const labels = Array(ordered.length).fill(-1);
-  const noise = -2;
+  const core = sites.map((_, index) => neighbors(index, cells, resolved.minimumPoints).length >= resolved.minimumPoints);
+  const unvisitedCore = new Map<string, Set<number>>();
+  core.forEach((isCore, index) => {
+    if (!isCore) return;
+    const key = cellKey(index), bucket = unvisitedCore.get(key);
+    if (bucket) bucket.add(index);
+    else unvisitedCore.set(key, new Set([index]));
+  });
+  const labels: number[] = Array(sites.length).fill(-1);
   let clusterIndex = 0;
-  ordered.forEach((_, pointIndex) => {
-    if (labels[pointIndex] !== -1) return;
-    const firstNeighbors = neighbors(pointIndex);
-    if (firstNeighbors.length < resolved.minimumPoints) {
-      labels[pointIndex] = noise;
-      return;
-    }
-    labels[pointIndex] = clusterIndex;
-    const queue = [...firstNeighbors];
-    const queued = new Set(queue);
+  core.forEach((isCore, index) => {
+    if (!isCore || labels[index] >= 0) return;
+    labels[index] = clusterIndex;
+    unvisitedCore.get(cellKey(index))?.delete(index);
+    const queue = [index];
     for (let cursor = 0; cursor < queue.length; cursor += 1) {
-      const neighborIndex = queue[cursor];
-      if (labels[neighborIndex] === noise) labels[neighborIndex] = clusterIndex;
-      if (labels[neighborIndex] !== -1) continue;
-      labels[neighborIndex] = clusterIndex;
-      const nextNeighbors = neighbors(neighborIndex);
-      if (nextNeighbors.length < resolved.minimumPoints) continue;
-      nextNeighbors.forEach(nextIndex => {
-        if (!queued.has(nextIndex)) {
-          queued.add(nextIndex);
-          queue.push(nextIndex);
-        }
-      });
+      for (const neighbor of neighbors(queue[cursor], unvisitedCore)) {
+        labels[neighbor] = clusterIndex;
+        unvisitedCore.get(cellKey(neighbor))?.delete(neighbor);
+        queue.push(neighbor);
+      }
     }
     clusterIndex += 1;
   });
-
+  // Border points never connect two core components; ties are deterministic.
+  core.forEach((isCore, index) => {
+    if (isCore) return;
+    const adjacentClusters = neighbors(index).filter(neighbor => core[neighbor]).map(neighbor => labels[neighbor]);
+    if (adjacentClusters.length) labels[index] = Math.min(...adjacentClusters);
+  });
   const clustered = Array.from({ length: clusterIndex }, () => [] as InsarPoint[]);
-  labels.forEach((label, index) => { if (label >= 0) clustered[label].push(ordered[index]); });
+  labels.forEach((label, index) => { if (label >= 0) clustered[label].push(...sites[index]); });
   const spatiallyOrdered = clustered
+    .filter(points => new Set(points.map(point => `${point.lon}:${point.lat}`)).size >= resolved.minimumPoints)
     .map(points => ({ points, centroid: [points.reduce((sum, point) => sum + point.lon, 0) / points.length, points.reduce((sum, point) => sum + point.lat, 0) / points.length] as AoiCoordinate }))
     .sort((a, b) => b.centroid[1] - a.centroid[1] || a.centroid[0] - b.centroid[0]);
   const regions = spatiallyOrdered.map(({ points, centroid }, index): AnomalyRegion => {
     const geometry = clusterGeometry(points, resolved.radiusMeters);
     const areaKm2 = aoiAreaKm2(geometry) ?? 0;
     const velocities = points.map(point => point.velocity).filter(Number.isFinite);
-    const currentValues = points.map(point => point.series[Math.min(timeIndex, point.series.length - 1)] ?? point.displacement).filter(Number.isFinite);
+    const currentValues = points.map(currentValueForPoint).filter(Number.isFinite);
     const modeCounts = points.reduce((counts, point) => {
       const mode = modeForPoint(point);
       counts[mode] = (counts[mode] || 0) + 1;
@@ -191,6 +222,7 @@ export function buildAnomalyRegions(
       clearSubsidenceCount: points.filter(point => point.velocity <= -3).length,
       acceleratingCount: points.filter(point => modeForPoint(point) === "加速型").length,
       piecewiseCount: points.filter(point => modeForPoint(point) === "分段型").length,
+      direction: velocities.every(value => value < 0) ? "negative" : velocities.every(value => value > 0) ? "positive" : "mixed",
     };
   });
   const assignedPointCount = regions.reduce((sum, region) => sum + region.pointCount, 0);

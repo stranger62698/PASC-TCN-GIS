@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { getRequestUser } from "../../server/auth.js";
+import { USER_DATA_LOCAL_ONLY, localDataOnlyResponse } from "../../app/lib/data-processing-policy.js";
 import { analysisSummaryKey, sanitizeAnalysisSummary } from "../../app/lib/ai-summary.js";
 import {
   AI_INTERPRET_REQUEST_MAX_BYTES,
@@ -75,6 +76,7 @@ const pruneMemory = (now: number) => {
 };
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
+  if (USER_DATA_LOCAL_ONLY) return json(response, 403, localDataOnlyResponse());
   if (request.method !== "POST") return fail(response, "AI_METHOD_NOT_ALLOWED", "仅支持 POST 请求。", 405);
   if (!validOrigin(request)) return fail(response, "AI_ORIGIN_REJECTED", "请求来源验证失败。", 403);
 

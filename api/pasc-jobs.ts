@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { QueueClient } from "@vercel/queue";
 import { getRequestUser } from "../server/auth.js";
+import { USER_DATA_LOCAL_ONLY, localDataOnlyResponse } from "../app/lib/data-processing-policy.js";
 import {
   PASC_LARGE_TOPIC,
   cancelPascLargeJob,
@@ -32,6 +33,7 @@ const validOrigin = (request: VercelRequest) => {
 };
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
+  if (USER_DATA_LOCAL_ONLY) return json(response, localDataOnlyResponse(), 403);
   const user = getRequestUser(request.headers.cookie);
   if (!user) return json(response, { error: { code: "AUTH_REQUIRED", message: "请先登录。" } }, 401);
   if (!validOrigin(request)) return json(response, { error: { code: "ORIGIN_REJECTED", message: "请求来源验证失败。" } }, 403);

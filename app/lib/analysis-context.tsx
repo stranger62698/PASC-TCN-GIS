@@ -5,6 +5,7 @@ import type { RenderAttribute } from "./insar-v2";
 import type { AoiGeometry } from "./aoi-analysis";
 import { PASC_CLASSES, pascColor, pascDisplayName } from "./pasc";
 import type { PatternVisibility } from "./v2-map-analysis";
+import { createAnalysisContextPersistence } from "./analysis-context-storage";
 
 export type AnalysisTimeRange = {
   startIndex: number;
@@ -24,6 +25,10 @@ export type AnalysisFilters = {
 export type SelectedRegion = {
   bounds: [number, number, number, number];
   pointIds: string[];
+  /** Restored geometry can retain its count while membership awaits a fresh selection. */
+  pointCount?: number;
+  pointIdsComplete?: boolean;
+  geometryComplete?: boolean;
   geometry?: AoiGeometry;
   regionId?: string;
   label?: string;
@@ -98,29 +103,22 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
   const [analysis, setAnalysis] = useState<AnalysisContextState>(defaultAnalysisContext);
   const [isReady, setIsReady] = useState(false);
   const restored = useRef(false);
+  const [persistence] = useState(() => createAnalysisContextPersistence(() => window.sessionStorage));
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const stored = window.sessionStorage.getItem("lanjifyw-analysis-context-v2");
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored) as Partial<AnalysisContextState>;
-          const patternVisibility = parsed.patternVisibility === "anomaly" || parsed.patternVisibility === "anomaly_with_undefined" ? parsed.patternVisibility : "all";
-          setAnalysis(current => ({ ...current, ...parsed, patternVisibility }));
-        } catch {
-          window.sessionStorage.removeItem("lanjifyw-analysis-context-v2");
-        }
-      }
+      const parsed = persistence.read();
+      if (parsed) setAnalysis(current => ({ ...current, ...parsed }));
       restored.current = true;
       setIsReady(true);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [persistence]);
 
   useEffect(() => {
     if (!restored.current) return;
-    window.sessionStorage.setItem("lanjifyw-analysis-context-v2", JSON.stringify(analysis));
-  }, [analysis]);
+    persistence.write(analysis);
+  }, [analysis, persistence]);
 
   const updateAnalysis = useCallback((patch: Partial<AnalysisContextState>) => {
     setAnalysis(current => ({ ...current, ...patch }));

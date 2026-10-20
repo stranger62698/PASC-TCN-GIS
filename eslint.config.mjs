@@ -14,6 +14,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "artifacts/**",
+    // Local dependency cache and ignored one-off document/screenshot tooling are not application sources.
+    ".pnpm-store/**",
+    ".work/**",
     "public/ocr/**",
     "pasc-tcn-service/.venv/**",
     "pasc-tcn-service/.private-model-bundles/**",
@@ -26,6 +29,11 @@ const eslintConfig = defineConfig([
   reactHooks.configs.flat["recommended-latest"],
   jsxA11y.flatConfigs.recommended,
   next.configs["core-web-vitals"],
+  {
+    // CommonJS maintenance tools intentionally use require().
+    files: ["**/*.cjs"],
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
   {
     languageOptions: {
       globals: {

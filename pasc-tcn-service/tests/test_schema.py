@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from copy import deepcopy
 from datetime import date, timedelta
 
-from pasc_tcn_service.schema import parse_date_field, validate_payload
+from pasc_tcn_service.schema import inspect_payload, parse_date_field, validate_payload
 
 
 def payload_for(count: int, *, interval_days=12):
@@ -23,17 +24,74 @@ def payload_for(count: int, *, interval_days=12):
 
 
 class SchemaTests(unittest.TestCase):
-    def test_all_five_date_formats(self):
-        cases = {
-            "D20170322": "2017-03-22",
-            "20170322": "2017-03-22",
-            "2017-03-22": "2017-03-22",
-            "2017_03_22": "2017-03-22",
-            "2017/03/22": "2017-03-22",
-        }
-        for source, canonical in cases.items():
+    def test_complete_date_formats_and_known_observation_prefixes(self):
+        dates = ["20240229", "2024-2-29", "2024/2/29", "2024_2_29", "2024.2.29"]
+        prefixes = [""] + [prefix + separator for prefix in ("D", "d", "Date", "TIME", "T") for separator in ("", " ", "_", ".", "-", "/")]
+        for prefix in prefixes:
+            for value in dates:
+                source = f" {prefix}{value} "
+                with self.subTest(source=source):
+                    parsed = parse_date_field(source)
+                    self.assertIsNotNone(parsed)
+                    self.assertEqual(parsed[0], "2024-02-29")
+        self.assertEqual(parse_date_field("d_19991231")[0], "1999-12-31")
+
+    def test_date_parser_requires_complete_real_calendar_dates_in_19xx_or_20xx(self):
+        invalid = ["D_20240230", "Date 2023-2-29", "T_2024/13/1", "Time-2024.1.0",
+                   "18991231", "21000101", "2024011", "2024-1", "D_2024-01",
+                   "FID20240101", "project_2024-01-01", "2024-01-01_note", "202401-01"]
+        for source in invalid:
             with self.subTest(source=source):
-                self.assertEqual(parse_date_field(source)[0], canonical)
+                self.assertIsNone(parse_date_field(source))
+
+    def test_original_selected_fields_are_retained_while_dates_are_sorted(self):
+        payload = payload_for(40)
+        record = payload["records"][0]
+        original_fields = [field for field in record if field.startswith("D")]
+        renamed_fields = []
+        for index, field in enumerate(original_fields):
+            canonical, _ = parse_date_field(field)
+            renamed = ("D_", "Date ", "Time-", "T.")[index % 4] + canonical
+            record[renamed] = record.pop(field)
+            renamed_fields.append(renamed)
+        payload["mapping"]["dateColumns"] = list(reversed(renamed_fields))
+        before = deepcopy(payload)
+        validated = inspect_payload(payload)
+        self.assertTrue(validated.report["valid"])
+        self.assertEqual([group[0].source for group in validated.date_groups], renamed_fields)
+        self.assertEqual(validated.report["compatibility"]["points"][0]["effectiveEpochs"], 40)
+        self.assertEqual(payload, before)
+
+    def test_invalid_prefixed_observation_dates_remain_visible(self):
+        for field in ("D_20240230", "Date 2024-2-30", "Time.2024/13/1", "T-2024_1_0"):
+            with self.subTest(field=field):
+                payload = payload_for(40)
+                payload["records"][0][field] = 0
+                report = validate_payload(payload)
+                self.assertFalse(report["valid"])
+                self.assertIn(field, report["dates"]["parseFailures"])
+
+    def test_explicitly_selected_non_date_is_reported_instead_of_ignored(self):
+        payload = payload_for(40)
+        fields = [field for field in payload["records"][0] if field.startswith("D")]
+        payload["records"][0]["observation_note"] = "not a date column"
+        payload["mapping"]["dateColumns"] = fields + ["observation_note"]
+        report = validate_payload(payload)
+        self.assertFalse(report["valid"])
+        self.assertIn("observation_note", report["dates"]["parseFailures"])
+
+    def test_new_prefix_aliases_keep_same_day_merge_and_conflict_guards(self):
+        for field in ("D_20200101", "Date 2020-1-1", "Time_2020/01/01", "T.2020_1_1"):
+            for conflicting in (False, True):
+                with self.subTest(field=field, conflicting=conflicting):
+                    payload = payload_for(40)
+                    payload["records"][0][field] = 999 if conflicting else payload["records"][0]["D20200101"]
+                    report = validate_payload(payload)
+                    self.assertEqual(report["valid"], not conflicting)
+                    self.assertEqual(report["dates"]["count"], 40)
+                    self.assertEqual(set(report["dates"]["duplicates"][0]["fields"]), {"D20200101", field})
+                    conflicts = [item for item in report["issues"] if item["code"] == "PASC_DUPLICATE_DATE_CONFLICT"]
+                    self.assertEqual(bool(conflicts), conflicting)
 
     def test_19_20_and_248_capability_states(self):
         expected = {

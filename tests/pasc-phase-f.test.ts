@@ -145,6 +145,7 @@ test("Phase F static integration keeps owner isolation, consumer auth, and bound
   const panel = readFileSync("app/components/PascJobPanel.tsx", "utf8");
   const workspace = readFileSync("app/components/MapWorkspace.tsx", "utf8");
   const map = readFileSync("app/components/WebGisMap.tsx", "utf8");
+  const pointRenderer = readFileSync("app/lib/full-point-layer.ts", "utf8");
   const consumer = readFileSync("pasc-tcn-service/src/pasc_tcn_service/job_consumer.py", "utf8");
   const largeApi = readFileSync("api/pasc-jobs.ts", "utf8");
   const largeWorker = readFileSync("api/pasc-large-worker.ts", "utf8");
@@ -160,6 +161,11 @@ test("Phase F static integration keeps owner isolation, consumer auth, and bound
   assert.match(routes, /getChatGPTUser\(\)/);
   assert.match(routes, /PASC_CONSUMER_API_KEY/);
   assert.match(routes, /owner_id = \?/);
+  const mapRoute = routes.slice(routes.indexOf("export async function publicJobMapGET"), routes.indexOf("export async function internalClaimPOST"));
+  assert.match(mapRoute, /await ownerJob\(context\)/);
+  assert.match(mapRoute, /if \("failure" in found\) return found\.failure/);
+  assert.match(mapRoute, /\.bind\(found\.job\.id,\s*found\.user\.userId,\s*found\.job\.attempt_count,\s*kind\)/);
+  assert.match(routes, /if \(!await consumerAuthorized\(request\)\)/);
   assert.doesNotMatch(panel, /leaseToken|consumerApiKey|idempotencyKey/);
   assert.match(panel, /取消任务/);
   assert.match(panel, /加载完整分类地图/);
@@ -194,9 +200,14 @@ test("Phase F static integration keeps owner isolation, consumer auth, and bound
   assert.match(staticEntry, /\.\.\/app\/pasc\.css/);
   assert.match(workspace, /setLivePascPoints\(\[\.\.\.classified\.values\(\)\]\)/);
   assert.match(workspace, /window\.setTimeout\(resolve, PASC_MAP_JOB_POLL_MS\)/);
-  assert.match(map, /livePascLayer/);
+  // Live results now share the full-point renderer rather than a separate Leaflet layer.
+  assert.match(map, /new FullPointLayer\(/);
+  assert.match(map, /\.update\(\{[^}]*livePoints:\s*livePascPoints/);
+  assert.match(pointRenderer, /this\.live\s*=\s*this\.makeSource\(state\.livePoints/);
   assert.match(map, /实时分类上图/);
   assert.doesNotMatch(panel, /PASC_SERVICE_API_KEY|ownerId|batchSummaries/);
-  assert.match(vercel, /queue\/v2beta/);
-  assert.match(vercel, /pasc-large-jobs/);
+  assert.doesNotMatch(vercel, /queue\/v2beta/, "the local-only deployment must not register a cloud classification queue");
+  assert.match(largeApi, /if \(USER_DATA_LOCAL_ONLY\) return/);
+  assert.match(largeWorker, /if \(USER_DATA_LOCAL_ONLY\) return/);
+  assert.doesNotMatch(vercel, /pasc-large-jobs/, "the public deployment must not subscribe to cloud classification jobs");
 });

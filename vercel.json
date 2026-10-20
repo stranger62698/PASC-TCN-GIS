@@ -2,22 +2,11 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "devCommand": "pnpm exec vite --config vite.static.config.ts",
-  "buildCommand": "pnpm run build:static",
+  "buildCommand": "node scripts/build-static.mjs",
   "outputDirectory": "static-dist",
+  "git": {
+    "deploymentEnabled": false
+  },
   "cleanUrls": true,
-  "trailingSlash": false,
-  "functions": {
-    "api/ai/interpret.ts": {
-      "maxDuration": 45
-    },
-    "api/pasc-large-worker.ts": {
-      "maxDuration": 300,
-      "experimentalTriggers": [{
-        "type": "queue/v2beta",
-        "topic": "pasc-large-jobs",
-        "retryAfterSeconds": 30,
-        "initialDelaySeconds": 0
-      }]
-    }
-  }
+  "trailingSlash": false
 }

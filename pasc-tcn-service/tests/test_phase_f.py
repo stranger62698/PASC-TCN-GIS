@@ -279,6 +279,44 @@ class PhaseFConsumerTests(unittest.TestCase):
         self.assertFalse(transport.failed["retryable"])
         self.assertEqual(transport.artifacts, [])
 
+    def test_normalized_csv_headers_match_confirmed_dates_and_reject_duplicates(self):
+        fields = [
+            "D_" + field[1:] if index % 2 == 0
+            else f"Date {field[1:5]}-{field[5:7]}-{field[7:9]}"
+            for index, field in enumerate(DATES)
+        ]
+        for duplicate in (None, "lon", " lon "):
+            with self.subTest(duplicate=duplicate):
+                selected_claim = claim()
+                selected_claim["request"]["dateColumns"] = fields
+                headers = ["\ufeff id ", " lon ", "lat", *[" " + field + " " for field in fields]]
+                cells = [" P-original ", " 110.30 ", "20.10", *[f" {-index / 10} " for index in range(len(fields))]]
+                if duplicate is not None:
+                    headers.append(duplicate)
+                    cells.append(" 110.30 ")
+                source = io.StringIO()
+                writer = __import__("csv").writer(source)
+                writer.writerows([headers, cells])
+                seen = []
+
+                def capture_preprocess(payload):
+                    seen.extend(payload["records"])
+                    return fake_preprocess(payload)
+
+                transport = FakeTransport(source.getvalue().encode("utf-8"), selected_claim)
+                consumer = PascJobConsumer(transport, preprocess_fn=capture_preprocess, infer_fn=fake_infer)
+                self.assertTrue(consumer.run_once())
+                if duplicate is None:
+                    self.assertIsNone(transport.failed)
+                    self.assertEqual(transport.completed["summary"]["predicted"], 1)
+                    self.assertEqual(seen, [dict(zip(["id", "lon", "lat", *fields], cells))])
+                else:
+                    self.assertIsNone(transport.completed)
+                    self.assertEqual(transport.failed["code"], "PASC_SCHEMA_UNRESOLVED")
+                    self.assertFalse(transport.failed["retryable"])
+                    self.assertEqual(seen, [])
+                    self.assertEqual(transport.artifacts, [])
+
     def test_bad_row_isolated_without_losing_good_chunk_results(self):
         transport = FakeTransport(
             csv_bytes(include_bad=True), claim(chunk_size=5)

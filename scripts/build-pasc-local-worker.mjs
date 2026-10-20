@@ -2,8 +2,12 @@ import { copyFile, mkdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { build } from "vite";
 
-const model = await readFile(resolve("artifacts/pasc-tcn.onnx"));
-const reference = await readFile(resolve("artifacts/pasc-tcn-phase3-reference.bin"));
+const readArtifact = async name => {
+  try { return await readFile(resolve("artifacts", name)); }
+  catch (error) { throw new Error(`本地 PASC 构建缺少 artifacts/${name}。请在构建环境提供已有模型包；模型不由云端推理服务替代。`, { cause: error }); }
+};
+const model = await readArtifact("pasc-tcn.onnx");
+const reference = await readArtifact("pasc-tcn-phase3-reference.bin");
 
 await build({
   configFile: false,

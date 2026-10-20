@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "roadops-osm-manifest-v1",
+  "datasetId": "roadops-osm-jiangdong-v1",
+  "name": "江东新区 OSM 开源基线路网",
+  "source": {
+    "provider": "OpenStreetMap contributors",
+    "transport": "Overpass API",
+    "endpoint": "https://overpass-api.de/api/interpreter",
+    "query": "[out:json][timeout:60];\nway[\"highway\"~\"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|unclassified|residential|living_street|service|road)$\"](19.95289,110.37301,20.07055,110.52347);\nout tags geom;",
+    "extractedAt": "2026-09-21T12:29:51Z",
+    "attribution": "© OpenStreetMap contributors",
+    "license": "ODbL 1.0",
+    "licenseUrl": "https://www.openstreetmap.org/copyright"
+  },
+  "aoi": {
+    "crs": "EPSG:4326",
+    "bounds": [
+      110.37301,
+      19.95289,
+      110.52347,
+      20.07055
+    ]
+  },
+  "scope": {
+    "travelMode": "driving",
+    "highwayValues": [
+      "motorway",
+      "motorway_link",
+      "trunk",
+      "trunk_link",
+      "primary",
+      "primary_link",
+      "secondary",
+      "secondary_link",
+      "tertiary",
+      "tertiary_link",
+      "unclassified",
+      "residential",
+      "living_street",
+      "service",
+      "road"
+    ],
+    "retainedTags": [
+      "highway",
+      "name",
+      "ref",
+      "oneway",
+      "maxspeed",
+      "surface",
+      "bridge",
+      "tunnel",
+      "access"
+    ],
+    "excluded": [
+      "pedestrian-only ways",
+      "cycling-only ways",
+      "railways",
+      "OSM raster tiles"
+    ]
+  },
+  "featureCount": 1134,
+  "vertexCount": 10768,
+  "geometryTypes": [
+    "LineString",
+    "MultiLineString"
+  ],
+  "geojsonFile": "jiangdong-osm-roads.geojson",
+  "geojsonSha256": "13fbf59cf6bffde889205167b0f2179f565684a119bfff4956472907bfd1dc67",
+  "querySha256": "0212c16b0b1c392ee23e3e1200fa8788c092d0d44754e6ff365cb075f6d27871",
+  "authoritative": false,
+  "disclaimer": "OSM 开源基线，不代表权威道路数据，不提供导航服务。"
+}

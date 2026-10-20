@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { authRequest, getSession } from "../lib/auth-client";
+import { safeReturnTo } from "../lib/local-analysis-session";
 import { BrandMark } from "./SiteShell";
 
 type AuthMode = "login" | "register" | "forgot";
@@ -22,8 +23,26 @@ export function AuthPage() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [continuedLogin, setContinuedLogin] = useState(false);
 
-  useEffect(() => { getSession().then((user) => { if (user) window.location.href = "/datasets"; }).catch(() => null); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    getSession().then(user => {
+      if (!user || cancelled) return;
+      const query = new URLSearchParams(window.location.search);
+      if (query.get("resume") === "1") setContinuedLogin(true);
+      else window.location.href = safeReturnTo(query.get("returnTo"), window.location.origin);
+    }).catch(() => null);
+    return () => { cancelled = true; };
+  }, []);
+
+  const finishLogin = () => {
+    const query = new URLSearchParams(window.location.search);
+    if (query.get("resume") === "1") {
+      setContinuedLogin(true);
+      setMessage("登录成功。请回到原来的分析标签页，再手动重试；文件和分析结果仍留在原页。");
+    } else window.location.href = safeReturnTo(query.get("returnTo"), window.location.origin);
+  };
 
   const switchMode = (next: AuthMode) => { setMode(next); setMessage(""); };
   const submit = async (event: React.FormEvent) => {
@@ -33,11 +52,11 @@ export function AuthPage() {
     try {
       if (mode === "login") {
         await authRequest("login", { email, password });
-        window.location.href = "/datasets";
+        finishLogin();
       } else if (mode === "register") {
         if (username.trim().length < 3 || username.trim().length > 16) throw new Error("用户名长度需为 3–16 位");
         await authRequest("register", { email, password, username: username.trim() });
-        window.location.href = "/datasets";
+        finishLogin();
       } else {
         await authRequest("forgot", { email });
         setMessage("如果该邮箱已注册，重置说明将发送到对应邮箱。");
@@ -45,29 +64,36 @@ export function AuthPage() {
     } catch (error) { setMessage(errorText(error)); } finally { setBusy(false); }
   };
 
-  const title = mode === "login" ? "登录分析平台" : mode === "register" ? "注册新账户" : "找回密码";
-  const intro = mode === "login" ? "登录后可保存私人数据集和分析记录。" : mode === "register" ? "创建账户，用于保存私人数据与跨设备继续分析。" : "输入注册邮箱，我们会发送密码重置说明。";
+  const title = mode === "login" ? "登录工作台" : mode === "register" ? "注册新账户" : "找回密码";
+  const intro = mode === "login" ? "登录后可导入自己的 CSV 并使用本机分析。账号用于访问管理，文件与计算保留在当前电脑。" : mode === "register" ? "注册会保存邮箱和展示用户名，用于登录与访问管理。CSV 与计算仍在当前电脑。" : "输入注册邮箱，我们会发送密码重置说明。";
 
   return (
     <main className="new-login phase-eight-login">
       <section className="login-scene grid-surface">
-        <BrandMark />
+        <BrandMark invert />
+        <div className="auth-orbit-visual" aria-hidden="true">
+          <i className="auth-orbit-ring ring-a" /><i className="auth-orbit-ring ring-b" /><i className="auth-orbit-ring ring-c" />
+          {/* Existing decorative asset from the original account page. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <span className="auth-orbit-core"><img src="/insar-satellite-v2.png" alt="" /></span>
+          <b className="auth-orbit-point point-a" /><b className="auth-orbit-point point-b" /><b className="auth-orbit-point point-c" />
+        </div>
         <div className="auth-scene-content">
           <span className="eyebrow">OPEN DEMO · PRIVATE WORKSPACE</span>
-          <h1>先体验，<br /><em>再决定是否登录</em></h1>
-          <p>公开示例、点位分析、区域统计和 AI 辅助解读均可直接体验；只有保存私人数据和分析记录时才需要账户。</p>
-          <div className="auth-public-actions"><Link className="button primary" href="/map?demo=haikou&tour=portfolio">90 秒公开体验 ↗</Link><Link className="button line-light" href="/datasets">检查我的 CSV</Link></div>
+          <h1>形变分析与<br /><em>外业核查工作台</em></h1>
+          <p>公开案例可直接浏览；导入自己的 CSV 与分析功能需先登录。账号用于访问管理，本机文件可在原分析标签页继续处理。驾车规划需调用已配置的滴图服务，账户操作可在此完成。</p>
+          <div className="auth-public-actions"><Link className="button primary" href="/map?demo=haikou&tour=portfolio">浏览公开案例 ↗</Link><Link className="button line-light" href="/datasets">登录后导入本机数据</Link></div>
           <div className="auth-access-list">
-            <article><b>无需登录</b><span>示例地图、点位、区域与 AI 演示</span></article>
-            <article><b>登录后</b><span>解锁最高 1 GiB 本地分析，或保存私人数据与任务</span></article>
-            <article><b>数据隐私</b><span>私人数据按用户身份隔离</span></article>
+            <article><b>公开访问</b><span>示例地图、形变分析与外业核查流程</span></article>
+            <article><b>登录后分析</b><span>CSV 在本机处理；超过 1 GiB 先本机分片，再逐片分析</span></article>
+            <article><b>数据隐私</b><span>账号管理访问权限，原始 CSV 与分析结果保留本机</span></article>
           </div>
         </div>
       </section>
       <section className="login-panel">
         <div className="auth-panel-shell">
-          <div className="auth-panel-top"><Link className="back-link" href="/">← 返回首页</Link><Link className="auth-demo-link" href="/map?demo=haikou">无需登录，直接体验</Link></div>
-          <form onSubmit={submit}>
+          <div className="auth-panel-top"><Link className="back-link" href="/">← 返回首页</Link><Link className="auth-demo-link" href="/map?demo=haikou">浏览公开案例</Link></div>
+          {continuedLogin ? <section className="auth-continuation" role="status"><h2>登录已完成</h2><p>请回到原来的分析标签页，继续当前文件与分析结果，然后手动重试需要登录的操作。</p><p>可以关闭此登录标签页。</p></section> : <form onSubmit={submit}>
             <div className="auth-heading"><span className="eyebrow">ACCOUNT ACCESS</span><b>{mode === "login" ? "01" : mode === "register" ? "02" : "03"}</b></div>
             <h2>{title}</h2><p>{intro}</p>
             <div className="auth-form-fields">
@@ -82,8 +108,8 @@ export function AuthPage() {
               {mode === "login" && <button className="auth-switch strong" type="button" onClick={() => switchMode("register")}>没有账号？立即注册</button>}
               {mode !== "login" && <button className="auth-switch strong" type="button" onClick={() => switchMode("login")}>← 返回账户登录</button>}
             </div>
-          </form>
-          <p className="auth-privacy-note"><b>为什么需要登录？</b> 仅用于将私人数据集和分析记录关联到你的账户；浏览公开内容不受限制。</p>
+          </form>}
+          <p className="auth-privacy-note"><b>账户与隐私</b> 注册会保存邮箱和展示用户名，用于访问管理；公开案例无需登录。CSV 与分析结果按当前浏览器、网站域名保留在本机，不会自动上传或跨设备同步，请及时下载结果。</p>
         </div>
       </section>
     </main>

@@ -1,6 +1,8 @@
 import type { PascLocalSettings } from "./pasc-local-preprocess";
 
-export const PASC_LOCAL_WORKER_URL = "/__pasc-local/worker/worker.js";
+declare const __PASC_LOCAL_BASE_PATH__: string;
+const localBase = typeof __PASC_LOCAL_BASE_PATH__ === "string" ? __PASC_LOCAL_BASE_PATH__ : "/";
+export const PASC_LOCAL_WORKER_URL = `${localBase.replace(/\/$/, "")}/__pasc-local/worker/worker.js`;
 
 export type PascLocalTaskState =
   | "idle"
@@ -75,6 +77,28 @@ export type PascLocalCompletePayload = {
   };
   analysisScope?: "quick" | "full";
   sourceTruncated?: boolean;
+  /** Unit-normalized source observations, never interpolated or smoothed. */
+  observedDates?: string[];
+  observedSeries?: Float32Array;
+  observedMask?: Uint8Array;
+  observedDisplacement?: Float32Array;
+  processedDisplacement?: Float32Array;
+  effectiveEpochs?: Uint32Array;
+  classificationEligible?: Uint8Array;
+  sourceRowNumbers?: Uint32Array;
+  invalidReasons?: { invalidCoordinate: number; insufficientEpochs: number; duplicateIds: number };
+  invalidExamples?: Array<{ rowNumber: number; pointId: string; reason: string }>;
+  seriesStorage?: PascLocalSeriesStorage;
+};
+
+export type PascLocalSeriesStorage = {
+  kind: "opfs";
+  directory: string;
+  fileName: string;
+  pointCount: number;
+  timeSteps: number;
+  observedEpochs: number;
+  recordBytes: number;
 };
 
 export type PascLocalWorkerResponse =

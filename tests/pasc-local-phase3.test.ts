@@ -110,7 +110,9 @@ test("Phase 3 Worker contract is local, cancellable, typed, and batched", () => 
   const component = readFileSync("app/components/PascLocalPrototype.tsx", "utf8");
   assert.match(worker, /type === "CANCEL"/);
   assert.match(worker, /type: "BATCH_DONE"/);
-  assert.match(worker, /for \(let offset = 0; offset < total; offset \+= message\.batchSize\)/);
+  assert.match(worker, /for \(let offset = 0; offset < eligible\.indices\.length; offset \+= batchSize\)/);
+  assert.match(worker, /selectEligible/);
+  assert.match(worker, /classificationEligible/);
   assert.match(worker, /new Uint8Array\(total\)/);
   assert.match(worker, /new Float32Array\(total\)/);
   assert.match(component, /type="file"/);

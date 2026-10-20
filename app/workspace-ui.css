@@ -1,0 +1,569 @@
+/* Workbench chrome only. Data ramps, chart series and map symbols keep their colors.
+   Context specificity deliberately isolates these rules from the public website. */
+.map-route-shell .navigation-workspace {
+  --ui-ink: #23282e;
+  --ui-muted: #626a73;
+  --ui-subtle: #7a828c;
+  --ui-line: #e3e5e8;
+  --ui-field: #cbd0d6;
+  --ui-soft: #f5f6f7;
+  --ui-accent: #1769d2;
+  --ui-accent-soft: #eef5ff;
+  --ui-accent-line: #bed7f7;
+  --navy: var(--ui-ink);
+  --blue: var(--ui-accent);
+  --blue-dark: #1058b5;
+  --text: var(--ui-ink);
+  --muted: var(--ui-muted);
+  --border: var(--ui-line);
+  --font: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-family: var(--font);
+  color: var(--ui-ink);
+}
+
+/* Six equally weighted commands, not decorative glyphs. */
+.map-route-shell .navigation-workspace .workspace-header {
+  gap: 28px;
+  padding: 0 20px;
+  border-color: var(--ui-line);
+  box-shadow: 0 1px 4px #20262e06;
+}
+.map-route-shell .navigation-workspace .workspace-header .site-brand { flex-basis: 218px; min-width: 0; gap: 10px; }
+.map-route-shell .navigation-workspace .workspace-header .site-brand b { color: var(--ui-ink); font-size: 16px; letter-spacing: .035em; }
+.map-route-shell .navigation-workspace .workspace-header .site-brand small { color: var(--ui-muted); font-size: 10px; font-weight: 400; letter-spacing: .02em; }
+.map-route-shell .navigation-workspace .workspace-primary-nav { align-items: stretch; gap: 5px; }
+.map-route-shell .navigation-workspace .workspace-primary-nav button {
+  position: relative;
+  height: auto;
+  min-height: 44px;
+  min-width: 92px;
+  justify-content: center;
+  gap: 9px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 0;
+  color: #545c66;
+  background: transparent;
+  transition: background .12s, color .12s;
+}
+.map-route-shell .navigation-workspace .workspace-primary-nav button:hover { color: var(--ui-accent); background: transparent; }
+.map-route-shell .navigation-workspace .workspace-primary-nav button::after {
+  content: "";
+  position: absolute;
+  inset-inline: 14px;
+  bottom: 0;
+  height: 3px;
+  border-radius: 2px 2px 0 0;
+  background: var(--ui-accent);
+  transform: scaleX(0);
+  transition: transform .12s;
+}
+.map-route-shell .navigation-workspace .workspace-primary-nav button.active { color: var(--ui-accent); background: transparent; }
+.map-route-shell .navigation-workspace .workspace-primary-nav button.active::after,
+.map-route-shell .navigation-workspace .workspace-primary-nav button:hover::after { transform: scaleX(1); }
+.map-route-shell .navigation-workspace .workspace-primary-nav .workspace-nav-icon { display: block; flex: none; width: 22px; height: 22px; }
+.map-route-shell .navigation-workspace .workspace-primary-nav .workspace-nav-label { font-size: 15px; font-weight: 600; line-height: 1; }
+.map-route-shell .navigation-workspace .workspace-header-utilities { gap: 16px; font-size: 14px; color: var(--ui-muted); }
+.map-route-shell .navigation-workspace .workspace-header-utilities :is(a, button) { color: var(--ui-muted); }
+.map-route-shell .navigation-workspace .workspace-home-link { border: 0; background: transparent; padding: 7px 0; box-shadow: none; font-size: 14px; }
+.map-route-shell .navigation-workspace .language-switch { padding: 3px; border-color: var(--ui-line); border-radius: 5px; background: #fff; }
+.map-route-shell .navigation-workspace .language-switch button { border-radius: 3px; font-size: 12px; }
+.map-route-shell .navigation-workspace .language-switch button[aria-current=true] { color: var(--ui-accent); background: var(--ui-accent-soft); border-color: transparent; box-shadow: none; }
+
+/* Keep Leaflet controls inside the map stack, below overlaid task drawers. */
+.map-route-shell .navigation-workspace .gis-map { isolation: isolate; }
+
+/* Shared panel typography / controls. One accent is reserved for actions. */
+.map-route-shell .navigation-workspace :is(.workspace-task-drawer, .workspace-export-drawer) {
+  color: var(--ui-ink);
+  border-color: var(--ui-line);
+  background: #fff;
+  scrollbar-color: #c8cdd3 transparent;
+  font-size: 13px;
+  line-height: 1.6;
+  container-type: inline-size;
+  container-name: workbench-panel;
+}
+.map-route-shell .navigation-workspace :is(.workspace-task-drawer, .workspace-export-drawer) :is(h2,h3,h4,b,strong) { color: var(--ui-ink); }
+.map-route-shell .navigation-workspace :is(.workspace-task-drawer, .workspace-export-drawer) :is(p,small) { color: var(--ui-muted); }
+.map-route-shell .navigation-workspace :is(.workspace-task-drawer, .workspace-export-drawer) :is(button,select,input,textarea) { font-family: var(--font); }
+.map-route-shell .navigation-workspace :is(.workspace-task-drawer, .workspace-export-drawer) button { border-radius: 4px; box-shadow: none; }
+.map-route-shell .navigation-workspace :is(.workspace-task-drawer, .workspace-export-drawer) button:disabled { opacity: .45; cursor: not-allowed; }
+.map-route-shell .navigation-workspace :is(.workspace-task-drawer, .workspace-export-drawer) :is(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),select,textarea) {
+  min-width: 0;
+  border: 1px solid var(--ui-field);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--ui-ink);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 7px 9px;
+  box-shadow: none;
+}
+.map-route-shell .navigation-workspace :is(.workspace-task-drawer, .workspace-export-drawer) :is(input[type=checkbox],input[type=radio],input[type=range]) { accent-color: var(--ui-accent); }
+.map-route-shell .navigation-workspace :is(button,select,input,textarea,summary,a):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .panel-head,
+.map-route-shell .navigation-workspace .workspace-export-drawer .panel-head { height: 56px; padding: 0 22px; border-color: var(--ui-line); background: #fff; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .panel-head>span,
+.map-route-shell .navigation-workspace .workspace-export-drawer .panel-head>span { font-size: 15px; font-weight: 650; color: var(--ui-ink); }
+.map-route-shell .navigation-workspace .workspace-task-drawer .panel-head>button,
+.map-route-shell .navigation-workspace .workspace-export-drawer .panel-head>button { background: transparent; color: var(--ui-muted); font-size: 21px; font-weight: 400; }
+.map-route-shell .navigation-workspace .panel-head>button:hover { background: var(--ui-soft); }
+.map-route-shell .navigation-workspace .workspace-task-select { gap: 14px; padding: 12px 22px; background: var(--ui-soft); color: var(--ui-muted); border-color: var(--ui-line); font-size: 12px; }
+.map-route-shell .navigation-workspace .workspace-inspection-tabs { padding: 10px 22px; gap: 8px; border-color: var(--ui-line); }
+.map-route-shell .navigation-workspace .workspace-inspection-tabs button { flex: none; padding: 8px 14px; border: 1px solid transparent; border-radius: 5px; background: #fff; color: var(--ui-muted); font-size: 13px; }
+.map-route-shell .navigation-workspace .workspace-inspection-tabs button[aria-pressed=true] { color: var(--ui-accent); border-color: var(--ui-accent-line); background: var(--ui-accent-soft); }
+.map-route-shell .navigation-workspace .analysis-panel-resizer>span { width: 6px; left: 5px; height: 46px; border-color: #b7bdc5; border-radius: 3px; background: #f5f6f7; box-shadow: 0 1px 3px #0000000a; }
+.map-route-shell .navigation-workspace .analysis-panel-resizer:is(:hover,:focus-visible)>span { border-color: var(--ui-accent); background: var(--ui-accent-soft); }
+
+/* Shared sections: whitespace and hairlines replace nested colored cards. */
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.public-demo-switch,.demo-depth-switch) button { border-color: var(--ui-field); background: #fff; color: var(--ui-ink); box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.public-demo-switch,.demo-depth-switch) button.active { color: var(--ui-accent); background: var(--ui-accent-soft); border-color: var(--ui-accent-line); box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.public-demo-switch,.demo-depth-switch) button.active :is(b,span) { color: var(--ui-accent); }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.dataset-local-privacy,.demo-full-hint) { background: var(--ui-soft); border-color: var(--ui-line); border-left-color: #8d99a5; color: var(--ui-muted); }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.dataset-card,.renderer-panel,.layer-group,.map-source) { display: block; width: auto; padding: 20px 22px; border-color: var(--ui-line); background: #fff; box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.renderer-panel,.layer-group)>small { display: block; margin-bottom: 12px; font-size: 12px; font-weight: 650; color: var(--ui-ink); letter-spacing: 0; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .layer-group label { padding: 8px 0; color: var(--ui-ink); font-size: 13px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .layer-group label>b { color: var(--ui-muted); background: var(--ui-soft); font-weight: 500; }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.layer-config-button,.renderer-panel>button,.clear-filter-button,.dataset-card>button) { min-height: 34px; background: #fff; color: var(--ui-ink); border: 1px solid var(--ui-field); font-size: 12px; box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.workspace-details,.road-optional-baseline) { margin: 0; padding: 16px 22px; border: 0; border-top: 1px solid var(--ui-line); border-radius: 0; background: #fff; font-size: 12px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.workspace-details,.road-optional-baseline) summary { color: var(--ui-ink); font-size: 12px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .workspace-point-size { padding: 16px 22px; font-size: 12px; color: var(--ui-ink); border-color: var(--ui-line); }
+.map-route-shell .navigation-workspace .workspace-task-drawer .gis-layer-manager { margin: 0; padding: 20px 22px; border: 0; border-top: 1px solid var(--ui-line); border-radius: 0; background: #fff; box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .gis-layer-manager>header :is(b,small) { color: var(--ui-ink); }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.gis-layer-list>article,.gis-feature-properties,.osm-baseline-notice,.road-issue-detail,.road-workflow-editor,.road-workflow-summary,.road-route-planner,.road-metrics-panel) { border-color: var(--ui-line); border-radius: 4px; background: var(--ui-soft); box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.gis-layer-empty,.gis-import-message,.gis-layer-locked,.road-quality-boundary,.road-typesafe-result,.road-typesafe-message,.road-quality-metrics span,.road-rule-strip span) { background: var(--ui-soft); color: var(--ui-muted); border-color: var(--ui-line); }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.road-quality-panel,.road-workflow-summary,.road-route-planner) :is(p,small) { color: var(--ui-muted)!important; }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.road-quality-list>button,.road-workflow-summary>div button) { background: #fff!important; color: var(--ui-ink)!important; border-color: var(--ui-line)!important; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .road-quality-list>button.severity-high { border-left-color: #b4534c!important; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .road-quality-list>button.severity-medium { border-left-color: #af8131!important; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .road-quality-list>button.is-active { background: var(--ui-accent-soft)!important; color: var(--ui-accent)!important; border-top-color: var(--ui-accent-line)!important; border-right-color: var(--ui-accent-line)!important; border-bottom-color: var(--ui-accent-line)!important; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .road-quality-list>button.is-active>b { color: var(--ui-accent); }
+
+/* Analysis, inspection, AI and export share the same neutral canvas. */
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.data-case-panel,.analysis-mode-tools,.point-title,.point-mode-result,.point-stage-analysis,.point-explanation,.selection-summary,.anomaly-discovery-card,.inspection-brief-header,.inspection-scope-overview,.inspection-readiness,.inspection-data-gates,.inspection-evidence-workspace,.field-observation-panel,.pasc-execution-switch,.pasc-compatibility,.pasc-analysis,.pasc-region-stats,.pasc-local-webgis,.local-ai-panel,.ai-context-panel) {
+  border-color: var(--ui-line);
+  border-radius: 0;
+  background: #fff;
+  box-shadow: none;
+}
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.point-empty,.region-empty,.empty-curves,.inspection-empty,.inspection-selection-prompt,.data-case-empty,.pasc-analysis-empty,.gis-layer-empty) { padding: 24px 18px; border: 1px solid var(--ui-line); border-radius: 4px; background: var(--ui-soft); color: var(--ui-muted); line-height: 1.75; }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.point-metrics,.point-mode-result,.selection-summary,.inspection-evidence-metrics,.ai-input-summary) :is(article,div:not([class])) { background: var(--ui-soft); border-color: var(--ui-line); border-radius: 3px; box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.point-explanation,.point-stage-analysis,.inspection-approach-note,.inspection-cluster-note,.inspection-evidence-trace,.inspection-linked-layers,.pasc-product-boundary,.pasc-local-webgis-boundary,.pasc-local-webgis-privacy,.pasc-local-webgis-file,.pasc-local-webgis-status,.ai-context-warning,.local-ai-evidence,.local-ai-result) { background: var(--ui-soft); border-color: var(--ui-line); border-radius: 4px; color: var(--ui-muted); box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.analysis-mode-tools,.pasc-execution-switch,.local-ai-suggestions,.inspection-actions,.field-coordinate-tools) button { border: 1px solid var(--ui-field); border-radius: 4px; background: #fff; color: var(--ui-ink); box-shadow: none; font-size: 12px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.analysis-mode-tools,.pasc-execution-switch,.local-ai-suggestions) button.active { background: var(--ui-accent-soft); color: var(--ui-accent); border-color: var(--ui-accent-line); }
+.map-route-shell .navigation-workspace .workspace-task-drawer .local-ai-suggestions button.active :is(b,i) { color: var(--ui-accent); }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.inspection-section-title,.inspection-delivery-header,.inspection-delivery-steps,.pasc-compatibility,.ai-panel-heading,.data-case-panel) :is(small,span,p) { color: var(--ui-muted); }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.inspection-candidates>button,.inspection-candidates>article,.field-observation-list>button,.pasc-local-webgis-settings,.pasc-local-scope) { background: #fff; color: var(--ui-ink); border-color: var(--ui-line); border-radius: 4px; box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-export-context { padding: 22px; border-color: var(--ui-line); }
+.map-route-shell .navigation-workspace .workspace-export-actions { padding: 0 22px; }
+.map-route-shell .navigation-workspace .workspace-export-actions button { padding: 18px 0; border-color: var(--ui-line); gap: 14px; color: var(--ui-ink); }
+.map-route-shell .navigation-workspace .workspace-export-actions button:hover { background: var(--ui-soft); }
+.map-route-shell .navigation-workspace .workspace-export-actions svg { color: var(--ui-muted); }
+.map-route-shell .navigation-workspace .workspace-export-actions b { font-size: 13px; font-weight: 600; }
+
+/* Driving: a route rail, compact fields, and progressively disclosed details. */
+.map-route-shell .navigation-workspace .workspace-task-drawer .inspection-action-panel { --action-ink: var(--ui-ink); --action-muted: var(--ui-muted); --action-line: var(--ui-line); --action-accent: var(--ui-accent); }
+.map-route-shell .navigation-workspace .workspace-task-drawer .inspection-readiness.inspection-delivery-steps { grid-template-columns: repeat(2,minmax(0,1fr)); padding: 16px 22px; gap: 12px 16px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .inspection-delivery-steps article { grid-template-columns: 24px minmax(0,1fr); padding: 0; gap: 9px; border: 0; border-radius: 0; background: transparent; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .inspection-delivery-steps i { width: 24px; height: 24px; border-radius: 3px; border-color: var(--ui-line); background: #fff; color: var(--ui-subtle); font-weight: 500; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .inspection-delivery-steps article.ready i { background: #455460; border-color: #455460; color: #fff; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .inspection-delivery-steps b { font-size: 12px; font-weight: 600; white-space: nowrap; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .inspection-delivery-steps small { font-size: 10px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .inspection-brief-header { padding: 20px 22px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .inspection-brief-header h3 { font-size: 20px; font-weight: 600; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .inspection-empty { margin: 18px 22px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .inspection-empty>span { color: var(--ui-muted); font-size: 10px; font-weight: 500; letter-spacing: 0; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .inspection-empty>b { font-size: 16px; font-weight: 600; }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.inspection-empty>button,.local-ai-run button:first-child,.pasc-local-webgis-actions button:not(.secondary)) { background: var(--ui-accent); border-color: var(--ui-accent); color: #fff; font-size: 12px; font-weight: 600; box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .data-case-panel { padding: 20px 22px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .data-case-panel>header h3 { font-size: 19px; font-weight: 600; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .data-case-panel>header>span { background: var(--ui-soft); color: var(--ui-muted); border: 1px solid var(--ui-line); font-weight: 500; border-radius: 3px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .data-case-carousel { grid-template-columns: 24px minmax(0,1fr) 24px; gap: 5px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .data-case-carousel>article { display: grid; grid-template-columns: 1fr; align-content: start; gap: 12px; min-height: 0; padding: 14px; border-color: var(--ui-line); border-radius: 4px; background: #fff; box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .data-case-carousel h4 { font-size: 15px; font-weight: 600; text-wrap: auto; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .data-case-carousel article b { color: var(--ui-ink); font-size: 12px; font-weight: 600; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .data-case-carousel article>button { justify-self: start; white-space: normal; color: var(--ui-accent); background: #fff; border-color: var(--ui-field); font-size: 11px; font-weight: 500; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .data-case-carousel .carousel-arrow { padding: 0; border-color: var(--ui-line); border-radius: 4px; background: #fff; color: var(--ui-muted); box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .local-ai-evidence { padding: 20px 22px; background: #fff; border-bottom: 1px solid var(--ui-line); }
+.map-route-shell .navigation-workspace .workspace-task-drawer .local-ai-evidence h3 { font-size: 20px; font-weight: 600; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .local-ai-suggestions { gap: 8px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .local-ai-suggestions button { grid-template-columns: 20px minmax(0,1fr); padding: 10px; gap: 8px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .local-ai-suggestions i { width: 20px; height: 20px; border: 1px solid var(--ui-line); border-radius: 3px; background: var(--ui-soft); color: var(--ui-muted); font-weight: 500; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .local-ai-suggestions small { font-size: 10px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .pasc-local-webgis>header { background: #fff; border-color: var(--ui-line); }
+.map-route-shell .navigation-workspace .workspace-task-drawer .pasc-local-webgis>header :is(small,span) { color: var(--ui-muted); border-color: var(--ui-line); }
+.map-route-shell .navigation-workspace .workspace-task-drawer .pasc-local-webgis-warning { color: var(--ui-muted); background: var(--ui-soft); border-left: 2px solid #aa813d; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .pasc-local-scope button { border-color: var(--ui-field); border-radius: 4px; background: #fff; box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .pasc-local-scope button.active { color: var(--ui-accent); border-color: var(--ui-accent-line); background: var(--ui-accent-soft); box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .pasc-local-scope button span { color: var(--ui-muted); font-weight: 500; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .pasc-local-scope button.active :is(b,span) { color: var(--ui-accent); }
+.map-route-shell .navigation-workspace .workspace-task-drawer .pasc-execution-switch { display: grid; grid-template-columns: 1fr; gap: 10px; padding: 16px 20px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .pasc-execution-switch>div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .pasc-execution-switch>span { display: flex; background: transparent; gap: 6px; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .pasc-execution-switch button { flex: 1; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .field-observation-panel { --field-ink: var(--ui-ink); --field-muted: var(--ui-muted); --field-line: var(--ui-line); --field-paper: var(--ui-soft); --field-accent: var(--ui-accent); }
+.map-route-shell .navigation-workspace .workspace-task-drawer .field-observation-panel>header b { font-family: var(--font); font-size: 19px; font-weight: 600; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .field-draft-heading>span { border-color: var(--ui-field); color: var(--ui-muted); border-radius: 4px; background: #fff; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .field-visit-evidence>header { background: var(--ui-soft); color: var(--ui-ink); }
+.map-route-shell .navigation-workspace .workspace-task-drawer .field-visit-evidence>header :is(small,p) { color: var(--ui-muted); }
+.map-route-shell .navigation-workspace .workspace-task-drawer .field-visit-photo-main :is(b,span) { color: #fff; }
+.map-route-shell .navigation-workspace .workspace-view-toolbar { border: 1px solid var(--ui-field); border-radius: 5px; background: #fff; box-shadow: 0 2px 8px #20262e0d; }
+.map-route-shell .navigation-workspace .workspace-select-trigger { min-height: 52px; padding: 8px 12px; }
+.map-route-shell .navigation-workspace .workspace-control-copy small { font-size: 12px; }
+.map-route-shell .navigation-workspace .workspace-control-copy b { font-size: 15px; }
+.map-route-shell .navigation-workspace .workspace-control-icon svg { width: 20px; height: 20px; }
+.map-route-shell .navigation-workspace .workspace-view-toolbar>.workspace-view-action { min-height: 48px; padding: 10px 14px; font-size: 15px; }
+.map-route-shell .navigation-workspace .workspace-view-toolbar>.workspace-view-action svg { width: 20px; height: 20px; }
+.map-route-shell .navigation-workspace .workspace-view-toolbar>.workspace-view-action { border-color: var(--ui-line); border-radius: 4px; color: var(--ui-ink); background: #fff; box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-view-toolbar>.workspace-view-action[aria-pressed=true] { color: var(--ui-accent); background: var(--ui-accent-soft); }
+.map-route-shell .navigation-workspace .workspace-view-toolbar>.workspace-view-action:disabled { opacity: .4; }
+
+/* Selected controls share blue text and a pale fill; data and status colors stay independent. */
+.map-route-shell .navigation-workspace :is(.workspace-tabs,.analysis-color-toggle,.map-corner-dock,.basemap-switcher,.result-mode) button.active { color: var(--ui-accent); background: var(--ui-accent-soft); border-color: var(--ui-accent-line); box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.anomaly-view-switch,.aoi-aggregate-switch,.field-radius-switch,.road-metrics-groups) button { color: var(--ui-ink); background: #fff; border-color: var(--ui-field); box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.anomaly-view-switch,.aoi-aggregate-switch,.field-radius-switch,.road-metrics-groups) button:is(.active,[aria-pressed=true]) { color: var(--ui-accent); background: var(--ui-accent-soft); border-color: var(--ui-accent-line); box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .road-workflow-summary>div button[aria-pressed=true] { color: var(--ui-accent)!important; background: var(--ui-accent-soft)!important; border-color: var(--ui-accent-line)!important; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .road-workflow-summary>div button[aria-pressed=true] b { color: var(--ui-accent); }
+.map-route-shell .navigation-workspace .workspace-task-drawer .route-mode-switch button[aria-pressed=true]:not(:disabled) { color: var(--ui-accent)!important; background: var(--ui-accent-soft)!important; border-color: var(--ui-accent-line)!important; }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.inspection-candidate,.anomaly-region-list article,.field-observation-list article).active { background: var(--ui-accent-soft); border-color: var(--ui-accent-line); box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .inspection-candidate.active>button { color: var(--ui-accent); background: #fff; border-color: var(--ui-accent-line); }
+.map-route-shell .navigation-workspace .workspace-task-drawer :is(.inspection-candidate.active .inspection-candidate-copy>header,.field-observation-list article.active>button) b { color: var(--ui-accent); }
+.map-route-shell .navigation-workspace .workspace-task-drawer .anomaly-region-list article.active>button { color: var(--ui-accent); background: transparent; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .anomaly-region-list article.active>button strong { color: var(--ui-accent); }
+.map-route-shell .navigation-workspace .workspace-task-drawer .pasc-job-list>button.active { color: var(--ui-accent); background: var(--ui-accent-soft); border-color: var(--ui-accent-line); box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .pasc-job-list>button.active b { color: var(--ui-accent); }
+.map-route-shell .navigation-workspace .workspace-task-drawer .ai-service-options label.active { background: var(--ui-accent-soft); border-color: var(--ui-accent-line); box-shadow: none; }
+.map-route-shell .navigation-workspace .workspace-task-drawer .ai-service-options label.active b { color: var(--ui-accent); }
+.map-route-shell .navigation-workspace .workspace-task-drawer .ramp-preset-grid button.is-active { color: var(--ui-accent); background: var(--ui-accent-soft); border-color: var(--ui-accent-line); box-shadow: none; }
+
+/* Route editor and result retain one measured content column when expanded. */
+.map-route-shell .navigation-workspace .workspace-task-drawer .road-navigation { padding: 20px 22px; color: var(--ui-ink); max-width: 760px; margin-inline: auto; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-heading { padding: 0; margin: 0 0 16px; border: 0; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-eyebrow { color: var(--ui-muted); font-size: 11px; font-weight: 400; letter-spacing: .015em; margin: 0 0 6px; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-heading h3 { margin: 0 0 9px; font-size: 21px; font-weight: 600; letter-spacing: -.035em; color: var(--ui-ink); }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-heading>p:last-child { margin: 0; font-size: 12px; line-height: 1.8; color: var(--ui-muted); }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-edit { margin-top: 0; padding: 0; border-top: 1px solid var(--ui-line); }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-edit>summary { padding: 15px 0; color: var(--ui-ink); font-size: 12px; font-weight: 600; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-points { position: relative; gap: 0; margin: 0; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-points::before { content: ""; position: absolute; top: 21px; bottom: 24px; left: 11px; width: 1px; background: var(--ui-line); pointer-events: none; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-point { position: relative; display: block; margin: 0; padding: 0 0 16px 36px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-point-heading { min-height: 26px; margin-bottom: 5px; gap: 7px; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-point-heading strong { color: var(--ui-ink); font-size: 12px; font-weight: 600; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-point-marker { position: absolute; top: 3px; left: 0; width: 23px; height: 23px; background: #fff; border: 1px solid #9ba5ae; color: #44515f; border-radius: 50%; font-size: 10px; font-weight: 600; box-shadow: 0 0 0 4px #fff; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-point-destination .road-navigation-point-marker { border-radius: 5px; background: #455460; color: #fff; border-color: #455460; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-required { color: var(--ui-muted); font-size: 10px; background: transparent; padding: 0; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-remove { margin-left: auto; color: var(--ui-subtle); background: transparent; width: 26px; height: 26px; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-icon { display: block; width: 16px; height: 16px; flex: none; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-pick { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 1px solid var(--ui-field); background: #fff; color: var(--ui-muted); text-align: left; border-radius: 4px; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-pick-copy { display: grid; gap: 3px; min-width: 0; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-pick span { font-size: 12px; color: var(--ui-ink); }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-pick small { font-size: 11px; color: var(--ui-muted); font-variant-numeric: tabular-nums; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-pick:hover { border-color: #8397aa; background: #fafbfc; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-pick[aria-pressed=true] { color: var(--ui-accent); border-color: var(--ui-accent); background: var(--ui-accent-soft); box-shadow: none; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-pick[aria-pressed=true] span { color: var(--ui-accent); }
+.map-route-shell .navigation-workspace .road-navigation :is(.road-navigation-coordinate-editor,.road-field-point-settings) { margin-top: 6px; padding-top: 0; border: 0; }
+.map-route-shell .navigation-workspace .road-navigation :is(.road-navigation-coordinate-editor,.road-field-point-settings)>summary { color: var(--ui-muted); font-size: 11px; line-height: 1.6; }
+.map-route-shell .navigation-workspace .road-navigation :is(.road-navigation-coordinate-editor,.road-field-point-settings)>summary:hover { color: var(--ui-accent); }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-coordinate-editor form { padding: 10px 0 2px; background: transparent; border: 0; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-point-settings[open] { padding: 10px 0 0; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-point-settings label { color: var(--ui-ink); font-size: 12px; }
+.map-route-shell .navigation-workspace .road-navigation :is(.road-navigation-tools,.road-navigation-reorder) { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 18px 36px; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-reorder { margin: 8px 0; }
+.map-route-shell .navigation-workspace .road-navigation :is(.road-navigation-tools,.road-navigation-reorder,.road-field-point-settings,.road-navigation-coordinate-editor) button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 9px; border: 1px solid var(--ui-field); border-radius: 4px; background: #fff; color: #48515b; font-size: 11px; box-shadow: none; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-point-settings .road-navigation-vehicle-pick[aria-pressed=true] { color: var(--ui-accent); border-color: var(--ui-accent-line); background: var(--ui-accent-soft); }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-tools button:last-child { border-color: transparent; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-preferences { border-top: 1px solid var(--ui-line); padding-top: 18px; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-section-heading { display: flex; align-items: center; gap: 7px; margin: 0 0 14px; color: var(--ui-ink); font-size: 12px; font-weight: 600; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-section-heading h4 { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 12px; font-weight: 600; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-section-heading>span { margin-left: auto; color: var(--ui-muted); font-size: 10px; font-weight: 400; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-strategy { margin-bottom: 15px; color: var(--ui-ink); font-size: 12px; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-optimize { font-size: 12px; color: var(--ui-ink); }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-optimize small { color: var(--ui-muted); font-size: 10px; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-schedule { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--ui-line); }
+.map-route-shell .navigation-workspace .road-navigation .road-field-schedule-inputs { margin-top: 0; gap: 9px; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-schedule-inputs label { font-size: 11px; color: var(--ui-muted); }
+.map-route-shell .navigation-workspace .road-navigation .road-field-schedule-inputs input { padding: 7px 5px; font-variant-numeric: tabular-nums; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-help { color: var(--ui-muted); font-size: 11px; line-height: 1.75; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-actions { margin: 20px 0 12px; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-submit { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 10px 16px; background: var(--ui-accent); border-color: var(--ui-accent); color: #fff; border-radius: 4px; font-size: 13px; font-weight: 600; box-shadow: none; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-submit:hover:not(:disabled) { background: var(--blue-dark); }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-message { margin: 12px 0; padding: 9px 12px; border: 0; border-left: 2px solid #7d929f; background: var(--ui-soft); color: var(--ui-muted); font-size: 12px; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-message.is-error { border-left-color: #ba4b40; color: #873d35; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-boundary { font-size: 11px; line-height: 1.8; color: var(--ui-muted); border-color: var(--ui-line); }
+
+/* Field result: readable measurements and quiet, explicit safety levels. */
+.map-route-shell .navigation-workspace .road-navigation .road-field-plan { color: var(--ui-ink); }
+.map-route-shell .navigation-workspace .road-navigation .road-field-status { padding: 14px; border: 1px solid var(--ui-line); border-radius: 4px; background: var(--ui-soft); color: var(--ui-ink); }
+.map-route-shell .navigation-workspace .road-navigation .road-field-status-heading { display: flex; align-items: center; gap: 9px; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-status-icon { color: #a2732f; display: flex; flex: none; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-status.is-blocked .road-field-status-icon { color: #b24b42; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-status.is-ready_with_checks .road-field-status-icon { color: #41775c; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-status strong { font-size: 14px; font-weight: 600; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-status p { margin-top: 8px; color: var(--ui-muted); font-size: 11px; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-metrics { margin: 22px 0 16px; gap: 20px; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-metrics>div+div { border-left: 1px solid var(--ui-line); padding-left: 20px; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-metrics dt { color: var(--ui-muted); font-size: 11px; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-metrics dd { color: var(--ui-ink); font-size: 30px; font-weight: 550; letter-spacing: -.03em; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-schedule-summary { padding: 12px 0; border-color: var(--ui-line); gap: 4px; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-schedule-summary :is(b,span) { color: var(--ui-muted); font-size: 11px; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-schedule-summary b { color: var(--ui-ink); font-size: 12px; font-weight: 600; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-plan h4 { color: var(--ui-ink); font-size: 13px; font-weight: 600; }
+.map-route-shell .navigation-workspace .road-navigation :is(.road-field-section-title,.road-field-stops) button { display: inline-flex; align-items: center; gap: 5px; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-legs { margin: 12px 0 22px; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-legs li { margin: 0; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-legs button { padding: 13px 10px; border: 0; border-bottom: 1px solid var(--ui-line); border-radius: 0; background: #fff; color: var(--ui-ink); }
+.map-route-shell .navigation-workspace .road-navigation .road-field-legs button:hover { background: var(--ui-soft); }
+.map-route-shell .navigation-workspace .road-navigation .road-field-legs button[aria-pressed=true] { color: var(--ui-accent); background: var(--ui-accent-soft); box-shadow: inset 2px 0 var(--ui-accent); }
+.map-route-shell .navigation-workspace .road-navigation .road-field-legs button[aria-pressed=true] :is(strong,.road-field-leg-index) { color: var(--ui-accent); }
+.map-route-shell .navigation-workspace .road-navigation .road-field-leg-index { background: var(--ui-soft); color: var(--ui-muted); border: 1px solid var(--ui-line); border-radius: 4px; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-leg-copy { gap: 4px; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-leg-copy small { color: var(--ui-muted); font-size: 11px; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-stops>li { position: relative; padding: 4px 0 16px 18px; margin-left: 5px; border-left: 1px solid var(--ui-line); border-bottom: 0; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-stops>li::before { content: ""; position: absolute; left: -4px; top: 14px; width: 7px; height: 7px; border-radius: 50%; border: 1px solid #929ca6; background: #fff; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-stop-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 3px; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-access { padding: 1px 6px; border: 1px solid #ddcfb8; background: #fbf8f1; color: #87652e; font-size: 10px; border-radius: 3px; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-access.is-confirmed { border-color: #c2d5c9; background: #f3f7f4; color: #426b53; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-access.is-blocked { border-color: #e3c3bf; background: #fcf5f4; color: #a44c43; }
+.map-route-shell .navigation-workspace .road-navigation :is(.road-field-review,.road-field-evidence) { padding: 14px 0; margin: 0; border-color: var(--ui-line); }
+.map-route-shell .navigation-workspace .road-navigation .road-field-review ul { padding: 0; margin-top: 12px; list-style: none; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-review li { display: flex; align-items: flex-start; gap: 9px; margin: 0; padding: 8px 0; color: var(--ui-muted); font-size: 11px; line-height: 1.75; }
+.map-route-shell .navigation-workspace .road-navigation .road-field-issue-level { flex: none; padding: 0 4px; margin-top: 1px; border: 1px solid #ddcfb8; border-radius: 3px; color: #87652e; font-size: 10px; line-height: 1.7; white-space: nowrap; }
+.map-route-shell .navigation-workspace .road-navigation .is-blocker .road-field-issue-level { border-color: #e3c3bf; color: #a44c43; }
+.map-route-shell .navigation-workspace .road-navigation .is-notice .road-field-issue-level { border-color: var(--ui-line); color: var(--ui-muted); }
+.map-route-shell .navigation-workspace .road-navigation .road-field-export { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--ui-field); background: #fff; color: var(--ui-ink); font-size: 12px; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-usage { margin: 12px 0 20px; color: var(--ui-muted); font-size: 10px; line-height: 1.7; }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-usage-row { display: block; margin: 3px 0; color: var(--ui-muted); }
+.map-route-shell .navigation-workspace .road-navigation .road-navigation-usage-mode { margin-right: 8px; }
+.map-route-shell .navigation-workspace .road-navigation-map-hint { border-radius: 4px; padding: 12px 14px; border-color: var(--ui-field); box-shadow: 0 2px 6px #20262e0a; color: var(--ui-ink); }
+.map-route-shell .navigation-workspace .road-navigation-map-hint b { font-size: 13px; font-weight: 600; color: var(--ui-ink); }
+.map-route-shell .navigation-workspace .road-navigation-map-hint span { font-size: 11px; color: var(--ui-muted); }
+.map-route-shell .navigation-workspace .workspace-status-line { border-color: var(--ui-line); background: #f7f8f9; color: var(--ui-muted); font-size: 11px; }
+
+@media (max-width: 1200px) {
+  .map-route-shell .navigation-workspace .workspace-header { gap: 14px; padding-inline: 14px; }
+  .map-route-shell .navigation-workspace .workspace-header .site-brand { flex-basis: 180px; }
+  .map-route-shell .navigation-workspace .workspace-primary-nav button { min-width: 80px; padding-inline: 10px; gap: 7px; }
+  .map-route-shell .navigation-workspace .workspace-primary-nav .workspace-nav-label { font-size: 14px; }
+  .map-route-shell .navigation-workspace .workspace-header-utilities { gap: 10px; }
+}
+@media (min-width: 1024px) and (max-width: 1400px) {
+  .map-route-shell .navigation-workspace .workspace-header { gap: 14px; }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  .map-route-shell .navigation-workspace .workspace-header .site-brand { flex-basis: auto; }
+  .map-route-shell .navigation-workspace .workspace-header .site-brand b { font-size: 14px; }
+  .map-route-shell .navigation-workspace .workspace-primary-nav { gap: 2px; }
+  .map-route-shell .navigation-workspace .workspace-primary-nav button { min-width: 68px; padding-inline: 7px; gap: 5px; }
+  .map-route-shell .navigation-workspace .workspace-primary-nav .workspace-nav-label { font-size: 14px; }
+  .map-route-shell .navigation-workspace .workspace-header-utilities { gap: 8px; }
+  .map-route-shell .navigation-workspace .workspace-home-link span { display: none; }
+}
+@media (max-width: 767px) {
+  .map-route-shell .navigation-workspace .workspace-header { padding-inline: 12px; }
+  .map-route-shell .navigation-workspace .workspace-header .site-brand { flex-basis: auto; }
+  .map-route-shell .navigation-workspace .workspace-primary-nav { gap: 0; align-items: stretch; }
+  .map-route-shell .navigation-workspace .workspace-primary-nav button { height: auto; min-width: 0; padding: 6px 2px; gap: 4px; border-radius: 0; border-top: 2px solid transparent; }
+  .map-route-shell .navigation-workspace .workspace-primary-nav button.active { border-top-color: var(--ui-accent); background: var(--ui-accent-soft); }
+  .map-route-shell .navigation-workspace .workspace-primary-nav button::after { display: none; }
+  .map-route-shell .navigation-workspace .workspace-primary-nav .workspace-nav-label { font-size: 12px; font-weight: 500; }
+  .map-route-shell .navigation-workspace .workspace-header-utilities { gap: 8px; font-size: 12px; }
+  .map-route-shell .navigation-workspace .workspace-home-link { font-size: 12px; }
+  .map-route-shell .navigation-workspace .workspace-select-trigger { min-height: 40px; padding: 6px 8px; }
+  .map-route-shell .navigation-workspace .workspace-control-copy b { font-size: 13px; }
+  .map-route-shell .navigation-workspace .workspace-view-toolbar>.workspace-view-action { min-height: 40px; padding: 8px; font-size: 13px; }
+  .map-route-shell .navigation-workspace .workspace-task-drawer .road-navigation { padding: 18px; }
+  .map-route-shell .navigation-workspace .workspace-task-drawer .panel-head { padding-inline: 18px; }
+}
+@container workbench-panel (min-width: 560px) {
+  .map-route-shell .navigation-workspace .workspace-task-drawer .inspection-readiness.inspection-delivery-steps { grid-template-columns: repeat(4,minmax(0,1fr)); }
+  .map-route-shell .navigation-workspace .road-navigation .road-field-schedule-inputs { gap: 16px; }
+  .map-route-shell .navigation-workspace .road-navigation .road-navigation-point { padding-left: 38px; }
+  .map-route-shell .navigation-workspace .road-navigation .road-field-point-settings[open] { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  .map-route-shell .navigation-workspace .road-navigation .road-field-point-settings>summary,
+  .map-route-shell .navigation-workspace .road-navigation .road-field-point-settings>p,
+  .map-route-shell .navigation-workspace .road-navigation .road-field-point-settings>label:last-child { grid-column: 1 / -1; }
+}
+
+/* User-owned task drafts: quiet, compact and distinct from the supplier route result. */
+.map-route-shell .navigation-workspace .road-task-drafts { margin: 0 0 20px; border-block: 1px solid var(--ui-line); }
+.map-route-shell .navigation-workspace .road-task-drafts>summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 0; cursor: pointer; color: var(--ui-ink); font-size: 13px; font-weight: 600; }
+.map-route-shell .navigation-workspace .road-task-drafts>summary::before { content: "+"; color: var(--ui-muted); }
+.map-route-shell .navigation-workspace .road-task-drafts[open]>summary::before { content: "−"; }
+.map-route-shell .navigation-workspace .road-task-drafts>summary>span:first-of-type { margin-right: auto; }
+.map-route-shell .navigation-workspace .road-task-drafts-state { color: var(--ui-accent); font-size: 11px; font-weight: 500; white-space: nowrap; }
+.map-route-shell .navigation-workspace .road-task-drafts-body { padding-bottom: 14px; }
+.map-route-shell .navigation-workspace .road-task-drafts-body label { display: grid; gap: 6px; color: var(--ui-muted); font-size: 12px; }
+.map-route-shell .navigation-workspace .road-task-drafts-body input:not([type="checkbox"]),
+.map-route-shell .navigation-workspace .road-task-drafts-body select { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--ui-field); border-radius: 4px; background: #fff; color: var(--ui-ink); font: inherit; }
+.map-route-shell .navigation-workspace .road-task-draft-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.map-route-shell .navigation-workspace .road-task-draft-actions button { min-height: 32px; border: 1px solid var(--ui-line); border-radius: 4px; background: #fff; color: var(--ui-ink); padding: 6px 9px; font: inherit; font-size: 12px; cursor: pointer; }
+.map-route-shell .navigation-workspace .road-task-draft-actions button:hover:not(:disabled),
+.map-route-shell .navigation-workspace .road-task-draft-actions .is-primary { border-color: var(--ui-accent-line); background: var(--ui-accent-soft); color: var(--ui-accent); }
+.map-route-shell .navigation-workspace .road-task-draft-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.map-route-shell .navigation-workspace .road-task-draft-hint,
+.map-route-shell .navigation-workspace .road-task-draft-notice { margin: 9px 0 0; color: var(--ui-muted); font-size: 11px; line-height: 1.65; }
+.map-route-shell .navigation-workspace .road-task-draft-error { margin: 10px 0; padding-left: 9px; border-left: 2px solid #a66c26; color: var(--ui-ink); font-size: 12px; line-height: 1.65; }
+.map-route-shell .navigation-workspace .road-task-draft-library { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--ui-line); }
+.map-route-shell .navigation-workspace .road-task-draft-library>summary { margin-bottom: 10px; font-size: 12px; color: var(--ui-accent); cursor: pointer; }
+.map-route-shell .navigation-workspace .road-task-drafts-body .road-task-notes-option { display: flex; align-items: flex-start; gap: 7px; margin-top: 12px; line-height: 1.5; }
+.map-route-shell .navigation-workspace .road-task-notes-option input { accent-color: var(--ui-accent); }
+.map-route-shell .navigation-workspace .road-task-drafts-body .road-task-import { flex: 1 1 170px; min-width: 0; }
+.map-route-shell .navigation-workspace .road-task-drafts-body .road-task-import input { padding: 5px; font-size: 11px; }
+.map-route-shell .navigation-workspace .road-task-confirmation { margin: 14px 0 0; padding: 10px; border: 1px solid var(--ui-accent-line); border-radius: 4px; background: var(--ui-accent-soft); }
+.map-route-shell .navigation-workspace .road-task-confirmation legend { padding-inline: 4px; font-size: 12px; font-weight: 600; color: var(--ui-accent); }
+.map-route-shell .navigation-workspace .road-task-confirmation p { margin: 6px 0; color: var(--ui-ink); font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.map-route-shell .navigation-workspace .road-task-drafts :focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+
+/* Full task planning follows the existing blue selection language, not a second theme. */
+.map-route-shell .navigation-workspace .road-task-advanced-entry { width: 100%; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 14px; padding: 11px 12px; border: 1px solid var(--ui-accent-line); border-radius: 4px; background: var(--ui-accent-soft); color: var(--ui-accent); text-align: left; font-size: 12px; font-weight: 600; }
+.map-route-shell .navigation-workspace .road-task-advanced-entry span { color: var(--ui-muted); font-size: 11px; font-weight: 400; }
+.map-route-shell .navigation-workspace .road-task-trip-modes { display: flex; gap: 6px; }
+.map-route-shell .navigation-workspace .road-task-trip-modes button { flex: 1; padding: 9px 12px; border: 1px solid var(--ui-line); border-radius: 4px; background: #fff; color: var(--ui-muted); font-size: 12px; }
+.map-route-shell .navigation-workspace .road-task-trip-modes button[aria-pressed=true] { background: var(--ui-accent-soft); color: var(--ui-accent); border-color: var(--ui-accent-line); font-weight: 600; }
+.map-route-shell .navigation-workspace .road-field-task-editor .road-navigation-points { margin-top: 16px; }
+.map-route-shell .navigation-workspace .road-field-task-editor .road-task-share { display: grid; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--ui-line); font-size: 11px; color: var(--ui-muted); }
+.map-route-shell .navigation-workspace .road-field-task-editor .road-task-share select { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--ui-field); border-radius: 4px; background: #fff; color: var(--ui-ink); font: inherit; }
+.map-route-shell .navigation-workspace .road-field-task-editor .road-field-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.map-route-shell .navigation-workspace .road-field-task-editor .road-field-heading h4 { margin: 8px 0; }
+.map-route-shell .navigation-workspace .road-task-report-state { padding: 3px 7px; border: 1px solid var(--ui-line); border-radius: 3px; color: var(--ui-muted); font-size: 11px; white-space: nowrap; }
+.map-route-shell .navigation-workspace .road-task-report-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px 18px; margin: 14px 0; padding: 14px 0; border-block: 1px solid var(--ui-line); }
+.map-route-shell .navigation-workspace .road-task-report-metrics small { display: block; color: var(--ui-muted); font-size: 11px; }
+.map-route-shell .navigation-workspace .road-task-report-metrics strong { display: block; margin-top: 4px; font-size: 19px; font-weight: 550; color: var(--ui-ink); font-variant-numeric: tabular-nums; }
+.map-route-shell .navigation-workspace .road-field-task-editor .road-field-plan>details { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--ui-line); }
+.map-route-shell .navigation-workspace .road-field-task-editor .road-field-plan summary { color: var(--ui-ink); cursor: pointer; font-size: 12px; line-height: 1.7; }
+.map-route-shell .navigation-workspace .road-task-report-visit { padding: 14px 0; border-bottom: 1px solid var(--ui-line); }
+.map-route-shell .navigation-workspace .road-task-report-visit-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* Manual access review keeps the existing blue-on-pale-blue interaction language. */
+.map-route-shell .navigation-workspace .road-access-panel { margin-block: 18px; padding-block: 12px; border-block: 1px solid var(--ui-line); font-size: 12px; }
+.map-route-shell .navigation-workspace .road-access-panel summary { cursor: pointer; color: var(--ui-ink); font-weight: 600; line-height: 1.7; }
+.map-route-shell .navigation-workspace .road-access-panel>summary>span { margin-left: 8px; color: var(--ui-muted); font-size: 11px; font-weight: 400; }
+.map-route-shell .navigation-workspace .road-access-panel label { display: grid; min-width: 0; gap: 6px; color: var(--ui-muted); font-size: 12px; }
+.map-route-shell .navigation-workspace .road-access-panel input:not([type=checkbox]),
+.map-route-shell .navigation-workspace .road-access-panel select,
+.map-route-shell .navigation-workspace .road-access-panel textarea { box-sizing: border-box; width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--ui-field); border-radius: 4px; background: #fff; color: var(--ui-ink); font: inherit; }
+.map-route-shell .navigation-workspace .road-access-panel textarea { resize: vertical; }
+.map-route-shell .navigation-workspace .road-access-panel button { min-height: 32px; padding: 6px 10px; border: 1px solid var(--ui-line); border-radius: 4px; background: #fff; color: var(--ui-ink); font: inherit; font-size: 12px; cursor: pointer; }
+.map-route-shell .navigation-workspace .road-access-panel button:hover:not(:disabled),
+.map-route-shell .navigation-workspace .road-access-panel button[aria-pressed=true] { border-color: var(--ui-accent-line); background: var(--ui-accent-soft); color: var(--ui-accent); }
+.map-route-shell .navigation-workspace .road-access-panel button:disabled { opacity: .5; cursor: not-allowed; }
+.map-route-shell .navigation-workspace .road-access-panel :focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.map-route-shell .navigation-workspace .road-access-selector { margin-block: 12px; }
+.map-route-shell .navigation-workspace .road-access-overview { margin-block: 12px; }
+.map-route-shell .navigation-workspace .road-access-slots { list-style: none; margin: 8px 0; padding: 0; }
+.map-route-shell .navigation-workspace .road-access-slots li { padding-block: 8px; border-bottom: 1px solid var(--ui-line); }
+.map-route-shell .navigation-workspace .road-access-slots button { display: flex; justify-content: space-between; gap: 10px; width: 100%; text-align: left; }
+.map-route-shell .navigation-workspace .road-access-slots small { flex-shrink: 0; color: var(--ui-muted); font-size: 10px; }
+.map-route-shell .navigation-workspace .road-access-slots p { margin: 6px 0 0; color: var(--ui-muted); font-size: 11px; line-height: 1.65; }
+.map-route-shell .navigation-workspace .road-access-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.map-route-shell .navigation-workspace .road-access-form legend { padding: 0; color: var(--ui-ink); font-weight: 600; }
+.map-route-shell .navigation-workspace .road-access-fields { display: grid; grid-template-columns: minmax(0,1fr); gap: 10px; margin-block: 12px; }
+.map-route-shell .navigation-workspace .road-access-form fieldset>label { margin-block: 12px; }
+.map-route-shell .navigation-workspace .road-access-form button[type=submit] { margin-block: 4px 10px; border-color: var(--ui-accent-line); background: var(--ui-accent-soft); color: var(--ui-accent); }
+.map-route-shell .navigation-workspace .road-access-panel .road-access-consent { display: flex; align-items: flex-start; gap: 7px; margin-block: 12px; line-height: 1.65; }
+.map-route-shell .navigation-workspace .road-access-consent input { accent-color: var(--ui-accent); }
+.map-route-shell .navigation-workspace .road-access-history { margin-block: 14px; padding-top: 12px; border-top: 1px solid var(--ui-line); }
+.map-route-shell .navigation-workspace .road-access-history article { padding-block: 12px; border-bottom: 1px solid var(--ui-line); overflow-wrap: anywhere; }
+.map-route-shell .navigation-workspace .road-access-history p { margin: 6px 0; color: var(--ui-muted); font-size: 11px; line-height: 1.65; }
+.map-route-shell .navigation-workspace .road-access-history .road-access-basis { white-space: pre-wrap; color: var(--ui-ink); }
+@container workbench-panel (min-width: 420px) {
+  .map-route-shell .navigation-workspace .road-access-fields { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+.map-route-shell .navigation-workspace .road-task-report-visit p { margin: 7px 0; color: var(--ui-muted); font-size: 11px; }
+.map-route-shell .navigation-workspace .road-task-report-visit button { padding: 3px 0; border: 0; background: transparent; color: var(--ui-accent); font-size: 11px; }
+.map-route-shell .navigation-workspace .road-task-report-visit ol { margin: 10px 0; padding-left: 21px; }
+.map-route-shell .navigation-workspace .road-task-report-visit li { padding: 5px 0; line-height: 1.75; overflow-wrap: anywhere; }
+.map-route-shell .navigation-workspace .road-task-report-visit li :is(span,small) { display: block; color: var(--ui-muted); font-size: 11px; }
+.map-route-shell .navigation-workspace .road-task-report-visit details { margin-top: 8px; }
+.map-route-shell .navigation-workspace .road-task-report-legs>button { display: grid; gap: 5px; width: 100%; text-align: left; padding: 12px 10px; border: 0; border-bottom: 1px solid var(--ui-line); background: #fff; color: var(--ui-ink); font-size: 12px; }
+.map-route-shell .navigation-workspace .road-task-report-legs>button small { color: var(--ui-muted); font-size: 11px; }
+.map-route-shell .navigation-workspace .road-task-report-legs>button.is-active { background: var(--ui-accent-soft); color: var(--ui-accent); box-shadow: inset 2px 0 var(--ui-accent); }
+.map-route-shell .navigation-workspace .road-field-task-editor .road-field-plan ul { padding-left: 17px; color: var(--ui-muted); font-size: 11px; line-height: 1.8; }
+.map-route-shell .navigation-workspace .road-field-task-editor .road-field-plan>details>p { font-size: 11px; line-height: 1.8; color: var(--ui-muted); }
+.map-route-shell .navigation-workspace .road-field-task-editor textarea:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+@container workbench-panel (min-width: 560px) {
+  .map-route-shell .navigation-workspace .road-field-task-editor .road-field-point-settings[open] { display: block; }
+  .map-route-shell .navigation-workspace .road-task-report-metrics { grid-template-columns: repeat(4,minmax(0,1fr)); }
+}
+
+/* Continuous local CSV workflow. Overlays preserve the map's viewport height. */
+.map-route-shell .navigation-workspace .local-workflow-progress {
+  position: absolute; z-index: 750; top: 76px; left: 16px;
+  display: flex; flex-wrap: wrap; gap: 4px; max-width: calc(100% - 80px);
+  padding: 5px; background: #fff; border: 1px solid var(--ui-line); border-radius: 5px;
+}
+.map-route-shell .navigation-workspace .local-workflow-progress button {
+  padding: 6px 9px; border: 0; border-radius: 3px; background: var(--ui-soft);
+  color: var(--ui-ink); font-size: 11px; cursor: pointer;
+}
+.map-route-shell .navigation-workspace .local-workflow-progress button:disabled { opacity: .55; cursor: wait; }
+.map-route-shell .navigation-workspace:has(.local-workflow-progress) .map-context-dock { top: 58px; }
+.map-route-shell .navigation-workspace .local-workflow-error {
+  position: absolute; z-index: 850; bottom: 56px; left: 20px; max-width: min(580px,calc(100% - 40px));
+  margin: 0; padding: 9px 12px; border: 1px solid #dcc1a3; border-radius: 4px;
+  background: #fffaf3; color: #684923; font-size: 12px;
+}
+.local-route-stale { padding: 12px; margin: 12px; border: 1px solid #dcc1a3; background: #fffaf3; font-size: 12px; }
+@media (max-width: 700px) {
+  .map-route-shell .navigation-workspace .local-workflow-progress { top: 72px; left: 8px; max-width: calc(100% - 55px); }
+  .map-route-shell .navigation-workspace .local-workflow-progress button { font-size: 10px; padding: 5px 6px; }
+}
+
+/* The local task steps occupy their own row so they never cover map controls or drawers. */
+.map-route-shell .navigation-workspace .local-workflow-progress {
+  position: relative; flex: 0 0 auto; align-self: flex-start;
+  top: auto; left: auto; margin: 8px 16px; max-width: calc(100% - 32px);
+  flex-wrap: nowrap; overflow-x: auto;
+}
+.map-route-shell .navigation-workspace .local-workflow-progress button { white-space: nowrap; }
+.map-route-shell .navigation-workspace .local-observed-series {
+  margin: 14px 22px; padding: 12px; border: 1px solid var(--ui-line); border-radius: 4px;
+}
+.map-route-shell .navigation-workspace .local-observed-series summary {
+  cursor: pointer; font-size: 12px; font-weight: 600; color: var(--ui-ink);
+}
+.map-route-shell .navigation-workspace .local-observed-series p { margin: 10px 0; font-size: 11px; line-height: 1.6; }
+.map-route-shell .navigation-workspace .local-observed-series table {
+  width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.map-route-shell .navigation-workspace .local-observed-series :is(th,td) {
+  padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--ui-line);
+}
+.map-route-shell .navigation-workspace .local-observed-series th { position: sticky; top: 0; background: var(--ui-soft); }
+.map-route-shell .navigation-workspace .local-observed-series :is(th,td):last-child { text-align: right; }
+.map-route-shell .navigation-workspace .point-analysis-tab > .workspace-text-action {
+  display: block; margin: 14px 22px; width: calc(100% - 44px); padding: 9px 12px;
+  border: 1px solid var(--ui-accent-line); background: var(--ui-accent-soft); color: var(--ui-accent);
+}
+
+.map-route-shell .navigation-workspace .anomaly-scope-controls { margin: 16px 22px; }
+.map-route-shell .navigation-workspace .anomaly-scope-controls p { font-size: 11px; line-height: 1.7; }
+.map-route-shell .navigation-workspace .anomaly-scope-controls button {
+  display: block; width: 100%; margin-top: 6px; padding: 8px 10px;
+  border: 1px solid var(--ui-line); background: #fff; color: var(--ui-accent); text-align: left;
+}
+
+/* Personalized planning extends the existing drawer without changing its controls. */
+.map-route-shell .navigation-workspace .road-personalized-table { max-width: 100%; overflow-x: auto; }
+.map-route-shell .navigation-workspace .road-personalized-table table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.map-route-shell .navigation-workspace .road-personalized-table :is(th,td) { padding: 12px 8px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--ui-line); }
+.map-route-shell .navigation-workspace .road-personalized-table small { display: block; margin-top: 5px; font-weight: 400; line-height: 1.6; color: var(--ui-muted); }
+.map-route-shell .navigation-workspace .road-personalized-table tr[aria-current="true"] { background: var(--ui-accent-soft); }
+.map-route-shell .navigation-workspace .road-personalized-table button,
+.map-route-shell .navigation-workspace .road-execution-form button[type="submit"] { min-height: 32px; padding: 7px 10px; border: 1px solid var(--ui-accent-line); border-radius: 4px; background: var(--ui-accent-soft); color: var(--ui-accent); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.map-route-shell .navigation-workspace .road-personalized-table button:disabled { opacity: .65; cursor: default; }
+.map-route-shell .navigation-workspace .road-field-execution { margin-top: 18px; border-top: 1px solid var(--ui-line); padding-top: 14px; }
+.map-route-shell .navigation-workspace .road-execution-form :is(input,select,textarea) { min-width: 0; max-width: 100%; width: 100%; box-sizing: border-box; font: inherit; padding: 9px; border: 1px solid var(--ui-line); background: #fff; color: var(--ui-ink); }
+.map-route-shell .navigation-workspace .road-execution-form input[type="checkbox"] { width: auto; }
+.map-route-shell .navigation-workspace .road-execution-form label { display: grid; gap: 7px; margin: 12px 0; }
+.map-route-shell .navigation-workspace .road-execution-form label.road-navigation-optimize { display: flex; }
+.map-route-shell .navigation-workspace .road-execution-history :is(li,small),
+.map-route-shell .navigation-workspace .road-task-report-deferred li { overflow-wrap: anywhere; }
+.map-route-shell .navigation-workspace .road-execution-history li { padding: 10px 0; border-bottom: 1px solid var(--ui-line); }
+.map-route-shell .navigation-workspace .road-execution-history small { color: var(--ui-muted); }
+@media (max-width: 520px) {
+  .map-route-shell .navigation-workspace .road-personalized-table :is(th,td) { padding: 10px 5px; }
+  .map-route-shell .navigation-workspace .road-personalized-table button { white-space: normal; min-width: 64px; }
+  .map-route-shell .navigation-workspace .road-execution-form .road-field-schedule-inputs { grid-template-columns: 1fr; }
+}

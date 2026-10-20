@@ -45,11 +45,11 @@ function StatisticsView() {
   useEffect(() => { if (isReady) trackEvent("statistics_open", { has_region_context: Boolean(stats), point_count: stats?.pointCount ?? 0 }); }, [isReady, stats]);
 
   return <PageShell>
-    <PageHero eyebrow="PHASE 7 · ANALYSIS CONTINUITY" title="区域形变统计" description="统计页沿用地图中的数据集、区域、时间范围与筛选条件，只保留能支持判断的核心图表。"/>
+    <PageHero eyebrow="REGIONAL ANALYSIS" title="区域形变统计" description="基于地图中的数据集、区域、时间范围与筛选条件，汇总形变分布与观测质量，为异常复核和外业目标筛选提供依据。"/>
     <section className="section phase-seven-statistics">
       {!isReady ? <div className="analysis-context-empty"><b>正在恢复当前分析对象…</b></div> : <>
         <div className="analysis-object-header phase-seven-object-header">
-          <div><span>当前分析对象</span><h2>{analysis.datasetName} · {region?.label || "尚未选择区域"}</h2><p>统计结果来自当前 Map 分析上下文，不建立第二套数据状态。</p></div>
+          <div><span>当前分析对象</span><h2>{analysis.datasetName} · {region?.label || "尚未选择区域"}</h2><p>统计结果与地图保持相同的数据范围和筛选条件。</p></div>
           <Link className="button primary" href={mapHref}>返回地图并恢复状态 ↗</Link>
         </div>
         <div className="analysis-context-strip phase-seven-context-strip">

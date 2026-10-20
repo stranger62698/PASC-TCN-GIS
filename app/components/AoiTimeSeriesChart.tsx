@@ -1,26 +1,38 @@
 "use client";
 
-import { useMemo, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { useChartWidth } from "../lib/use-chart-width";
 import type { InsarPoint } from "../data/site";
 import { colorForMode, deformationModeOrder, normalizedMode } from "../lib/analysis-context";
-import { aggregateAoiSeries, type AoiAggregateMethod } from "../lib/aoi-analysis";
+import { aggregateAoiSeries, type AoiAggregateMethod, type AoiSeries } from "../lib/aoi-analysis";
 
 const axisDate = (value: string) => {
   const digits = (value || "").replace(/\D/g, "");
   return digits.length >= 6 ? `${digits.slice(0, 4)}.${digits.slice(4, 6)}` : value;
 };
 
-export function AoiTimeSeriesChart({ points, exportBusy = false, onExportData, onExportChart }: { points: InsarPoint[]; exportBusy?: boolean; onExportData?: (method: AoiAggregateMethod, enabledModes: string[]) => void; onExportChart?: (svg: SVGSVGElement) => void }) {
+export function AoiTimeSeriesChart({ points, exportBusy = false, onExportData, onExportChart, loadSeries }: { points: InsarPoint[]; loadSeries?: (method: AoiAggregateMethod, signal?: AbortSignal) => Promise<AoiSeries>; exportBusy?: boolean; onExportData?: (method: AoiAggregateMethod, enabledModes: string[]) => void; onExportChart?: (svg: SVGSVGElement) => void }) {
   const [method, setMethod] = useState<AoiAggregateMethod>("median");
   const [enabledModes, setEnabledModes] = useState<string[]>([]);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-  const series = useMemo(() => aggregateAoiSeries(points, method, normalizedMode), [points, method]);
+  const [asyncSeries, setAsyncSeries] = useState<{ series: AoiSeries; loader: typeof loadSeries; method: AoiAggregateMethod; retry: number } | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [retry, setRetry] = useState(0);
+  const controllerRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    if (!loadSeries) return;
+    const controller = new AbortController(); controllerRef.current = controller;
+    queueMicrotask(() => { if (!controller.signal.aborted) { setAsyncSeries(null); setLoadError(""); } });
+    void loadSeries(method, controller.signal).then(result => { if (!controller.signal.aborted) setAsyncSeries({ series: result, loader: loadSeries, method, retry }); }).catch(error => { if (!controller.signal.aborted) setLoadError(error instanceof Error ? error.message : "区域时序计算失败。"); });
+    return () => controller.abort();
+  }, [loadSeries, method, retry]);
+  const loadedSeries = asyncSeries?.loader === loadSeries && asyncSeries?.method === method && asyncSeries?.retry === retry ? asyncSeries.series : null;
+  const series = useMemo(() => loadSeries ? loadedSeries ?? { dates: [], overall: [], groups: [] } : aggregateAoiSeries(points, method, point => normalizedMode(point.mode)), [points, method, loadSeries, loadedSeries]);
   const availableGroups = useMemo(
     () => [...series.groups].sort((a, b) => {
-      const aIndex = deformationModeOrder.indexOf(a.mode);
-      const bIndex = deformationModeOrder.indexOf(b.mode);
+      const aIndex = (deformationModeOrder as readonly string[]).indexOf(a.mode);
+      const bIndex = (deformationModeOrder as readonly string[]).indexOf(b.mode);
       return (aIndex < 0 ? 99 : aIndex) - (bIndex < 0 ? 99 : bIndex);
     }),
     [series.groups],
@@ -29,6 +41,7 @@ export function AoiTimeSeriesChart({ points, exportBusy = false, onExportData, o
   const allValues = [...series.overall, ...visibleGroups.flatMap(group => group.values)]
     .filter((value): value is number => value !== null && Number.isFinite(value));
   const width = useChartWidth(svgRef, 420, Boolean(points.length && series.dates.length && allValues.length));
+  if (loadSeries && !loadedSeries && points.length) return <section className="aoi-series-card" role="status"><h3>区域聚合形变时序</h3><p>{loadError || ("正在本机计算 " + points.length.toLocaleString() + " 个点的完整区域时序…")}</p>{loadError ? <button onClick={() => setRetry(value => value + 1)}>重试区域计算</button> : <button onClick={() => { controllerRef.current?.abort(); setLoadError("区域计算已取消。"); }}>取消计算</button>}</section>;
   if (!points.length || !series.dates.length || !allValues.length) return null;
 
   const height = 260, left = 51, right = 18, top = 20, bottom = 42;
@@ -58,6 +71,7 @@ export function AoiTimeSeriesChart({ points, exportBusy = false, onExportData, o
           <button className={method === "mean" ? "active" : ""} onClick={() => setMethod("mean")}>平均值</button>
         </div>
       </header>
+      {loadSeries && <p className="aoi-series-note">原始实测日期与位移聚合；每期仅计算有效观测，缺测不补值。</p>}
       <p className="aoi-series-note">{method === "median" ? "默认使用中位数，降低离群形变点对区域趋势的影响。" : "平均值保留所有点的整体贡献，对离群点更敏感。"}</p>
       <div className="aoi-series-plot">
         <svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`AOI ${method === "median" ? "中位数" : "平均值"}累计形变时序，单位毫米`} onPointerLeave={() => setHoverIndex(null)}>

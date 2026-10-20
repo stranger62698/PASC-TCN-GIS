@@ -24,10 +24,10 @@ export type CaseStudy = {
 export const cases: CaseStudy[] = [
   {
     key: "city", label: "城市", title: "海南新埠岛建筑时序形变监测", kicker: "URBAN BUILDING DEFORMATION · XINBU ISLAND",
-    description: "基于海南新埠岛 9,069 个原始监测点和 210 期 InSAR 时序，分析建筑密集区的形变过程、速率与模式差异，形成可定位、可比较的建筑形变核查线索。",
+    description: "基于海南新埠岛 9,069 个原始监测点和 210 期 InSAR 时序，分析建筑密集区的形变过程、速率与模式差异，为建筑形变复核与外业目标筛选提供点位依据。",
     metrics: [["监测点", "9,069 点"], ["观测期数", "210 期"], ["观测时间", "2017—2025"]], tags: ["新埠岛建筑", "真实时序", "建筑核查"], accent: "#1677ff",
     image:"/case-city-insar.webp", imageAlt:"海南新埠岛建筑密集区的 InSAR 时序形变点位空间示例", visualLegend:["负向速率","接近稳定","正向速率"],
-    workflow: [["业务问题","建筑密集区中，哪些点位、时序过程与形变模式值得优先比较和核查？"],["数据","原始文件 9,069 个点、210 期累计形变：坐标、速率、相干性、六类概率、置信度与空间可靠性，未做网页降采样。"],["产品分析流程","字段兼容检查 → 时序与质量分析 → 固定六分类 → 点位概率 → 区域统计。"],["发现","形成可追溯的点位时序和区域差异线索，不把密集点直接冒充单栋建筑结论。"],["产品价值","把原始密集时序预测结果转化为可定位、可比较、可解释的城市建筑形变证据。"]],
+    workflow: [["业务问题","建筑密集区中，哪些点位、时序过程与形变模式值得优先比较和核查？"],["数据","原始文件 9,069 个点、210 期累计形变：坐标、速率、相干性、六类概率、置信度与空间可靠性，未做网页降采样。"],["产品分析流程","字段兼容检查 → 时序与质量分析 → 固定六分类 → 点位概率 → 区域统计。"],["发现","形成可追溯的点位时序与区域差异线索；点级观测不直接代表单栋建筑结论。"],["产品价值","将原始密集时序预测结果转化为可定位、可比较、可解释的城市建筑形变证据。"]],
     demoNote:"该案例直接使用项目方更新后的 9,069 点、210 期原始密集时序，未再降采样；观测时间为 2017-03-22 至 2025-05-03。源文件仍未包含建筑物轮廓面，因此不能直接输出逐建筑聚合结论；原 3,094 点、248 期 Spatial Demo 仅保留为历史回归测试资产。",
     evidenceLevel:"interactive", evidenceLabel:"真实时序 · 可交互 Demo",
     researchArea: {
@@ -40,7 +40,7 @@ export const cases: CaseStudy[] = [
   },
   {
     key: "landslide", label: "滑坡", title: "拉加镇滑坡时序形变监测", kicker: "LANDSLIDE MOTION · LAJIA",
-    description: "基于青海玛沁县拉加镇 11,354 个真实监测点和 58 期 InSAR 时序，分析坡体范围内的形变过程、速率与阶段变化，形成可定位、可比较的滑坡形变核查线索。",
+    description: "基于青海玛沁县拉加镇 11,354 个真实监测点和 58 期 InSAR 时序，分析坡体范围内的形变过程、速率与阶段变化，为滑坡形变复核与外业目标筛选提供点位依据。",
     metrics: [["监测点", "11,354 点"], ["观测期数", "58 期"], ["观测时间", "2021—2022"]], tags: ["拉加镇滑坡", "真实时序", "坡体核查"], accent: "#ff8a34",
     image:"/case-landslide-insar.webp", imageAlt:"拉加镇滑坡案例封面，展示坡体监测对象和形变点位的组织方式", visualLegend:["较快变化","过渡变化","稳定参照"],
     workflow: [["业务问题","如何从坡体密集监测点中定位持续变化和阶段变化位置？"],["数据","WGS84 坐标、11,354 个监测点、58 期累计形变；形变值按 0.1 mm 精度进入网页。"],["产品分析流程","数据质检 → 速率与时序浏览 → 区域框选 → 多点对比 → 重点位置核查。"],["发现","形成可追溯的坡体形变候选线索；原始数据未提供类别或相干性，不虚构分类结果。"],["产品价值","把滑坡时序数据转化为可定位、可比较、可复核的监测案例。"]],
@@ -56,7 +56,7 @@ export const cases: CaseStudy[] = [
   },
   {
     key: "road", label: "公路", title: "海口江东新区主要道路时序形变监测", kicker: "ROAD DEFORMATION · JIANGDONG",
-    description: "基于海口江东新区主要道路 27,123 个原始监测点和 175 期 InSAR 时序，以 11,383 个确定性空间样本分析沿线形变过程、速率与质量差异，形成可定位、可比较的道路形变核查线索。",
+    description: "基于海口江东新区主要道路 27,123 个原始监测点和 175 期 InSAR 时序，以 11,383 个确定性空间样本分析沿线形变过程、速率与质量差异，为道路形变复核与外业目标筛选提供点位依据。",
     metrics: [["监测点", "11,383 点"], ["观测期数", "175 期"], ["观测时间", "2018—2024"]], tags: ["江东新区道路", "真实时序", "沿线核查"], accent: "#16836f",
     image:"/case-road-insar.webp", imageAlt:"海口江东新区主要道路时序 InSAR 形变监测案例", visualLegend:["较快沉降","轻微变化","稳定参照"],
     workflow: [["业务问题","主要道路范围内，哪些位置呈现持续变化并值得优先复核？"],["数据","27,123 个原始点、175 期累计形变、速率、相干性与高程；网页按 25 m 网格保留 11,383 点。"],["产品分析流程","质量筛选 → 沿线浏览 → 区域框选 → 多点对比 → 核查清单。"],["发现","形成可追溯的道路变化候选位置和时序依据，不直接判定道路安全。"],["产品价值","将密集监测结果转化为可定位、可比较、可继续现场核查的道路证据。"]],
@@ -99,6 +99,20 @@ export type InsarPoint = {
   modeConfidence?: number | null;
   updated: string;
   series: number[];
+  /** Unit-normalized observations; never interpolated for anomaly decisions. */
+  observedSeries?: ArrayLike<number>;
+  observedDates?: string[];
+  observedMask?: ArrayLike<number>;
+  observedDisplacement?: number;
+  observedEvaluationDate?: string;
+  localSeriesIndex?: number;
+  localSeriesHydrated?: boolean;
+  observedMissingRate?: number;
+  renderStageVelocity?: number;
+  renderStageStart?: number;
+  renderStageEnd?: number;
+  renderDisplacement?: number;
+  renderTimeIndex?: number;
   dates?: string[];
   capabilityLevel?: PascCapabilityLevel;
   effectiveEpochCount?: number;

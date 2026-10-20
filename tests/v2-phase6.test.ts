@@ -1,3 +1,5 @@
+import { anomalyPointsCsv } from "../app/lib/analysis-exports.js";
+import { selectPriorityDeformationPoints } from "../app/lib/priority-deformation.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -67,11 +69,13 @@ test("Phase 6 AOI exports preserve selected points and the active aggregate view
 });
 
 test("Phase 6 rule summary records transparent thresholds and the safety boundary", () => {
-  const summary = buildAnalysisRuleSummary({ datasetName: "海口 Spatial Demo", datasetId: "demo-haikou", timeRange: { startDate: "2017-03", endDate: "2025-05" }, displayMode: "形变模式", displayRange: "PASC 固定六类配色", patternVisibility: "仅异常模式", activeFilter: "质量筛选后的异常候选", coherenceThreshold: .75, anomalyRadiusMeters: 200, anomalyMinimumPoints: 3, selectionSource: "异常区域 AR-01", selectedPointCount: 12, priorityRuleVersion: "negative-tail-v1", priorityTailPercent: 5, priorityDisplacementThresholdMm: -83.2, priorityVelocityThresholdMmPerYear: -9.4, priorityCandidateCount: 14, priorityReliableCount: 4, priorityLimitedCount: 10 });
-  assert.equal(summary.items.length, 9);
+  const summary = buildAnalysisRuleSummary({ datasetName: "海口 Spatial Demo", datasetId: "demo-haikou", analysisId: "analysis-current", anomalyScope: "用户选区 12 点", timeRange: { startDate: "2017-03", endDate: "2025-05" }, displayMode: "形变模式", displayRange: "PASC 固定六类配色", patternVisibility: "仅异常模式", activeFilter: "质量筛选后的异常候选", coherenceThreshold: .75, anomalyRadiusMeters: 200, anomalyMinimumPoints: 3, selectionSource: "异常区域 AR-01", selectedPointCount: 12, priorityRuleVersion: "magnitude-spatial-v2", priorityDirection: "both", priorityEvaluationDate: "2025-05-03", priorityAnomalyCount: 14, priorityIsolatedCount: 3, priorityExcludedCount: 5, priorityDisplacementThresholdMm: 30, priorityVelocityThresholdMmPerYear: 10, priorityCandidateCount: 14, priorityReliableCount: 4, priorityLimitedCount: 10 });
+  assert.equal(summary.items.length, 10);
+  assert.match(summary.text, /analysis-current/);
+  assert.match(summary.text, /用户选区 12 点/);
   assert.match(summary.text, /低相干阈值 0.75/);
-  assert.match(summary.text, /负向单侧 5% · 双指标交集/);
-  assert.match(summary.text, /规则 negative-tail-v1/);
+  assert.match(summary.text, /双指标达标 AND 同向聚集/);
+  assert.match(summary.text, /规则 magnitude-spatial-v2/);
   assert.match(summary.text, /邻域 200 m · 最少 3 点/);
   assert.match(summary.boundary, /不构成工程安全判断/);
   assert.doesNotMatch(summary.text, /风险评分：/);
@@ -86,5 +90,16 @@ test("Phase 6 exports, finite status, rules, and narrow layouts are wired", () =
   assert.match(chart, /导出图表数据 CSV/);
   assert.match(rules, /REPRODUCIBLE ANALYSIS/);
   assert.match(styles, /right-workspace-tabs\{grid-template-columns:repeat\(4/);
-  assert.match(styles, /@media\(max-width:520px\).*gis-map\{height:52svh/s);
+  assert.match(styles, /@media\(max-width:520px\)[\s\S]*gis-map\{height:52svh/);
+});
+
+
+test("anomaly CSV exports exact evaluation evidence, membership and reproducible rule parameters", () => {
+  const source = Array.from({ length: 5 }, (_, index) => ({ ...point(`P${index}`, "线性型", [0, -40]), lon: 110 + index * .00002, velocity: -15 }));
+  source.push({ ...source[0], id: "isolated", lon: 111 });
+  const selection = selectPriorityDeformationPoints(source, 1, { evaluationDate: "2024-02" });
+  const output = anomalyPointsCsv(source, selection, 0);
+  assert.match(output, /evaluation_displacement_mm,evaluation_date,result_status,quality_status,region_id,rule_version/);
+  assert.match(output, /-15,-40,2024-02,clustered_anomaly,reliable,AR-01,magnitude-spatial-v2,10,30,both,60,5,0.75,0.2/);
+  assert.match(output, /-15,-40,2024-02,isolated_candidate,reliable,,magnitude-spatial-v2/);
 });

@@ -1,4 +1,5 @@
 import type { InsarPoint } from "../data/site.js";
+import { renderedDisplacementAt } from "./insar-v2.js";
 import { pascDisplayName } from "./pasc.js";
 
 export const MAX_COMPARE_POINTS = 5;
@@ -51,7 +52,7 @@ export function comparisonColor(index: number) {
 }
 
 export function currentDisplacement(point: InsarPoint, timeIndex: number) {
-  return point.series[Math.min(Math.max(0, timeIndex), Math.max(0, point.series.length - 1))] ?? point.displacement;
+  return renderedDisplacementAt(point, timeIndex);
 }
 
 export function summarizeComparison(points: readonly InsarPoint[], timeIndex: number): ComparisonSummary | null {

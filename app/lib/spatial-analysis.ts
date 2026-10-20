@@ -5,45 +5,51 @@ const EARTH_RADIUS_M = 6_371_008.8;
 export type SpatialPoint = { lon: number; lat: number };
 
 export class SpatialGridIndex<T extends SpatialPoint> {
-  private readonly cells = new Map<string, T[]>();
-  constructor(readonly cellSizeDegrees = 0.01) {}
-
+  private readonly cells = new Map<string, { x: number; y: number; items: T[] }>();
+  constructor(readonly cellSizeDegrees = 0.01) {
+    if (!Number.isFinite(cellSizeDegrees) || cellSizeDegrees <= 0) throw new RangeError("Spatial cell size must be positive and finite");
+  }
   private cell(value: number) { return Math.floor(value / this.cellSizeDegrees); }
   private key(x: number, y: number) { return `${x}:${y}`; }
-
-  load(items: T[]) {
+  load(items: readonly T[]) {
     this.cells.clear();
-    items.forEach((item) => {
-      const key = this.key(this.cell(item.lon), this.cell(item.lat));
-      const bucket = this.cells.get(key);
-      if (bucket) bucket.push(item);
-      else this.cells.set(key, [item]);
-    });
+    for (const item of items) {
+      if (!Number.isFinite(item.lon) || !Number.isFinite(item.lat)) continue;
+      const x = this.cell(item.lon), y = this.cell(item.lat), key = this.key(x, y), bucket = this.cells.get(key);
+      if (bucket) bucket.items.push(item);
+      else this.cells.set(key, { x, y, items: [item] });
+    }
     return this;
   }
-
-  queryBounds(bounds: GisBounds) {
-    const result: T[] = [];
-    for (let x = this.cell(bounds.west); x <= this.cell(bounds.east); x += 1) {
-      for (let y = this.cell(bounds.south); y <= this.cell(bounds.north); y += 1) {
+  /** Visits every matching point without allocating a viewport-sized array. */
+  forEachInBounds(bounds: GisBounds, visit: (item: T) => void) {
+    if (![bounds.west, bounds.south, bounds.east, bounds.north].every(Number.isFinite) || bounds.west > bounds.east || bounds.south > bounds.north) return;
+    const west = this.cell(bounds.west), east = this.cell(bounds.east), south = this.cell(bounds.south), north = this.cell(bounds.north);
+    const inspect = (bucket: { items: T[] }) => {
+      for (const item of bucket.items) if (item.lon >= bounds.west && item.lon <= bounds.east && item.lat >= bounds.south && item.lat <= bounds.north) visit(item);
+    };
+    // A world-sized viewport must not walk millions of empty cells.
+    if ((east - west + 1) * (north - south + 1) > this.cells.size) {
+      for (const bucket of this.cells.values()) if (bucket.x >= west && bucket.x <= east && bucket.y >= south && bucket.y <= north) inspect(bucket);
+    } else {
+      for (let x = west; x <= east; x += 1) for (let y = south; y <= north; y += 1) {
         const bucket = this.cells.get(this.key(x, y));
-        if (!bucket) continue;
-        bucket.forEach((item) => {
-          if (item.lon >= bounds.west && item.lon <= bounds.east && item.lat >= bounds.south && item.lat <= bounds.north) result.push(item);
-        });
+        if (bucket) inspect(bucket);
       }
     }
+  }
+  queryBounds(bounds: GisBounds) {
+    const result: T[] = [];
+    this.forEachInBounds(bounds, item => result.push(item));
     return result;
   }
-
   queryRadius(center: SpatialPoint, radiusMeters: number) {
     const latDegrees = radiusMeters / 111_320;
     const lonDegrees = radiusMeters / Math.max(1, 111_320 * Math.cos(center.lat * Math.PI / 180));
     return this.queryBounds({ west: center.lon - lonDegrees, east: center.lon + lonDegrees, south: center.lat - latDegrees, north: center.lat + latDegrees })
-      .filter((item) => haversineMeters(center, item) <= radiusMeters);
+      .filter(item => haversineMeters(center, item) <= radiusMeters);
   }
 }
-
 export function haversineMeters(a: SpatialPoint, b: SpatialPoint) {
   const toRad = Math.PI / 180;
   const dLat = (b.lat - a.lat) * toRad;
@@ -111,9 +117,13 @@ export function geometryLines(geometry: GisGeometry): Position[][] {
 export function pointToGeometryMeters(point: Position, geometry: GisGeometry) {
   if ((geometry.type === "Polygon" || geometry.type === "MultiPolygon") && pointInGeometry(point, geometry)) return 0;
   if (geometry.type === "Point") return haversineMeters({ lon: point[0], lat: point[1] }, { lon: geometry.coordinates[0], lat: geometry.coordinates[1] });
-  if (geometry.type === "MultiPoint") return Math.min(...geometry.coordinates.map((item) => haversineMeters({ lon: point[0], lat: point[1] }, { lon: item[0], lat: item[1] })));
-  const lines = geometryLines(geometry);
-  return lines.length ? Math.min(...lines.map((line) => pointToLineMeters(point, line))) : Number.POSITIVE_INFINITY;
+  let minimum = Number.POSITIVE_INFINITY;
+  if (geometry.type === "MultiPoint") {
+    for (const item of geometry.coordinates) minimum = Math.min(minimum, haversineMeters({ lon: point[0], lat: point[1] }, { lon: item[0], lat: item[1] }));
+  } else {
+    for (const line of geometryLines(geometry)) minimum = Math.min(minimum, pointToLineMeters(point, line));
+  }
+  return minimum;
 }
 
 export function circlePolygon(center: SpatialPoint, radiusMeters: number, steps = 48): Position[] {

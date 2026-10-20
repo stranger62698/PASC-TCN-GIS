@@ -569,6 +569,15 @@ class PascJobConsumer:
                 "CSV缺少表头。",
                 retryable=False,
             )
+        headers = [field.strip().lstrip("\ufeff").strip() for field in reader.fieldnames]
+        if len(set(headers)) != len(headers):
+            source.close()
+            raise ConsumerError(
+                "PASC_SCHEMA_UNRESOLVED",
+                "CSV表头归一后存在重复字段，未覆盖数据。",
+                retryable=False,
+            )
+        reader.fieldnames = headers
         required = {
             str(mapping.get("lon", "")),
             str(mapping.get("lat", "")),

@@ -1,5 +1,7 @@
 import type { InsarPoint } from "../data/site.js";
+import { renderedDisplacementAt } from "./insar-v2.js";
 import { aggregateAoiSeries, type AoiAggregateMethod } from "./aoi-analysis.js";
+import { displacementAt, isPriorityQualityReliable, type PriorityDeformationSelection } from "./priority-deformation.js";
 import { roundInsarValue } from "./insar-precision.js";
 
 export type ExportCell = string | number | boolean | null | undefined;
@@ -7,6 +9,8 @@ export type ExportCell = string | number | boolean | null | undefined;
 export type AnalysisRuleSummaryInput = {
   datasetName: string;
   datasetId: string;
+  analysisId?: string | null;
+  anomalyScope?: string;
   timeRange: { startDate: string; endDate: string };
   displayMode: string;
   displayRange: string;
@@ -18,7 +22,11 @@ export type AnalysisRuleSummaryInput = {
   selectionSource: string;
   selectedPointCount: number;
   priorityRuleVersion: string;
-  priorityTailPercent: number;
+  priorityDirection: "both" | "negative" | "positive";
+  priorityEvaluationDate: string;
+  priorityAnomalyCount: number;
+  priorityIsolatedCount: number;
+  priorityExcludedCount: number;
   priorityDisplacementThresholdMm: number | null;
   priorityVelocityThresholdMmPerYear: number | null;
   priorityCandidateCount: number;
@@ -56,9 +64,10 @@ export function pointCsv(point: InsarPoint) {
     ["point_id", "name", "longitude", "latitude", "velocity_mm_per_year", "coherence", "missing_rate", "mode", "mode_source", "mode_confidence"],
     [point.id, point.name, point.lon, point.lat, roundInsarValue(point.velocity), point.coherence || null, point.missingRate, point.mode, point.modeSource || "", point.pasc?.confidence ?? point.modeConfidence ?? null],
     [],
-    ["date", "displacement_mm"],
+    ["date", point.observedDates ? "processed_displacement_mm" : "displacement_mm"],
     ...pointDates(point).map((date, index) => [date, roundInsarValue(point.series[index])]),
   ];
+  if (point.observedDates && point.observedSeries) rows.push([], ["observed_date", "observed_displacement_mm", "observation_present"], ...point.observedDates.map((date, index) => { const present = Number.isFinite(point.observedSeries![index]) && (!point.observedMask || !!point.observedMask[index]); return [date, present ? point.observedSeries![index] : null, present] as ExportCell[]; }));
   return csvText(rows);
 }
 
@@ -73,7 +82,24 @@ export function aoiPointsCsv(points: readonly InsarPoint[], timeIndex: number) {
     ["point_id", "name", "longitude", "latitude", "velocity_mm_per_year", "current_displacement_mm", "current_date", "coherence", "missing_rate", "mode", "mode_source"],
     ...points.map(point => {
       const index = Math.min(Math.max(0, timeIndex), Math.max(0, point.series.length - 1));
-      return [point.id, point.name, point.lon, point.lat, roundInsarValue(point.velocity), roundInsarValue(point.series[index] ?? point.displacement), pointDates(point)[index] || "", point.coherence || null, point.missingRate, point.mode, point.modeSource || ""];
+      return [point.id, point.name, point.lon, point.lat, roundInsarValue(point.velocity), roundInsarValue(renderedDisplacementAt(point, index)), pointDates(point)[index] || "", point.coherence || null, point.missingRate, point.mode, point.modeSource || ""];
+    }),
+  ]);
+}
+
+/** Export detection evidence independently of the map playback date. */
+export function anomalyPointsCsv(points: readonly InsarPoint[], selection: PriorityDeformationSelection, evaluationIndex: number, provenance?: { datasetId: string; analysisId: string | null; scope: string }) {
+  const options = selection.options;
+  const regionById = new Map(selection.regions.regions.flatMap(region => region.pointIds.map(id => [id, region.id] as const)));
+  const excludedIds = new Set(selection.excludedLowQuality.map(point => point.id));
+  return csvText([
+    ["point_id", "longitude", "latitude", "velocity_mm_per_year", "evaluation_displacement_mm", "evaluation_date", "result_status", "quality_status", "region_id", "rule_version", "min_abs_velocity_mm_per_year", "min_abs_displacement_mm", "direction", "radius_m", "minimum_distinct_locations", "coherence_threshold", "max_missing_rate", "data_notes", "dataset_id", "analysis_id", "analysis_scope"],
+    ...points.map(point => {
+      const regionId = regionById.get(point.id);
+      return [point.id, point.lon, point.lat, point.velocity, displacementAt(point, evaluationIndex, options.evaluationDate), options.evaluationDate || pointDates(point)[evaluationIndex],
+        regionId ? "clustered_anomaly" : excludedIds.has(point.id) ? "quality_excluded" : selection.regions.status === "too_large" ? "unassessed" : "isolated_candidate",
+        excludedIds.has(point.id) ? "excluded" : isPriorityQualityReliable(point, options.coherenceThreshold, options.maxMissingRate) ? "reliable" : "needs_verification", regionId || "", selection.ruleVersion,
+        options.velocityMmPerYear, options.displacementMm, options.direction, options.radiusMeters, options.minimumPoints, options.coherenceThreshold, options.maxMissingRate, (point.warnings ?? []).join(" | "), provenance?.datasetId, provenance?.analysisId, provenance?.scope];
     }),
   ]);
 }
@@ -81,22 +107,24 @@ export function aoiPointsCsv(points: readonly InsarPoint[], timeIndex: number) {
 export function aoiSeriesCsv(points: readonly InsarPoint[], method: AoiAggregateMethod, enabledModes: readonly string[], normalizeMode: (mode: string) => string) {
   const aggregate = aggregateAoiSeries([...points], method, point => normalizeMode(point.mode));
   const groups = aggregate.groups.filter(group => enabledModes.includes(group.mode));
+  const roundObserved = (value: number | null) => value === null ? null : roundInsarValue(value);
   return csvText([
     ["date", `aoi_${method}_displacement_mm`, ...groups.map(group => `${group.mode}_displacement_mm`)],
-    ...aggregate.dates.map((date, index) => [date, roundInsarValue(aggregate.overall[index]), ...groups.map(group => roundInsarValue(group.values[index]))]),
+    ...aggregate.dates.map((date, index) => [date, roundObserved(aggregate.overall[index]), ...groups.map(group => roundObserved(group.values[index]))]),
   ]);
 }
 
 export function buildAnalysisRuleSummary(input: AnalysisRuleSummaryInput): AnalysisRuleSummary {
   const items = [
     { label: "数据集", value: input.datasetName, detail: input.datasetId || "本地 / 公开数据" },
+    { label: "分析身份与范围", value: input.analysisId || "当前分析", detail: input.anomalyScope || "全数据" },
     { label: "时间范围", value: `${input.timeRange.startDate}—${input.timeRange.endDate}`, detail: "沿用当前地图分析上下文" },
     { label: "地图表达", value: input.displayMode, detail: input.displayRange },
     { label: "PASC 显示", value: input.patternVisibility, detail: "只改变显示，不删除原始点" },
     { label: "当前筛选", value: input.activeFilter, detail: `低相干阈值 ${input.coherenceThreshold.toFixed(2)}；高缺测阈值 20%` },
-    { label: "重点核查规则", value: `负向单侧 ${input.priorityTailPercent}% · 双指标交集`, detail: `累计形变量 ≤ ${input.priorityDisplacementThresholdMm?.toFixed(2) ?? "不可计算"} mm；年均速率 ≤ ${input.priorityVelocityThresholdMmPerYear?.toFixed(2) ?? "不可计算"} mm/yr；候选 ${input.priorityCandidateCount}，可靠 ${input.priorityReliableCount}，质量受限 ${input.priorityLimitedCount}；规则 ${input.priorityRuleVersion}` },
-    { label: "异常候选规则", value: "速率 ≤ −3 mm/yr，或加速型 / 分段型", detail: "先排除低相干或高缺测点；不是风险评分" },
-    { label: "空间支持规则", value: `邻域 ${input.anomalyRadiusMeters} m · 最少 ${input.anomalyMinimumPoints} 点`, detail: "密度连通与分析包络，不是工程边界" },
+    { label: "异常发现规则", value: `双指标达标 AND 同向聚集 · ${input.priorityDirection === "both" ? "正负双向分别聚集" : input.priorityDirection === "negative" ? "仅负向" : "仅正向"}`, detail: `全期 |年均速率| ≥ ${input.priorityVelocityThresholdMmPerYear?.toFixed(2) ?? "不可计算"} mm/yr，且 ${input.priorityEvaluationDate || "末期"} |累计形变量| ≥ ${input.priorityDisplacementThresholdMm?.toFixed(2) ?? "不可计算"} mm，两者同号；规则 ${input.priorityRuleVersion}；时间轴仅回看，模式不作为准入条件` },
+    { label: "筛选结果分层", value: `聚集异常 ${input.priorityAnomalyCount} 点 · 离散待查 ${input.priorityIsolatedCount} 点`, detail: `质量门控后候选 ${input.priorityCandidateCount} 点；异常中质量可靠 ${input.priorityReliableCount} 点、质量待核实 ${input.priorityLimitedCount} 点；质量排除 ${input.priorityExcludedCount} 点；离散点与排除点不计异常` },
+    { label: "空间支持规则", value: `邻域 ${input.anomalyRadiusMeters} m · 最少 ${input.anomalyMinimumPoints} 点`, detail: "DBSCAN 同向密度连通，核心邻域含自身、重复坐标只计一次；边界为分析包络，不是工程边界" },
     { label: "当前分析对象", value: input.selectionSource, detail: `${input.selectedPointCount.toLocaleString()} 个真实监测点` },
   ];
   const boundary = "结果仅描述当前数据、筛选规则与空间邻近关系，不构成工程安全判断、灾害预测、风险等级或处置建议。";

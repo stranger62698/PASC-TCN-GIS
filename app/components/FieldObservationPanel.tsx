@@ -3,7 +3,10 @@
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { parseFieldVisitCsv, readPhotoExif, type FieldObservation, type NewFieldObservationInput, type NewObservationPhoto } from "../lib/field-observation";
+import { createFieldPhotoDraftLifecycle, parseFieldDraftCoordinates } from "../lib/field-observation-draft";
 import { readWatermarkCoordinates } from "../lib/photo-watermark";
+import { requireAccountSession, useAccountSession } from "../lib/account-session";
+import { buildLoginContinuationHref } from "../lib/local-analysis-session";
 
 type DraftPhoto = NewObservationPhoto & { previewUrl: string };
 
@@ -16,9 +19,11 @@ export function FieldObservationPanel({ observations, activeId, mapCenter, stora
   onSelect: (observation: FieldObservation) => void;
   onRemove: (id: string) => void;
 }) {
+  const account = useAccountSession();
   const fileInput = useRef<HTMLInputElement>(null);
   const csvInput = useRef<HTMLInputElement>(null);
   const [photos, setPhotos] = useState<DraftPhoto[]>([]);
+  const [photoDraft] = useState(() => createFieldPhotoDraftLifecycle());
   const [visitName, setVisitName] = useState("");
   const [longitude, setLongitude] = useState("");
   const [latitude, setLatitude] = useState("");
@@ -26,25 +31,35 @@ export function FieldObservationPanel({ observations, activeId, mapCenter, stora
   const [note, setNote] = useState("");
   const [coordinateSource, setCoordinateSource] = useState<FieldObservation["coordinateSource"]>("manual");
   const [message, setMessage] = useState("先建立考察点，再把同一次考察的照片归入该点。");
+  const [pendingImport, setPendingImport] = useState<{ photos: File[] } | { csv: File } | null>(null);
   const photoCount = useMemo(() => observations.reduce((sum, item) => sum + item.photos.length, 0), [observations]);
-  const coordinatesValid = useMemo(() => {
-    const lon = Number(longitude), lat = Number(latitude);
-    return Number.isFinite(lon) && Number.isFinite(lat) && lon >= -180 && lon <= 180 && lat >= -90 && lat <= 90;
-  }, [longitude, latitude]);
+  const coordinates = useMemo(() => parseFieldDraftCoordinates(longitude, latitude), [longitude, latitude]);
 
-  useEffect(() => () => photos.forEach(photo => URL.revokeObjectURL(photo.previewUrl)), [photos]);
+  useEffect(() => () => photoDraft.clear(), [photoDraft]);
 
-  const choosePhotos = async (files: FileList | null) => {
+  const choosePhotos = async (files: FileList | File[] | null) => {
     const chosen = Array.from(files ?? []).slice(0, 50);
     if (!chosen.length) return;
+    const run = photoDraft.beginRead();
+    setPendingImport({ photos: chosen });
+    if (!await requireAccountSession()) {
+      if (photoDraft.isCurrentRead(run)) setMessage("请在新标签页登录，再回来重试导入；已选择的照片保留，尚未读取。");
+      return;
+    }
+    if (!photoDraft.isCurrentRead(run)) return;
+    setPendingImport(null);
     setMessage(`正在读取 ${chosen.length} 张照片的 EXIF 信息…`);
-    const next = await Promise.all(chosen.map(async file => {
-      const metadata = await readPhotoExif(file);
-      const hasExifGps = metadata.longitude !== null && metadata.latitude !== null;
-      return { file, previewUrl: URL.createObjectURL(file), capturedAt: metadata.capturedAt, exifLongitude: metadata.longitude, exifLatitude: metadata.latitude, coordinateSource: hasExifGps ? "exif" as const : null, coordinateConfidence: hasExifGps ? 1 : null };
-    }));
-    photos.forEach(photo => URL.revokeObjectURL(photo.previewUrl));
+    const metadata = await Promise.all(chosen.map(file => readPhotoExif(file)));
+    if (!photoDraft.isCurrentRead(run)) return;
+    const next: DraftPhoto[] = chosen.map((file, index) => {
+      const photoMetadata = metadata[index];
+      const hasExifGps = photoMetadata.longitude !== null && photoMetadata.latitude !== null;
+      return { file, previewUrl: URL.createObjectURL(file), capturedAt: photoMetadata.capturedAt, exifLongitude: photoMetadata.longitude, exifLatitude: photoMetadata.latitude, coordinateSource: hasExifGps ? "exif" : null, coordinateConfidence: hasExifGps ? 1 : null };
+    });
+    photoDraft.replacePreviewUrls(next.map(photo => photo.previewUrl));
     setPhotos(next);
+    setCapturedAt(next.find(photo => photo.capturedAt)?.capturedAt ?? null);
+    setVisitName(current => current || `现场考察 · ${new Date().toLocaleDateString("zh-CN")}`);
     let located = next.find(photo => photo.exifLongitude !== null && photo.exifLatitude !== null);
     let watermarkAttempted = false;
     if (!located) {
@@ -52,7 +67,10 @@ export function FieldObservationPanel({ observations, activeId, mapCenter, stora
         watermarkAttempted = true;
         setMessage(`照片没有 EXIF GPS，正在本地识别第 ${index + 1}/${next.length} 张照片底部的经纬度水印…`);
         try {
-          const watermark = await readWatermarkCoordinates(next[index].file, progress => setMessage(`正在本地识别经纬度水印 · ${Math.round(progress * 100)}%`));
+          const watermark = await readWatermarkCoordinates(next[index].file, progress => {
+            if (photoDraft.isCurrentRead(run)) setMessage(`正在本地识别经纬度水印 · ${Math.round(progress * 100)}%`);
+          });
+          if (!photoDraft.isCurrentRead(run)) return;
           if (watermark.longitude !== null && watermark.latitude !== null) {
             next[index] = { ...next[index], exifLongitude: watermark.longitude, exifLatitude: watermark.latitude, coordinateSource: "watermark", coordinateConfidence: watermark.confidence };
             located = next[index];
@@ -60,6 +78,7 @@ export function FieldObservationPanel({ observations, activeId, mapCenter, stora
             break;
           }
         } catch { /* Continue with the remaining photos, then show one stable fallback message. */ }
+        if (!photoDraft.isCurrentRead(run)) return;
       }
     }
     if (located && located.exifLongitude !== null && located.exifLatitude !== null) {
@@ -73,11 +92,11 @@ export function FieldObservationPanel({ observations, activeId, mapCenter, stora
       setCapturedAt(next.find(photo => photo.capturedAt)?.capturedAt ?? null);
       setMessage(watermarkAttempted ? "照片没有 EXIF GPS，水印坐标也未能自动识别。请手工填写或应用坐标 CSV；照片仍可正常保存。" : "照片未提供可用 GPS，请填写考察点坐标或使用地图中心。");
     }
-    if (!visitName) setVisitName(`现场考察 · ${new Date().toLocaleDateString("zh-CN")}`);
   };
 
   const clearDraft = () => {
-    photos.forEach(photo => URL.revokeObjectURL(photo.previewUrl));
+    photoDraft.clear();
+    setPendingImport(null);
     setPhotos([]);
     setVisitName("");
     setLongitude("");
@@ -85,14 +104,24 @@ export function FieldObservationPanel({ observations, activeId, mapCenter, stora
     setCapturedAt(null);
     setNote("");
     setCoordinateSource("manual");
+    setMessage("先建立考察点，再把同一次考察的照片归入该点。");
     if (fileInput.current) fileInput.current.value = "";
     if (csvInput.current) csvInput.current.value = "";
   };
 
   const applyCoordinateCsv = async (file: File | undefined) => {
     if (!file) return;
+    const run = photoDraft.beginRead();
+    setPendingImport({ csv: file });
     try {
+      if (!await requireAccountSession()) {
+        if (photoDraft.isCurrentRead(run)) setMessage("请在新标签页登录，再回来重试导入；已选择的坐标 CSV 保留，尚未读取。");
+        return;
+      }
+      if (!photoDraft.isCurrentRead(run)) return;
+      setPendingImport(null);
       const rows = parseFieldVisitCsv(await file.text());
+      if (!photoDraft.isCurrentRead(run)) return;
       const selectedNames = new Set(photos.map(photo => photo.file.name));
       const matched = rows.filter(row => selectedNames.has(row.fileName));
       if (!matched.length) throw new Error("CSV 中没有与当前照片同名的 file_name。请确认文件名后重试。");
@@ -108,9 +137,9 @@ export function FieldObservationPanel({ observations, activeId, mapCenter, stora
       setCoordinateSource("csv");
       setMessage(`CSV 已匹配 ${matched.length}/${photos.length} 张照片；请确认坐标后保存。`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "CSV 读取失败。");
+      if (photoDraft.isCurrentRead(run)) setMessage(error instanceof Error ? error.message : "CSV 读取失败。");
     } finally {
-      if (csvInput.current) csvInput.current.value = "";
+      if (photoDraft.isCurrentRead(run) && csvInput.current) csvInput.current.value = "";
     }
   };
 
@@ -129,12 +158,15 @@ export function FieldObservationPanel({ observations, activeId, mapCenter, stora
     URL.revokeObjectURL(url);
   };
 
-  const submit = () => {
-    if (!photos.length || !coordinatesValid || !visitName.trim()) return;
+  const submit = async () => {
+    if (!photos.length || !coordinates || !visitName.trim()) return;
+    const run = photoDraft.beginRead();
+    if (!await requireAccountSession()) { if (photoDraft.isCurrentRead(run)) setMessage("请重新登录后保存；当前照片与考察点输入已保留。"); return; }
+    if (!photoDraft.isCurrentRead(run)) return;
     onAdd({
       name: visitName.trim(),
-      longitude: Number(longitude),
-      latitude: Number(latitude),
+      longitude: coordinates.longitude,
+      latitude: coordinates.latitude,
       capturedAt,
       note: note.trim(),
       coordinateSource,
@@ -154,10 +186,16 @@ export function FieldObservationPanel({ observations, activeId, mapCenter, stora
     <p>照片先归属考察点，再由考察点关联真实 InSAR 监测点。空间邻近只用于寻找候选，不自动生成曲线。</p>
 
     <div className="field-storage-state" data-state={storageState}><i />{storageLabel}</div>
-    <input ref={fileInput} hidden multiple type="file" accept="image/jpeg,image/png,image/webp" onChange={event => void choosePhotos(event.target.files)} />
-    <input ref={csvInput} hidden type="file" accept=".csv,text/csv" onChange={event => void applyCoordinateCsv(event.target.files?.[0])} />
+    {(account.status !== "authenticated" || pendingImport) && <div className="field-observation-message" role="status">
+      <p>{account.status === "error" ? account.error : "导入个人照片或坐标 CSV 需先登录；文件仍在当前电脑处理。"}</p>
+      <a href="/login?returnTo=%2Fmap&resume=1" target="_blank" rel="noopener noreferrer" onClick={event => { event.currentTarget.href = buildLoginContinuationHref(window.location.pathname + window.location.search + window.location.hash, window.location.origin); }}>在新标签页登录 / 注册</a>{" "}
+      <button type="button" onClick={() => void account.refresh()}>重新验证登录</button>
+      {pendingImport && <button type="button" disabled={account.status !== "authenticated"} onClick={() => { if ("photos" in pendingImport) void choosePhotos(pendingImport.photos); else void applyCoordinateCsv(pendingImport.csv); }}>登录后重试导入</button>}
+    </div>}
+    <input ref={fileInput} hidden multiple type="file" accept="image/jpeg,image/png,image/webp" disabled={account.status !== "authenticated"} onChange={event => void choosePhotos(event.target.files)} />
+    <input ref={csvInput} hidden type="file" accept=".csv,text/csv" disabled={account.status !== "authenticated"} onChange={event => void applyCoordinateCsv(event.target.files?.[0])} />
 
-    {!photos.length ? <button className="field-photo-add" type="button" onClick={() => fileInput.current?.click()}>
+    {!photos.length ? <button className="field-photo-add" type="button" disabled={account.status !== "authenticated"} onClick={() => fileInput.current?.click()}>
       <i>＋</i><span><b>新建考察点</b><small>一次可选择多张照片 · JPEG 自动读取 EXIF</small></span>
     </button> : <div className="field-photo-draft">
       <div className="field-draft-heading"><span>01</span><div><b>确认考察点</b><small>{photos.length} 张照片等待归档</small></div></div>
@@ -166,11 +204,11 @@ export function FieldObservationPanel({ observations, activeId, mapCenter, stora
         <Image unoptimized width={120} height={90} src={photo.previewUrl} alt={photo.file.name} />
         <figcaption><b>{photo.file.name}</b><small>{photo.coordinateSource === "watermark" ? "已识别水印坐标" : photo.coordinateSource === "exif" ? "含 EXIF GPS" : "无可用坐标"}</small></figcaption>
       </figure>)}</div>
-      <div className="field-coordinate-grid"><label>经度<input value={longitude} inputMode="decimal" onChange={event => { setLongitude(event.target.value); setCoordinateSource("manual"); }} placeholder="110.3500000" /></label><label>纬度<input value={latitude} inputMode="decimal" onChange={event => { setLatitude(event.target.value); setCoordinateSource("manual"); }} placeholder="20.0900000" /></label></div>
+      <div className="field-coordinate-grid"><label>经度<input value={longitude} inputMode="decimal" onChange={event => { photoDraft.beginRead(); setLongitude(event.target.value); setCoordinateSource("manual"); setMessage("已改用手工坐标，请核对经纬度后保存。"); }} placeholder="110.3500000" /></label><label>纬度<input value={latitude} inputMode="decimal" onChange={event => { photoDraft.beginRead(); setLatitude(event.target.value); setCoordinateSource("manual"); setMessage("已改用手工坐标，请核对经纬度后保存。"); }} placeholder="20.0900000" /></label></div>
       {(coordinateSource === "exif" || coordinateSource === "watermark") && <div className={`field-coordinate-origin ${coordinateSource}`}><b>{coordinateSource === "watermark" ? "图片水印识别" : "照片 EXIF GPS"}</b><span>{coordinateSource === "watermark" ? "坐标由照片像素文字在本地识别，请保存前核对。" : "坐标来自照片原始元数据。"}</span></div>}
-      <div className="field-coordinate-tools"><button type="button" className="field-map-center" onClick={() => { setLongitude(mapCenter[1].toFixed(7)); setLatitude(mapCenter[0].toFixed(7)); setCoordinateSource("map-center"); }}>使用当前地图中心</button><button type="button" className="field-map-center" onClick={() => csvInput.current?.click()}>应用坐标 CSV</button></div>
+      <div className="field-coordinate-tools"><button type="button" className="field-map-center" onClick={() => { photoDraft.beginRead(); setLongitude(mapCenter[1].toFixed(7)); setLatitude(mapCenter[0].toFixed(7)); setCoordinateSource("map-center"); setMessage("已使用当前地图中心，请核对位置后保存。"); }}>使用当前地图中心</button><button type="button" className="field-map-center" disabled={account.status !== "authenticated"} onClick={() => csvInput.current?.click()}>应用坐标 CSV</button></div>
       <label className="field-note">现场记录<textarea value={note} onChange={event => setNote(event.target.value)} placeholder="记录考察对象、现场环境和需要复核的问题" /></label>
-      <div className="field-draft-actions"><button type="button" onClick={clearDraft}>取消</button><button type="button" disabled={!coordinatesValid || !visitName.trim()} onClick={submit}>保存考察点</button></div>
+      <div className="field-draft-actions"><button type="button" onClick={clearDraft}>取消</button><button type="button" disabled={!coordinates || !visitName.trim() || account.status !== "authenticated"} onClick={() => void submit()}>保存考察点</button></div>
     </div>}
 
     <div className="field-observation-message">{message}</div>

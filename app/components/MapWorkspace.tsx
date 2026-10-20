@@ -1,6 +1,10 @@
 "use client";
 import { WorkspaceSelect } from "./WorkspaceSelect";
+import { AccountRequired } from "./AccountRequired";
+import { PERSONAL_DATA_ACCESS_EVENT, requireAccountSession, useAccountSession } from "../lib/account-session";
+import { publicWorkspaceAccess } from "../lib/data-processing-policy";
 import { ResizableAnalysisPanel } from "./ResizableAnalysisPanel";
+import { DEFAULT_PANEL_WIDTH } from "../lib/workspace-panel-width";
 import { useChartWidth } from "../lib/use-chart-width";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -10,17 +14,16 @@ import { AnalysisProvider, colorForMode, deformationModeOrder, normalizedMode, u
 import { buildDeepSeekWebPrompt, parseDeepSeekWebInterpretation, sanitizeRegionalInterpretation, type RegionalInterpretation } from "../lib/ai-analysis";
 import { analysisSummaryBytes, buildAnalysisSummary } from "../lib/ai-summary";
 import { trackEvent } from "../lib/analytics";
-import { GRASS_BCYR_COLORS, inspectCsv, parseMappedCsv, parseQgisRamp, stageVelocity, type CsvInspection, type CsvMapping, type DatasetParseResult, type RenderAttribute, type RenderStyle } from "../lib/insar-v2";
+import { GRASS_BCYR_COLORS, INSAR_RED_GREEN_COLORS, inspectCsv, parseMappedCsv, parseQgisRamp, stageVelocity, type CsvInspection, type CsvMapping, type DatasetParseResult, type RenderAttribute, type RenderStyle } from "../lib/insar-v2";
 import { PASC_AUTO_CLASSIFY_MAX_POINTS, PHASE_E_MAX_POINTS, buildPascOnlineRequestBatches, filterPascOnlinePoints, mergePascOnlineResults, onlineErrorMessage, type PascOnlineFilter, type PascOnlineRunState } from "../lib/pasc-online";
 import { parsePascMapPreview, pascMapLevelForZoom, type PascPublicJob } from "../lib/pasc-job-client";
 import { filterPointsForModes, filterPointsForPattern, type PatternVisibility } from "../lib/v2-map-analysis";
 import { deriveTemporalStageAnalysis, pascModeExplanation, pointDataQuality, topPascCandidates, type TemporalStageAnalysis } from "../lib/pasc-product";
 import { rectangleGeometry, summarizeAoi, type AoiAggregateMethod, type AoiCoordinate } from "../lib/aoi-analysis";
-import { buildAnomalyRegions, type AnomalyRegion } from "../lib/anomaly-regions";
+import { type AnomalyRegion } from "../lib/anomaly-regions";
 import { buildDataBackedQuickCases, comparisonColor, currentDisplacement, MAX_COMPARE_POINTS, summarizeComparison, updateComparison, type DataBackedQuickCase } from "../lib/point-comparison";
-import { aoiPointsCsv, aoiSeriesCsv, buildAnalysisRuleSummary, comparisonCsv, downloadSvgPng, downloadText, pointCsv, safeExportName } from "../lib/analysis-exports";
+import { csvText, anomalyPointsCsv, aoiPointsCsv, aoiSeriesCsv, buildAnalysisRuleSummary, comparisonCsv, downloadSvgPng, downloadText, pointCsv, safeExportName } from "../lib/analysis-exports";
 import { listPrivateDatasets, patchPrivateDataset, readPrivateDatasetSource } from "../lib/private-datasets-client";
-import { getSession, type AuthUser } from "../lib/auth-client";
 import { PascAnalysisPanel } from "./PascAnalysisPanel";
 import { PascCompatibilityCheck } from "./PascCompatibilityCheck";
 import { PascPatternLegend } from "./PascPatternLegend";
@@ -39,6 +42,17 @@ import { GisLayerPanel } from "./GisLayerPanel";
 import { AiEvidencePanel } from "./AiEvidencePanel";
 import { importGisFile } from "../lib/gis-import";
 import { getGeometryBounds, type GisLayer } from "../lib/gis-layer";
+import { loadRoadOpsOsmLayer } from "../lib/roadops-osm";
+import type { RoadRiskEvidenceInput } from "../lib/roadops-quality";
+import type { RoadOpsRouteMapPlan } from "../lib/roadops-route";
+import type { RoadOpsDrivingPlan } from "../lib/roadops-driving";
+import { createNavigationDraft, navigationMapPoints, navigationFieldVisits, navigationPickLabel, navigationRouteSignature, setNavigationCoordinate, type NavigationDraft } from "../lib/roadops-navigation";
+import { RoadNavigationPanel } from "./RoadNavigationPanel";
+import { RoadFieldTaskPanel, type FieldTaskResult } from "./RoadFieldTaskPanel";
+import { fieldTaskPlanToNavigationDraft, parseFieldTaskPlan, type FieldTaskPlan } from "../lib/roadops-task-plan";
+import { fieldTaskMapPoints, fieldTaskTargetPoints, fieldTaskRouteMap } from "../lib/roadops-task-map";
+import { setFieldTaskTargetCoordinate, setFieldVehicleStopCoordinate } from "../lib/roadops-task-editor";
+import { syncFieldTaskPlanMetadata } from "../lib/roadops-task-session";
 import type { EvidenceAction } from "../lib/ai-evidence";
 import { SpatialGridIndex } from "../lib/spatial-analysis";
 import { confirmPrimaryInsarLink, insarCandidates, photoCoordinateConflict, primaryInsarPoint, reconcileInsarLinks, rejectInsarLink, type FieldObservation, type NewFieldObservationInput } from "../lib/field-observation";
@@ -46,12 +60,29 @@ import { loadFieldObservations, saveFieldObservations } from "../lib/field-obser
 import { FieldObservationPanel } from "./FieldObservationPanel";
 import { FieldObservationEvidence } from "./FieldObservationEvidence";
 import { FieldPhotoLightbox } from "./FieldPhotoLightbox";
-import { DEFAULT_PRIORITY_TAIL_PERCENT, clampPriorityTailPercent, formatPriorityDeformationRule, selectPriorityDeformationPoints } from "../lib/priority-deformation";
+import { displacementAt, DEFAULT_PRIORITY_OPTIONS, normalizePriorityOptions, formatPriorityDeformationRule, type PriorityDeformationOptions } from "../lib/priority-deformation";
+import { AnomalyRuleControls } from "./AnomalyRuleControls";
+import { resolveLocalAnomalyScope } from "../lib/local-anomaly-scope";
+import { useLocalPriorityAnalysis } from "../lib/use-local-priority-analysis";
+import { loadLocalAoiSeries } from "../lib/local-aoi-client";
+import { addInspectionPointToNavigation, addInspectionRegionToNavigation } from "../lib/inspection-to-navigation";
+import { createLocalAnalysisId, type LocalAnalysisSession } from "../lib/local-analysis-session";
+import { localSettingsForWorkspaceImport, workspaceImportCoherenceMinimum, workspaceImportVisiblePointIds, type WorkspaceLocalImport } from "../lib/workspace-local-import";
+import { analyzePascDateColumns, uniqueSortedDateColumns } from "../lib/pasc-schema";
+import { LOCAL_DATA_ONLY_MESSAGE, USER_DATA_LOCAL_ONLY } from "../lib/data-processing-policy";
+
+export type { WorkspaceLocalImport } from "../lib/workspace-local-import";
 
 const MapCanvas = dynamic(() => import("./WebGisMap"), { ssr: false, loading: () => <div className="map-loading">正在初始化 WebGIS 地图…</div> });
-// The reference legends map negative deformation to red and positive deformation to blue,
-// so the official GRASS bcyr nodes are intentionally reversed for display.
-const defaultColors = [...GRASS_BCYR_COLORS].reverse();
+type ColorRampPreset = { id: string; label: string; hint: string; colors: readonly string[] };
+const colorRampPresets: ColorRampPreset[] = [
+    { id: "red-green", label: "红 → 绿", hint: "推荐 · 减少蓝色", colors: INSAR_RED_GREEN_COLORS },
+    { id: "traffic", label: "红黄绿", hint: "风险分级", colors: ["#b91c1c", "#ef4444", "#f59e0b", "#fde047", "#84cc16", "#15803d"] },
+    { id: "heat", label: "暖色热力", hint: "无蓝色", colors: ["#7f1d1d", "#dc2626", "#f97316", "#facc15", "#fff7bc"] },
+    { id: "bcyr", label: "GRASS bcyr", hint: "经典蓝青黄红", colors: [...GRASS_BCYR_COLORS].reverse() },
+];
+const defaultColors = [...INSAR_RED_GREEN_COLORS];
+const rampSignature = (colors: readonly string[]) => colors.join(",").toLowerCase();
 const defaultColorRange = (attribute: RenderAttribute): { min: number; max: number; interval: number } => {
     if (attribute === "displacement") return { min: -100, max: 100, interval: 20 };
     if (attribute === "velocity" || attribute === "stageVelocity") return { min: -12.5, max: 12.5, interval: 2.5 };
@@ -101,23 +132,15 @@ const emptyPascOnlineRun: PascOnlineRunState = { status: "idle", error: "", comp
 const PASC_MAP_JOB_POLL_MS = 15_000;
 const PASC_MAP_HIDDEN_WAIT_MS = 1_000;
 
-type AnomalySummary = {
-    total: number;
-    clearSubsidence: number;
-    accelerating: number;
-    pattern: number;
-    excludedLowQuality: number;
-};
-
 type ExportOperation = { state: "idle" | "running" | "success" | "error"; message: string };
 const idleExportOperation: ExportOperation = { state: "idle", message: "" };
 
-const pointBounds = (items: InsarPoint[]): [number, number, number, number] => items.length ? [
-    Math.min(...items.map(point => point.lon)),
-    Math.min(...items.map(point => point.lat)),
-    Math.max(...items.map(point => point.lon)),
-    Math.max(...items.map(point => point.lat)),
-] : [0, 0, 0, 0];
+const pointBounds = (items: InsarPoint[]): [number, number, number, number] => {
+    if (!items.length) return [0, 0, 0, 0];
+    let west = Infinity, south = Infinity, east = -Infinity, north = -Infinity;
+    for (const point of items) { west = Math.min(west, point.lon); south = Math.min(south, point.lat); east = Math.max(east, point.lon); north = Math.max(north, point.lat); }
+    return [west, south, east, north];
+};
 
 const buildVelocityHistogram = (items: InsarPoint[], binCount = 9) => {
     if (!items.length) return [];
@@ -248,7 +271,7 @@ function TimeSeriesChart({ point, showTrend, timeIndex, stageAnalysis, exportBus
 
     return (
         <div className="series-chart phase-three-series">
-            <svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${point.name}累计形变时序曲线，横轴为观测日期，纵轴为累计形变毫米`} onMouseMove={handleHover} onMouseLeave={() => setHoverIndex(null)}>
+            <svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${point.name}累计形变时序曲线，横轴为${point.observedDates ? "模型预处理日期" : "观测日期"}，纵轴为累计形变毫米`} onMouseMove={handleHover} onMouseLeave={() => setHoverIndex(null)}>
                 {changeVisible && <g className="chart-stage-bands"><rect x={left} y={top} width={changeX - left} height={plotH} /><rect className="stage-two" x={changeX} y={top} width={width - right - changeX} height={plotH} /></g>}
                 <g className="chart-grid">
                     {yTicks.map((tick, index) => <line key={`y-${index}`} x1={left} y1={tick.pos} x2={width - right} y2={tick.pos} />)}
@@ -259,7 +282,7 @@ function TimeSeriesChart({ point, showTrend, timeIndex, stageAnalysis, exportBus
                     <line x1={left} y1={height - bottom} x2={width - right} y2={height - bottom} />
                     {yTicks.map((tick, index) => <g key={`yl-${index}`}><line x1={left - 4} y1={tick.pos} x2={left} y2={tick.pos} /><text x={left - 7} y={tick.pos + 4} textAnchor="end">{tick.value.toFixed(1)}</text></g>)}
                     {xTicks.map((tick, index) => <g key={`xl-${index}`}><line x1={x(tick)} y1={height - bottom} x2={x(tick)} y2={height - bottom + 4} /><text x={x(tick)} y={height - bottom + 16} textAnchor={index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle"}>{axisDate(dates[tick] || String(tick))}</text></g>)}
-                    <text className="axis-title" x={(left + width - right) / 2} y={height - 7} textAnchor="middle">观测日期</text>
+                    <text className="axis-title" x={(left + width - right) / 2} y={height - 7} textAnchor="middle">{point.observedDates ? "模型预处理日期" : "观测日期"}</text>
                     <text className="axis-title" transform={`translate(14 ${(top + height - bottom) / 2}) rotate(-90)`} textAnchor="middle">累计形变 (mm)</text>
                 </g>
                 {zeroVisible && <line className="chart-zero-line" x1={left} y1={y(0)} x2={width - right} y2={y(0)} />}
@@ -281,7 +304,7 @@ function TimeSeriesChart({ point, showTrend, timeIndex, stageAnalysis, exportBus
                 )}
                 <g className="chart-legend">
                     <rect x={width - 137} y={top + 7} width="124" height={showTrend ? 38 : 22} rx="6" />
-                    <line x1={width - 128} y1={top + 19} x2={width - 104} y2={top + 19} /><circle cx={width - 116} cy={top + 19} r="2.6" /><text x={width - 99} y={top + 23}>监测值</text>
+                    <line x1={width - 128} y1={top + 19} x2={width - 104} y2={top + 19} /><circle cx={width - 116} cy={top + 19} r="2.6" /><text x={width - 99} y={top + 23}>{point.observedDates ? "预处理值" : "监测值"}</text>
                     {showTrend && <><line className="legend-trend" x1={width - 128} y1={top + 34} x2={width - 104} y2={top + 34} /><text x={width - 99} y={top + 38}>线性拟合</text></>}
                 </g>
             </svg>
@@ -312,21 +335,50 @@ function CompareChart({ points, exportBusy, onExportData, onExportChart }: {
     const hoverDate = hoverIndex === null ? "" : dates[Math.round((hoverIndex / maxCount) * Math.max(0, dates.length - 1))] || `第 ${hoverIndex + 1} 期`;
     return <div className="compare-chart"><svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="最多五点累计形变时序对比，横轴为观测日期，纵轴为累计形变毫米" onPointerMove={pointerMove} onPointerLeave={() => setHoverIndex(null)}><g className="chart-grid">{yTicks.map((tick, i) => <line key={`y-${i}`} x1={left} y1={tick.pos} x2={width - right} y2={tick.pos}/>)}{xTicks.map((tick, i) => <line key={`x-${i}`} x1={x(tick, maxCount)} y1={top} x2={x(tick, maxCount)} y2={height - bottom}/>)}</g><g className="chart-axes"><line x1={left} y1={top} x2={left} y2={height - bottom}/><line x1={left} y1={height - bottom} x2={width - right} y2={height - bottom}/>{yTicks.map((tick, i) => <text key={i} x={left - 7} y={tick.pos + 4} textAnchor="end">{tick.value.toFixed(1)}</text>)}{xTicks.map((tick, i) => <text key={i} x={x(tick, maxCount)} y={height - bottom + 16} textAnchor={i === 0 ? "start" : i === xTicks.length - 1 ? "end" : "middle"}>{axisDate(dates[Math.round((tick / maxCount) * Math.max(0, dates.length - 1))] || String(tick))}</text>)}<text className="axis-title" x={(left + width - right) / 2} y={height - 6} textAnchor="middle">观测日期</text><text className="axis-title" transform={`translate(14 ${(top + height - bottom) / 2}) rotate(-90)`} textAnchor="middle">累计形变 (mm)</text></g>{shown.map((p, j) => <polyline key={p.id} fill="none" style={{ stroke: comparisonColor(j) }} points={p.series.map((v, i) => `${x(i, p.series.length - 1)},${y(v)}`).join(" ")}/>)}{hoverIndex !== null && <g className="compare-hover"><line x1={x(hoverIndex, maxCount)} y1={top} x2={x(hoverIndex, maxCount)} y2={height - bottom}/>{shown.map((point, index) => { const value = point.series[pointIndexAtHover(point)]; return Number.isFinite(value) ? <circle key={point.id} cx={x(pointIndexAtHover(point), point.series.length - 1)} cy={y(value)} r="3.8" style={{ fill: comparisonColor(index) }}/> : null; })}</g>}</svg><div className="compare-legend">{shown.map((p, j) => <span key={p.id}><i style={{ background: comparisonColor(j) }}/>{p.id}</span>)}</div>{hoverIndex !== null && <div className="compare-hover-readout"><b>{hoverDate}</b>{shown.map((point, index) => { const value = point.series[pointIndexAtHover(point)]; return <span key={point.id}><i style={{ background: comparisonColor(index) }}/>{point.id}<strong>{Number.isFinite(value) ? `${value.toFixed(1)} mm` : "—"}</strong></span>; })}</div>}<div className="chart-export-actions"><button disabled={exportBusy} onClick={onExportData}>导出对比数据 CSV</button><button disabled={exportBusy} onClick={() => svgRef.current && onExportChart(svgRef.current)}>导出对比图 PNG</button></div></div>;
 }
-export function MapWorkspace() {
-    return <AnalysisProvider><MapWorkspaceView /></AnalysisProvider>;
+type MapWorkspaceProps = { initialImport?: WorkspaceLocalImport; onReturnToImport?: () => void };
+
+export function MapWorkspace(props: MapWorkspaceProps = {}) {
+    const [requiresAccount, setRequiresAccount] = useState(() => !publicWorkspaceAccess(new URLSearchParams(typeof window === "undefined" ? "" : window.location.search), Boolean(props.initialImport)));
+    useEffect(() => {
+        const personalAccess = () => setRequiresAccount(true);
+        window.addEventListener(PERSONAL_DATA_ACCESS_EVENT, personalAccess);
+        return () => window.removeEventListener(PERSONAL_DATA_ACCESS_EVENT, personalAccess);
+    }, []);
+    return <AccountRequired publicAccess={!requiresAccount}><AnalysisProvider><MapWorkspaceView {...props} onRequireAccount={() => setRequiresAccount(true)} /></AnalysisProvider></AccountRequired>;
 }
-function MapWorkspaceView() {
+function MapWorkspaceView({ initialImport, onReturnToImport, onRequireAccount }: MapWorkspaceProps & { onRequireAccount: () => void }) {
+    const accountSession = useAccountSession();
     const { analysis, isReady: isAnalysisReady, updateAnalysis } = useAnalysisContext();
     const [activePublicDemo, setActivePublicDemo] = useState<PublicDemoId>("haikou");
     const [demoDepth, setDemoDepth] = useState<"quick" | "full">("quick");
-    const [points, setPoints] = useState<InsarPoint[]>(demoPoints), [selected, setSelected] = useState<InsarPoint | null>(null), [datasetTitle, setDatasetTitle] = useState("海口示例 · 时序 InSAR"), [visible, setVisible] = useState({ points: true, boundary: true, risk: false, quality: false }), [base, setBase] = useState("osm"), [status, setStatus] = useState("正在加载公开示例数据…"), [showTrend, setShowTrend] = useState(true), [tdtKey, setTdtKey] = useState(""), [keyDraft, setKeyDraft] = useState(""), [customBasemap, setCustomBasemap] = useState(""), [customDraft, setCustomDraft] = useState(""), [baseOpacity, setBaseOpacity] = useState(1), [sourceOpen, setSourceOpen] = useState(false), [guideOpen, setGuideOpen] = useState(false), [mappingOpen, setMappingOpen] = useState(false), [reportOpen, setReportOpen] = useState(false), [inspection, setInspection] = useState<CsvInspection | null>(null), [mapping, setMapping] = useState<CsvMapping | null>(null), [pending, setPending] = useState<{
+    const [points, setPoints] = useState<InsarPoint[]>(initialImport ? initialImport.result?.points ?? [] : demoPoints), [selected, setSelected] = useState<InsarPoint | null>(null), [datasetTitle, setDatasetTitle] = useState(initialImport?.result?.datasetTitle ?? initialImport?.file.name ?? "海口示例 · 时序 InSAR"), [visible, setVisible] = useState({ points: true, boundary: true, risk: false, quality: false }), [base, setBase] = useState("osm"), [status, setStatus] = useState(initialImport ? "正在接入本机导入数据…" : "正在加载公开示例数据…"), [showTrend, setShowTrend] = useState(true), [tdtKey, setTdtKey] = useState(""), [keyDraft, setKeyDraft] = useState(""), [customBasemap, setCustomBasemap] = useState(""), [customDraft, setCustomDraft] = useState(""), [baseOpacity, setBaseOpacity] = useState(1), [sourceOpen, setSourceOpen] = useState(false), [guideOpen, setGuideOpen] = useState(false), [mappingOpen, setMappingOpen] = useState(false), [reportOpen, setReportOpen] = useState(false), [inspection, setInspection] = useState<CsvInspection | null>(initialImport?.inspection ?? null), [mapping, setMapping] = useState<CsvMapping | null>(initialImport?.mapping ?? initialImport?.inspection?.mapping ?? null), [pending, setPending] = useState<{
         text: string;
         name: string;
         file?: File;
-    } | null>(null), [parseReport, setParseReport] = useState<DatasetParseResult | null>(null), [privateDatasetId, setPrivateDatasetId] = useState(""), [timeIndex, setTimeIndex] = useState(0), [rangeStart, setRangeStart] = useState(0), [rangeEnd, setRangeEnd] = useState(1), [attribute, setAttributeState] = useState<RenderAttribute>("velocity"), [styleMin, setStyleMin] = useState(-12.5), [styleMax, setStyleMax] = useState(12.5), [interval, setInterval] = useState(2.5), [colors, setColors] = useState<string[]>(defaultColors), [pointSize, setPointSize] = useState(5), [priorityTailPercent, setPriorityTailPercent] = useState(DEFAULT_PRIORITY_TAIL_PERCENT), [threshold, setThreshold] = useState(-10), [coherenceThreshold, setCoherenceThreshold] = useState(.75), [selectionMode, setSelectionMode] = useState<"single" | "compare" | "compareBox" | "box" | "polygon">("single"), [compareIds, setCompareIds] = useState<string[]>([]), [curveIds, setCurveIds] = useState<string[]>([]), [boxPoints, setBoxPoints] = useState<InsarPoint[]>([]), [busy, setBusy] = useState(""), [dataReady, setDataReady] = useState(false), [activeQuickCaseId, setActiveQuickCaseId] = useState<string | null>(null), [mapFocus, setMapFocus] = useState<{ bounds: [number, number, number, number]; token: number } | null>(null), [ruleSummaryOpen, setRuleSummaryOpen] = useState(false), [exportOperation, setExportOperation] = useState<ExportOperation>(idleExportOperation);
-    const [leftTab, setLeftTab] = useState<"data" | "layers" | "field" | "filters" | "anomaly" | "time">("data"), [rightTab, setRightTab] = useState<"point" | "region" | "action" | "pasc" | "ai">("point"), [activeFilter, setActiveFilter] = useState<"none" | "velocity" | "coherence" | "anomaly" | "pascLowConfidence" | "pascLimitedSpatial">("none");
+    } | null>(null), [parseReport, setParseReport] = useState<DatasetParseResult | null>(initialImport?.result ?? null), [privateDatasetId, setPrivateDatasetId] = useState(""), [timeIndex, setTimeIndex] = useState(0), [rangeStart, setRangeStart] = useState(0), [rangeEnd, setRangeEnd] = useState(1), [attribute, setAttributeState] = useState<RenderAttribute>("velocity"), [styleMin, setStyleMin] = useState(-12.5), [styleMax, setStyleMax] = useState(12.5), [interval, setInterval] = useState(2.5), [colors, setColors] = useState<string[]>(defaultColors), [pointSize, setPointSize] = useState(5), [priorityOptions, setPriorityOptions] = useState(() => normalizePriorityOptions(DEFAULT_PRIORITY_OPTIONS)), [threshold, setThreshold] = useState(-10), [coherenceThreshold, setCoherenceThreshold] = useState(.75), [selectionMode, setSelectionMode] = useState<"single" | "compare" | "compareBox" | "box" | "polygon">("single"), [compareIds, setCompareIds] = useState<string[]>([]), [curveIds, setCurveIds] = useState<string[]>([]), [storedBoxPoints, setBoxPoints] = useState<InsarPoint[]>([]), [busy, setBusy] = useState(""), [dataReady, setDataReady] = useState(false), [activeQuickCaseId, setActiveQuickCaseId] = useState<string | null>(null), [mapFocus, setMapFocus] = useState<{ bounds: [number, number, number, number]; token: number } | null>(null), [ruleSummaryOpen, setRuleSummaryOpen] = useState(false), [exportOperation, setExportOperation] = useState<ExportOperation>(idleExportOperation);
+    const [leftTab, setLeftTab] = useState<"data" | "layers" | "route" | "field" | "filters" | "anomaly" | "time">("data"), [rightTab, setRightTab] = useState<"point" | "region" | "action" | "pasc" | "ai">("point"), [activeFilter, setActiveFilter] = useState<"none" | "velocity" | "coherence" | "anomaly" | "pascLowConfidence" | "pascLimitedSpatial">("none");
+    const [navigationActive, setNavigationActive] = useState(false);
+    const [navigationDraft, setNavigationDraft] = useState(createNavigationDraft);
+    const [navigationPickId, setNavigationPickId] = useState<string | null>(null);
+    const [navigationPlan, setNavigationPlan] = useState<RoadOpsDrivingPlan | null>(null);
+    const [navigationBusy, setNavigationBusy] = useState(false);
+    const [activeNavigationLegId, setActiveNavigationLegId] = useState<string | null>(null);
+    const [fieldTaskPlan, setFieldTaskPlan] = useState<FieldTaskPlan | null>(null);
+    const [fieldTaskStored, setFieldTaskStored] = useState(false);
+    const [fieldTaskResult, setFieldTaskResult] = useState<FieldTaskResult | null>(null);
+    const fieldSession = useRef({ plan: fieldTaskPlan, result: fieldTaskResult });
+    const navigationBusyRef = useRef(false);
+    const pendingTaskSave = useRef<FieldTaskPlan | null>(null);
+    const navigationPoints = useMemo(() => fieldTaskPlan ? fieldTaskMapPoints(fieldTaskPlan) : navigationMapPoints(navigationDraft), [fieldTaskPlan, navigationDraft]);
+    const navigationTargetPoints = useMemo(() => fieldTaskPlan ? fieldTaskTargetPoints(fieldTaskPlan) : navigationFieldVisits(navigationDraft).flatMap(point => point.vehicleCoordinate ? [{ id: point.id, name: point.name, coordinate: point.coordinate, vehicleCoordinate: point.vehicleCoordinate }] : []), [fieldTaskPlan, navigationDraft]);
+    const fieldTaskMap = useMemo(() => {
+        if (!fieldTaskPlan || !fieldTaskResult) return null;
+        try { return fieldTaskRouteMap(fieldTaskPlan, fieldTaskResult.receipt); } catch { return null; }
+    }, [fieldTaskPlan, fieldTaskResult]);
+    const navigationPickText = fieldTaskPlan && navigationPickId ? navigationPickId.startsWith("task:") ? fieldTaskPlan.tasks.find(task => task.taskId === navigationPickId.slice(5))?.name ?? "核查目标" : "车辆停靠位置" : navigationPickId ? navigationPickLabel(navigationDraft, navigationPickId) : "";
     // Visibility has one owner; task memory is independent of analysis data.
     const [surface, setSurface] = useState<"left" | "right" | "export" | null>(null);
+    const [drawerWidth, setDrawerWidth] = useState(DEFAULT_PANEL_WIDTH);
     const leftCollapsed = surface !== "left", rightCollapsed = surface !== "right";
     const setLeftCollapsed = useCallback((closed: boolean) => setSurface(current => closed ? current === "left" ? null : current : "left"), []);
     const setRightCollapsed = useCallback((closed: boolean) => setSurface(current => closed ? current === "right" ? null : current : "right"), []);
@@ -334,13 +386,13 @@ function MapWorkspaceView() {
     const drawerTrigger = useRef<HTMLElement | null>(null);
     const rememberTrigger = () => { if (document.activeElement instanceof HTMLElement && !document.activeElement.closest(".workspace-task-drawer,.workspace-export-drawer")) drawerTrigger.current = document.activeElement; };
     const closeSurface = () => { setSurface(null); window.requestAnimationFrame(() => drawerTrigger.current?.focus()); };
-    const openLeft = (tab: typeof leftTab) => { rememberTrigger(); setLeftTab(tab); setSurface("left"); };
-    const openRight = (tab: typeof rightTab) => { rememberTrigger(); setRightTab(tab); setSurface("right"); };
-    const activeSection: WorkspaceSection | null = surface === "export" ? "export" : surface === "left" ? leftTab === "data" ? "data" : leftTab === "layers" ? "layers" : leftTab === "field" ? "inspection" : "analysis" : surface === "right" ? rightTab === "action" ? "inspection" : "analysis" : null;
+    const openLeft = (tab: typeof leftTab) => { rememberTrigger(); setNavigationActive(tab === "route"); setNavigationPickId(null); setLeftTab(tab); setSurface("left"); if (tab === "route") { setSelectionMode("single"); setSwipeEnabled(false); } };
+    const openRight = (tab: typeof rightTab) => { rememberTrigger(); setNavigationActive(false); setNavigationPickId(null); setRightTab(tab); setSurface("right"); };
+    const activeSection: WorkspaceSection | null = surface === "export" ? "export" : surface === "left" ? leftTab === "data" ? "data" : leftTab === "layers" ? "layers" : leftTab === "route" ? "route" : leftTab === "field" ? "inspection" : "analysis" : surface === "right" ? rightTab === "action" ? "inspection" : "analysis" : null;
     const openSection = (section: WorkspaceSection) => {
         rememberTrigger();
         if (activeSection === section) { closeSurface(); return; }
-        if (section === "data" || section === "layers") openLeft(section);
+        if (section === "data" || section === "layers" || section === "route") openLeft(section);
         else if (section === "inspection") openRight("action");
         else if (section === "export") setSurface("export");
         else openRight(rightTab === "action" ? "point" : rightTab);
@@ -349,31 +401,114 @@ function MapWorkspaceView() {
         setSelectionMode(mode);
         if (mode === "box" || mode === "polygon") { setSwipeEnabled(false); setSurface(null); }
     };
+    const changeNavigationDraft = (draft: NavigationDraft) => {
+        if (navigationRouteSignature(draft) !== navigationRouteSignature(navigationDraft)) { setNavigationPlan(null); setActiveNavigationLegId(null); }
+        setNavigationDraft(draft);
+    };
+    const acceptNavigationPlan = (plan: RoadOpsDrivingPlan | null) => { setNavigationPlan(plan); setActiveNavigationLegId(null); };
+    const openFieldTasks = (plan: FieldTaskPlan, saved = false) => {
+        const next = parseFieldTaskPlan(plan);
+        fieldSession.current = { plan: next, result: null }; pendingTaskSave.current = null;
+        setFieldTaskPlan(next); setFieldTaskStored(saved); setFieldTaskResult(null);
+        setNavigationPlan(null); setNavigationPickId(null); setActiveNavigationLegId(null);
+    };
+    const changeFieldTasks = (plan: FieldTaskPlan) => {
+        const next = parseFieldTaskPlan(plan);
+        fieldSession.current = { plan: next, result: null };
+        setFieldTaskPlan(next); setFieldTaskResult(null); setActiveNavigationLegId(null);
+    };
+    const saveFieldTaskMetadata = (saved: FieldTaskPlan) => {
+        // An already-started autosave may finish during a paid route request. Defer metadata
+        // until the issued snapshot has bound (or failed); never cancel/rebind an in-flight call.
+        if (navigationBusyRef.current) { pendingTaskSave.current = saved; return; }
+        const session = fieldSession.current;
+        if (!session.plan) return;
+        const next = syncFieldTaskPlanMetadata(session.plan, saved, session.result?.receipt ?? null);
+        const result = next.receipt && session.result ? { ...session.result, receipt: next.receipt } : null;
+        fieldSession.current = { plan: next.plan, result };
+        setFieldTaskPlan(next.plan); setFieldTaskStored(true); setFieldTaskResult(result);
+    };
+    const acceptFieldTaskResult = (result: FieldTaskResult | null) => { fieldSession.current = { ...fieldSession.current, result }; setFieldTaskResult(result); setActiveNavigationLegId(null); };
+    const adoptFieldTaskCandidate = (plan: FieldTaskPlan, result: FieldTaskResult | null) => {
+        const snapshot = parseFieldTaskPlan(plan);
+        if (result) fieldTaskRouteMap(snapshot, result.receipt);
+        fieldSession.current = { plan: snapshot, result };
+        setFieldTaskPlan(snapshot); setFieldTaskResult(result);
+        setNavigationPlan(null); setNavigationPickId(null); setActiveNavigationLegId(null);
+    };
+    const setNavigationRequestBusy = (busy: boolean) => {
+        navigationBusyRef.current = busy; setNavigationBusy(busy);
+        if (!busy && pendingTaskSave.current) { const saved = pendingTaskSave.current; pendingTaskSave.current = null; saveFieldTaskMetadata(saved); }
+    };
+    const focusNavigationLeg = (id: string | null) => {
+        setActiveNavigationLegId(id);
+        const bounds = fieldTaskPlan ? id ? fieldTaskResult?.receipt.legs.find(leg => leg.id === id)?.bounds : fieldTaskMap?.bounds : id ? navigationPlan?.field?.legs.find(leg => leg.id === id)?.bounds : navigationPlan?.map.bounds;
+        if (bounds) setMapFocus({ bounds, token: Date.now() });
+        if (window.matchMedia("(max-width: 1023px)").matches) setSurface(null);
+    };
+    const focusNavigationPoint = (coordinate: [number, number]) => {
+        setMapFocus({ bounds: [coordinate[0], coordinate[1], coordinate[0], coordinate[1]], token: Date.now() });
+        if (window.matchMedia("(max-width: 1023px)").matches) setSurface(null);
+    };
+    const beginNavigationPick = (id: string | null) => {
+        if (navigationBusy) return;
+        setNavigationPickId(id);
+        if (id && window.matchMedia("(max-width: 1023px)").matches) setSurface(null);
+    };
+    const pickNavigationCoordinate = (coordinate: [number, number]) => {
+        if (!navigationPickId || navigationBusy) return;
+        if (fieldTaskPlan) {
+            try {
+                const next = navigationPickId.startsWith("task:") ? setFieldTaskTargetCoordinate(fieldTaskPlan, navigationPickId.slice(5), coordinate) : setFieldVehicleStopCoordinate(fieldTaskPlan, navigationPickId.slice(5), coordinate);
+                fieldSession.current = { plan: next, result: null };
+                setFieldTaskPlan(next); setFieldTaskResult(null);
+            } catch (error) { setStatus(error instanceof Error ? error.message : "选点未完成，原输入保留。"); return; }
+        } else setNavigationDraft(current => setNavigationCoordinate(current, navigationPickId, coordinate));
+        setNavigationPlan(null);
+        setActiveNavigationLegId(null);
+        setNavigationPickId(null);
+        setLeftTab("route");
+        setSurface("left");
+    };
     useEffect(() => {
         const escape = (event: KeyboardEvent) => {
             if (event.key !== "Escape" || event.defaultPrevented || (event.target instanceof HTMLElement && event.target.closest("input,textarea,select,[role=dialog]")) || document.querySelector(".config-backdrop,.field-photo-lightbox,.rule-summary-backdrop")) return;
+            if (navigationPickId) { setNavigationPickId(null); setSurface("left"); return; }
             if (selectionMode === "box" || selectionMode === "polygon") { setSelectionMode("single"); return; }
             if (swipeEnabled) { setSwipeEnabled(false); return; }
             setSurface(null); window.requestAnimationFrame(() => drawerTrigger.current?.focus());
         };
         window.addEventListener("keydown", escape);
         return () => window.removeEventListener("keydown", escape);
-    }, [selectionMode, swipeEnabled]);
+    }, [selectionMode, swipeEnabled, navigationPickId]);
     const [patternVisibility, setPatternVisibility] = useState<PatternVisibility>("all");
     const [hiddenModes, setHiddenModes] = useState<string[]>([]);
-    const [anomalyRadiusMeters, setAnomalyRadiusMeters] = useState(60), [anomalyMinimumPoints, setAnomalyMinimumPoints] = useState(5);
+    const [anomalyView, setAnomalyView] = useState<"clustered" | "isolated" | "excluded">("clustered");
+    const anomalyRadiusMeters = priorityOptions.radiusMeters, anomalyMinimumPoints = priorityOptions.minimumPoints;
     const [aiStatus, setAiStatus] = useState<"idle" | "running" | "prepared" | "success" | "error">("idle"), [aiResult, setAiResult] = useState<RegionalInterpretation | null>(null), [aiError, setAiError] = useState(""), [aiPrompt, setAiPrompt] = useState(""), [aiResponseDraft, setAiResponseDraft] = useState(""), [evidenceOpen, setEvidenceOpen] = useState(false);
     const [aiAccessMode, setAiAccessMode] = useState<"site" | "personal">("site"), [personalAiProvider, setPersonalAiProvider] = useState<"bailian" | "deepseek">("bailian"), [personalAiKey, setPersonalAiKey] = useState(""), [showPersonalAiKey, setShowPersonalAiKey] = useState(false), [aiSettingsOpen, setAiSettingsOpen] = useState(false), [aiSettingsMessage, setAiSettingsMessage] = useState("");
     const [portfolioTourStep, setPortfolioTourStep] = useState<1 | 2 | 3 | null>(null);
     const [pascOnlineRun, setPascOnlineRun] = useState<PascOnlineRunState>(emptyPascOnlineRun);
     const [pascExecutionMode, setPascExecutionMode] = useState<"local" | "legacy">("local");
-    const [localPascFile, setLocalPascFile] = useState<File | null>(null);
-    const [account, setAccount] = useState<AuthUser | null>(null);
+    const [localPascFile, setLocalPascFile] = useState<File | null>(initialImport?.file ?? null);
+    const [importCoherenceMin, setImportCoherenceMin] = useState(() => workspaceImportCoherenceMinimum(initialImport?.coherenceMin));
+    const [initialImportIdentity] = useState(() => initialImport ? { datasetId: "local-file-" + crypto.randomUUID(), analysisId: "local-analysis-" + crypto.randomUUID() } : null);
+    const localImportSettings = useMemo(() => localPascFile && localPascFile === initialImport?.file ? localSettingsForWorkspaceImport(initialImport.mapping ?? initialImport.inspection?.mapping) : undefined, [localPascFile, initialImport]);
+    const [priorityScopeIds, setPriorityScopeIds] = useState<string[] | null>(null);
+    const [localDataset, setLocalDataset] = useState<PascLocalMapDataset | null>(null);
+    const localDatasetRef = useRef<PascLocalMapDataset | null>(null);
+    const [localAnalysisIdentity, setLocalAnalysisIdentity] = useState<{ datasetId: string; analysisId: string } | null>(initialImportIdentity);
+    const [localSeriesRevision, setLocalSeriesRevision] = useState(0);
+    const [localSeriesBusy, setLocalSeriesBusy] = useState(false);
+    const [localSeriesError, setLocalSeriesError] = useState("");
+    const localHydrationRun = useRef(0);
     const [livePascPoints, setLivePascPoints] = useState<InsarPoint[]>([]);
     const [gisLayers, setGisLayers] = useState<GisLayer[]>([]);
     const [activeGisFeatureId, setActiveGisFeatureId] = useState<string | null>(null);
+    const [roadOpsRoutePlan, setRoadOpsRoutePlan] = useState<RoadOpsRouteMapPlan | null>(null);
     const [gisImportBusy, setGisImportBusy] = useState(false);
     const [gisImportMessage, setGisImportMessage] = useState("");
+    const roadOpsOsmLoadStarted = useRef(false);
     const [fieldObservations, setFieldObservations] = useState<FieldObservation[]>([]);
     const [activeFieldObservationId, setActiveFieldObservationId] = useState<string | null>(null);
     const [activeFieldPhotoId, setActiveFieldPhotoId] = useState<string | null>(null);
@@ -387,53 +522,98 @@ function MapWorkspaceView() {
     const restoreRequested = useRef(false), restoredContextKey = useRef("");
     const deepLinkApplied = useRef(false);
     const fileRef = useRef<HTMLInputElement>(null), qgisRef = useRef<HTMLInputElement>(null);
-    const prioritySelection = useMemo(() => selectPriorityDeformationPoints(points, timeIndex, { tailPercent: priorityTailPercent, coherenceThreshold }), [points, timeIndex, priorityTailPercent, coherenceThreshold]);
-    const priorityPointIds = useMemo(() => prioritySelection.candidates.map(point => point.id), [prioritySelection.candidates]);
-    const priorityLimitedPointIds = useMemo(() => prioritySelection.limited.map(point => point.id), [prioritySelection.limited]);
-    const priorityRule = useMemo(() => formatPriorityDeformationRule(prioritySelection), [prioritySelection]);
-    const riskCount = prioritySelection.candidates.length, qualityCount = useMemo(() => points.filter(p => (p.coherence > 0 && p.coherence < coherenceThreshold) || p.missingRate > .2).length, [points, coherenceThreshold]);
-    const datasetPeriodCount = useMemo(() => Math.max(0, ...points.map(point => point.series.length)), [points]);
-    const hasTimeSeries = datasetPeriodCount >= 2, periodCount = Math.max(1, datasetPeriodCount), currentDate = hasTimeSeries ? (points.find(point => point.dates?.length)?.dates?.[Math.min(timeIndex, periodCount - 1)] || "—") : "速率 / 分类结果";
-    const activeFieldDatasetId = privateDatasetId || publicDemos[activePublicDemo].datasetId;
-    const hasCoherence = points.some(point => Number.isFinite(point.coherence) && point.coherenceSource !== "not_available" && point.coherenceSource !== "default");
-    const hasModes = points.some(point => normalizedMode(point.mode) !== "未分类");
-    const renderStyle: RenderStyle = useMemo(() => ({ attribute, min: styleMin, max: styleMax, interval, timeIndex, rangeStart, rangeEnd, colors }), [attribute, styleMin, styleMax, interval, timeIndex, rangeStart, rangeEnd, colors]);
-    const usesDefaultBcyr = colors.join(",") === defaultColors.join(",");
-    useEffect(() => { if (attribute === "mode") return; const style = defaultColorRange(attribute); setStyleMin(style.min); setStyleMax(style.max); setInterval(style.interval); }, [attribute]);
-    const compared = compareIds.map(id => points.find(p => p.id === id)).filter(Boolean) as InsarPoint[], curves = compared.filter(p => curveIds.includes(p.id)), boxIds = useMemo(() => boxPoints.map(p => p.id), [boxPoints]);
-    const anomalyDiscovery = useMemo(() => {
-        const summary: AnomalySummary = { total: 0, clearSubsidence: 0, accelerating: 0, pattern: 0, excludedLowQuality: 0 };
-        const chosen = points.filter(point => {
-            const lowQuality = point.missingRate > .2 || (point.coherence > 0 && point.coherence < coherenceThreshold);
-            if (lowQuality) { summary.excludedLowQuality++; return false; }
-            const mode = normalizedMode(point.mode), clearSubsidence = point.velocity <= -3, accelerating = mode === "加速型", pattern = mode === "分段型";
-            if (clearSubsidence) summary.clearSubsidence++;
-            if (accelerating) summary.accelerating++;
-            if (pattern) summary.pattern++;
-            return clearSubsidence || accelerating || pattern;
-        });
-        summary.total = chosen.length;
-        return { points: chosen, summary };
-    }, [points, coherenceThreshold]);
-    const anomalyRegionResult = useMemo(() => buildAnomalyRegions(anomalyDiscovery.points, { radiusMeters: anomalyRadiusMeters, minimumPoints: anomalyMinimumPoints }, timeIndex, normalizedMode), [anomalyDiscovery.points, anomalyRadiusMeters, anomalyMinimumPoints, timeIndex]);
-    const inspectionCandidates = useMemo(() => buildInspectionCandidates(anomalyRegionResult.regions), [anomalyRegionResult.regions]);
+    const datasetPeriodCount = useMemo(() => localDataset?.periods ?? points.reduce((maximum, point) => Math.max(maximum, point.series.length), 0), [points, localDataset]);
+    const mappingDates = useMemo(() => inspection && mapping ? uniqueSortedDateColumns(analyzePascDateColumns(inspection.headers, mapping.timeCols)) : [], [inspection, mapping]);
+    const detectionDate = useMemo(() => points.reduce((latest, point) => {
+        const last = point.observedDates?.at(-1) || point.dates?.at(-1) || ""; return last > latest ? last : latest;
+    }, ""), [points]);
+    const priorityInput = useMemo(() => resolveLocalAnomalyScope(points, priorityScopeIds), [points, priorityScopeIds]);
+    const anomalyScopeLabel = priorityScopeIds === null ? `全数据 ${points.length.toLocaleString()} 点` : `用户选区 ${priorityInput.length.toLocaleString()} 点`;
+    const { selection: prioritySelection, state: priorityState, error: priorityError } = useLocalPriorityAnalysis(priorityInput, Math.max(0, datasetPeriodCount - 1), { ...priorityOptions, coherenceThreshold, evaluationDate: detectionDate || undefined }, 0);
+    const roadRiskEvidenceInputs = useMemo<RoadRiskEvidenceInput[]>(() => {
+        const insar = prioritySelection.anomalies.slice(0, 200).map(point => ({ id: `insar:${point.id}`, type: "insar" as const, longitude: point.lon, latitude: point.lat, capturedAt: detectionDate || null, confidence: point.modeConfidence ?? point.pasc?.confidence ?? null, summary: `重点形变候选 ${point.id} · 速率 ${point.velocity.toFixed(1)} mm/yr · 累计 ${displacementAt(point, Math.max(0, datasetPeriodCount - 1), detectionDate).toFixed(1)} mm · ${normalizedMode(point.mode)}` }));
+        const photos = fieldObservations.flatMap(observation => observation.photos.map(photo => ({ id: `field-photo:${observation.id}:${photo.id}`, type: "field_photo" as const, longitude: observation.longitude, latitude: observation.latitude, capturedAt: photo.capturedAt ?? observation.capturedAt, confidence: photo.coordinateConfidence, summary: `现场照片 ${photo.name} · ${observation.name}${photo.note ? ` · ${photo.note.slice(0, 80)}` : observation.note ? ` · ${observation.note.slice(0, 80)}` : ""}` })));
+        const landslides = gisLayers.filter(layer => layer.role === "landslide").flatMap(layer => layer.features.slice(0, 100).flatMap(feature => {
+            const bounds = getGeometryBounds(feature.geometry);
+            if (!bounds) return [];
+            return [{ id: `landslide:${layer.id}:${feature.id}`, type: "landslide" as const, longitude: (bounds.west + bounds.east) / 2, latitude: (bounds.south + bounds.north) / 2, capturedAt: null, confidence: null, summary: `滑坡风险图层 ${layer.name} · 要素 ${feature.id} 中心点近似 · 采集时间未知（导入于 ${layer.importedAt}）` }];
+        }));
+        return [...insar, ...photos, ...landslides].sort((a, b) => a.type.localeCompare(b.type) || a.id.localeCompare(b.id));
+    }, [prioritySelection.anomalies, fieldObservations, gisLayers, detectionDate, datasetPeriodCount]);
+    const priorityPointIds = useMemo(() => prioritySelection.anomalies.map(point => point.id), [prioritySelection]);
+    const anomalyDataNote = (points[0]?.warnings ?? []).filter(note => note.startsWith("分析范围：") || note.startsWith("时序口径：")).join(" ");
+    const priorityLimitedPointIds = useMemo(() => prioritySelection.limited.map(point => point.id), [prioritySelection]);
+    const priorityRule = useMemo(() => `${anomalyScopeLabel}；${formatPriorityDeformationRule(prioritySelection)}`, [prioritySelection, anomalyScopeLabel]);
+    const effectiveLocalAnalysisId = useMemo(() => localAnalysisIdentity ? createLocalAnalysisId(localAnalysisIdentity.analysisId, { priorityOptions, coherenceThreshold, evaluationDate: detectionDate }, { pointCount: priorityInput.length, pointIds: priorityScopeIds }) : null, [localAnalysisIdentity, priorityOptions, coherenceThreshold, detectionDate, priorityInput.length, priorityScopeIds]);
+    useEffect(() => { const timer = window.setTimeout(() => { setNavigationPlan(null); setActiveNavigationLegId(null); setFieldTaskResult(null); }, 0); return () => window.clearTimeout(timer); }, [effectiveLocalAnalysisId]);
+    const riskCount = prioritySelection.anomalies.length, qualityCount = useMemo(() => points.filter(p => (p.coherenceSource !== "not_available" && p.coherenceSource !== "default" && Number.isFinite(p.coherence) && p.coherence < coherenceThreshold) || p.missingRate > .2).length, [points, coherenceThreshold]);
+    const anomalyRegionResult = prioritySelection.regions;
     const activeAnomalyRegionId = analysis.selectedRegion?.source === "anomalyRegion" ? analysis.selectedRegion.regionId || null : null;
     const activeAnomalyRegion = anomalyRegionResult.regions.find(region => region.id === activeAnomalyRegionId) || null;
+    const boxPoints = useMemo(() => {
+        if (activeFilter !== "anomaly") return storedBoxPoints;
+        if (activeAnomalyRegion) { const ids = new Set(activeAnomalyRegion.pointIds); return prioritySelection.anomalies.filter(point => ids.has(point.id)); }
+        return anomalyView === "isolated" ? prioritySelection.isolated : anomalyView === "excluded" ? prioritySelection.excludedLowQuality : prioritySelection.anomalies;
+    }, [activeFilter, storedBoxPoints, activeAnomalyRegion, prioritySelection, anomalyView]);
+    useEffect(() => {
+        if (activeFilter !== "anomaly") return;
+        const label = activeAnomalyRegion ? `异常聚集区 ${activeAnomalyRegion.id}` : anomalyView === "isolated" ? "离散大值点 · 未形成聚集" : anomalyView === "excluded" ? "质量排除点 · 不计入异常" : "全部异常聚集点";
+        updateAnalysis({ selectedRegion: boxPoints.length ? { bounds: activeAnomalyRegion?.bounds || pointBounds(boxPoints), pointIds: boxPoints.map(point => point.id), label, source: activeAnomalyRegion ? "anomalyRegion" : "anomaly", ...(activeAnomalyRegion ? { regionId: activeAnomalyRegion.id, geometry: activeAnomalyRegion.geometry } : {}) } : null });
+    }, [activeFilter, boxPoints, activeAnomalyRegion, anomalyView, updateAnalysis]);
+    const hasTimeSeries = datasetPeriodCount >= 2, periodCount = Math.max(1, datasetPeriodCount), currentDate = hasTimeSeries ? (points.find(point => point.dates?.length)?.dates?.[Math.min(timeIndex, periodCount - 1)] || "—") : "速率 / 分类结果";
+    const activeFieldDatasetId = localAnalysisIdentity?.datasetId || privateDatasetId || publicDemos[activePublicDemo].datasetId;
+    const currentNavigationAnalysisId = priorityState === "ready" ? effectiveLocalAnalysisId ?? createLocalAnalysisId(activeFieldDatasetId, { priorityOptions, coherenceThreshold, evaluationDate: detectionDate }, { pointIds: priorityScopeIds }) : null;
+    const hasCoherence = points.some(point => Number.isFinite(point.coherence) && point.coherenceSource !== "not_available" && point.coherenceSource !== "default");
+    const hasModes = points.some(point => normalizedMode(point.mode) !== "未分类");
+    const renderStyle: RenderStyle = useMemo(() => ({ attribute, min: styleMin, max: styleMax, interval, timeIndex, rangeStart, rangeEnd, colors, dataRevision: localSeriesRevision }), [attribute, styleMin, styleMax, interval, timeIndex, rangeStart, rangeEnd, colors, localSeriesRevision]);
+    const activeRamp = colorRampPresets.find(preset => rampSignature(preset.colors) === rampSignature(colors));
+    useEffect(() => { if (attribute === "mode") return; const style = defaultColorRange(attribute); setStyleMin(style.min); setStyleMax(style.max); setInterval(style.interval); }, [attribute]);
+    const compared = compareIds.map(id => points.find(p => p.id === id)).filter(Boolean) as InsarPoint[], curves = compared.filter(p => curveIds.includes(p.id)), boxIds = useMemo(() => boxPoints.map(p => p.id), [boxPoints]);
+    const inspectionCandidates = useMemo(() => buildInspectionCandidates(anomalyRegionResult.regions), [anomalyRegionResult.regions]);
     const mapAnomalyRegions = useMemo(() => {
-        if (activeFilter !== "anomaly") return [];
+        if (activeFilter !== "anomaly" || anomalyView !== "clustered") return [];
         const sorted = [...anomalyRegionResult.regions].sort((a, b) => b.pointCount - a.pointCount || a.id.localeCompare(b.id)).slice(0, 500);
         const active = anomalyRegionResult.regions.find(region => region.id === activeAnomalyRegionId);
         return active && !sorted.some(region => region.id === active.id) ? [...sorted.slice(0, 499), active] : sorted;
-    }, [activeFilter, anomalyRegionResult.regions, activeAnomalyRegionId]);
+    }, [activeFilter, anomalyRegionResult.regions, activeAnomalyRegionId, anomalyView]);
+    const loadOptionalRoadBaseline = () => {
+        if (roadOpsOsmLoadStarted.current) return;
+        roadOpsOsmLoadStarted.current = true;
+        setGisImportBusy(true);
+        setGisImportMessage("正在加载江东新区 OSM 开源基线路网…");
+        void loadRoadOpsOsmLayer().then(layer => {
+            setGisLayers(current => current.some(item => item.id === layer.id) ? current : [layer, ...current]);
+            setGisImportMessage(`已加载 ${layer.featureCount.toLocaleString()} 条 OSM 道路线；本地资产，不消耗地图 API 额度。`);
+        }).catch(error => {
+            roadOpsOsmLoadStarted.current = false;
+            setGisImportMessage(error instanceof Error ? error.message : "RoadOps OSM 本地资产加载失败");
+        }).finally(() => setGisImportBusy(false));
+    };
     const selectedAoiGeometry = useMemo(() => {
         const region = analysis.selectedRegion;
         if (!region || (region.source !== "rectangle" && region.source !== "polygon" && region.source !== "anomalyRegion")) return null;
         return region.geometry || rectangleGeometry(region.bounds);
     }, [analysis.selectedRegion]);
+    const loadSelectedAoiSeries = useCallback((method: AoiAggregateMethod, signal?: AbortSignal) => {
+        if (!localDataset) return Promise.reject(new Error("本地分析来源已失效，请重新导入。"));
+        return loadLocalAoiSeries(localDataset, boxPoints, method, signal);
+    }, [localDataset, boxPoints]);
+    useEffect(() => {
+        if (!localDataset) return;
+        let active = true;
+        queueMicrotask(() => { if (active) { setLocalSeriesBusy(true); setLocalSeriesError(""); } });
+        void (async () => {
+            await localDataset.loadDisplayTime(timeIndex);
+            if (attribute === "stageVelocity") { await localDataset.loadStageVelocity(rangeStart, rangeEnd); }
+            if (active && localDatasetRef.current === localDataset) setLocalSeriesRevision(revision => revision + 1);
+        })().catch(error => { if (active) setLocalSeriesError(error instanceof Error ? error.message : "本地时序读取失败，请重新导入。"); }).finally(() => { if (active) setLocalSeriesBusy(false); });
+        return () => { active = false; };
+    }, [localDataset, timeIndex, attribute, rangeStart, rangeEnd]);
     const boxStats = useMemo(() => {
-        const summary = summarizeAoi(boxPoints, timeIndex, coherenceThreshold, normalizedMode, selectedAoiGeometry);
+        const summary = summarizeAoi(boxPoints, timeIndex, coherenceThreshold, point => normalizedMode(point.mode), selectedAoiGeometry);
         return summary ? {
             ...summary,
+            dataRevision: localSeriesRevision,
             avg: summary.meanVelocity,
             minVelocity: summary.minimumVelocity,
             maxVelocity: summary.maximumVelocity,
@@ -442,36 +622,49 @@ function MapWorkspaceView() {
             quality: summary.qualityConcernCount,
             modes: summary.modeCounts,
         } : null;
-    }, [boxPoints, coherenceThreshold, timeIndex, selectedAoiGeometry]);
-    const compareStats = useMemo(() => summarizeComparison(compared, timeIndex), [compared, timeIndex]);
-    const dataBackedCases = useMemo(() => buildDataBackedQuickCases(points), [points]);
+    }, [boxPoints, coherenceThreshold, timeIndex, selectedAoiGeometry, localSeriesRevision]);
+    const compareStats = useMemo(() => { const summary = summarizeComparison(compared, timeIndex); return summary ? { ...summary, dataRevision: localSeriesRevision } : null; }, [compared, timeIndex, localSeriesRevision]);
+    const dataBackedCases = useMemo(() => localDataset ? [] : buildDataBackedQuickCases(points), [points, localDataset]);
     const analysisRuleSummary = useMemo(() => buildAnalysisRuleSummary({
         datasetName: datasetTitle,
-        datasetId: privateDatasetId || publicDemos[activePublicDemo].datasetId,
+        datasetId: localAnalysisIdentity?.datasetId || privateDatasetId || publicDemos[activePublicDemo].datasetId,
+        analysisId: currentNavigationAnalysisId,
+        anomalyScope: anomalyScopeLabel,
         timeRange: analysis.timeRange,
         displayMode: attributeNames[attribute],
         displayRange: attribute === "mode" ? "PASC 固定六类配色" : `${styleMin}—${styleMax} · 间距 ${interval}`,
         patternVisibility: patternVisibility === "all" ? "显示全部模式" : patternVisibility === "anomaly_with_undefined" ? "异常模式 + 未定义型" : "仅异常模式",
-        activeFilter: activeFilter === "none" ? "未启用额外筛选" : activeFilter === "velocity" ? `速率 ≤ ${threshold} mm/yr` : activeFilter === "coherence" ? `相干性 < ${coherenceThreshold.toFixed(2)}` : activeFilter === "anomaly" ? "质量筛选后的异常候选" : activeFilter === "pascLowConfidence" ? "PASC 低置信度" : "PASC 空间适用性有限",
+        activeFilter: activeFilter === "none" ? "未启用额外筛选" : activeFilter === "velocity" ? `速率 ≤ ${threshold} mm/yr` : activeFilter === "coherence" ? `相干性 < ${coherenceThreshold.toFixed(2)}` : activeFilter === "anomaly" ? (anomalyView === "clustered" ? "双指标达标且空间聚集" : anomalyView === "isolated" ? "离散大值点，不计入异常" : "质量排除点，不计入异常") : activeFilter === "pascLowConfidence" ? "PASC 低置信度" : "PASC 空间适用性有限",
         coherenceThreshold,
         anomalyRadiusMeters,
         anomalyMinimumPoints,
         selectionSource: analysis.selectedRegion?.label || (selected ? `点位 ${selected.id}` : "尚未建立分析对象"),
         selectedPointCount: boxPoints.length || (selected ? 1 : 0),
         priorityRuleVersion: prioritySelection.ruleVersion,
-        priorityTailPercent: prioritySelection.tailPercent,
+        priorityDirection: prioritySelection.direction,
+        priorityEvaluationDate: detectionDate,
+        priorityAnomalyCount: prioritySelection.anomalies.length,
+        priorityIsolatedCount: prioritySelection.isolated.length,
+        priorityExcludedCount: prioritySelection.excludedLowQuality.length,
         priorityDisplacementThresholdMm: prioritySelection.thresholds.displacementMm,
         priorityVelocityThresholdMmPerYear: prioritySelection.thresholds.velocityMmPerYear,
         priorityCandidateCount: prioritySelection.candidates.length,
         priorityReliableCount: prioritySelection.reliable.length,
         priorityLimitedCount: prioritySelection.limited.length,
-    }), [datasetTitle, privateDatasetId, activePublicDemo, analysis.timeRange, analysis.selectedRegion, attribute, styleMin, styleMax, interval, patternVisibility, activeFilter, threshold, coherenceThreshold, anomalyRadiusMeters, anomalyMinimumPoints, boxPoints.length, selected, prioritySelection]);
+    }), [currentNavigationAnalysisId, anomalyScopeLabel, datasetTitle, localAnalysisIdentity, privateDatasetId, activePublicDemo, analysis.timeRange, analysis.selectedRegion, attribute, styleMin, styleMax, interval, patternVisibility, activeFilter, threshold, coherenceThreshold, anomalyRadiusMeters, anomalyMinimumPoints, boxPoints.length, selected, prioritySelection, detectionDate, anomalyView]);
     const pascCandidateCount = parseReport?.compatibility.pascCandidatePoints ?? points.filter(point => (point.effectiveEpochCount ?? point.series.length) >= 20).length;
     const pascBlockingIssues = (parseReport?.compatibility.issues ?? []).filter(issue => issue.severity === "error" || issue.severity === "confirmation").map(issue => issue.message);
-    const pascLowConfidenceCount = points.filter(point => point.pasc?.lowConfidence).length;
-    const pascLimitedReferenceCount = points.filter(point => point.pasc?.spatialApplicability === "limited_reference").length;
-    const filteredPointCount = activeFilter !== "none" || analysis.selectedRegion ? boxPoints.length : points.length;
-    const filteredMapPointIds = useMemo(() => activeFilter === "none" ? null : boxPoints.map(point => point.id), [activeFilter, boxPoints]);
+    const pascLowConfidenceCount = points.filter(point => typeof point.modeConfidence === "number" && point.modeConfidence < 0.6).length;
+    const pascLimitedReferenceCount = points.filter(point => point.spatialApplicability === "limited_reference").length;
+    const importVisiblePointIds = useMemo(() => workspaceImportVisiblePointIds(points, importCoherenceMin), [points, importCoherenceMin]);
+    const filteredPointCount = activeFilter !== "none" || analysis.selectedRegion ? boxPoints.length : importVisiblePointIds?.length ?? points.length;
+    const filteredMapPointIds = useMemo(() => {
+        const chosen = activeFilter === "none" ? null : boxPoints.map(point => point.id);
+        if (!importVisiblePointIds) return chosen;
+        if (!chosen) return importVisiblePointIds;
+        const allowed = new Set(importVisiblePointIds);
+        return chosen.filter(id => allowed.has(id));
+    }, [activeFilter, boxPoints, importVisiblePointIds]);
     const filteredMapPointIdSet = useMemo(() => filteredMapPointIds ? new Set(filteredMapPointIds) : null, [filteredMapPointIds]);
     const patternVisiblePoints = useMemo(() => filterPointsForModes(filterPointsForPattern(points, patternVisibility), hiddenModes).filter(point => !filteredMapPointIdSet || filteredMapPointIdSet.has(point.id)), [points, patternVisibility, hiddenModes, filteredMapPointIdSet]);
     const mapVisiblePointCount = attribute === "mode" ? patternVisiblePoints.length : filteredMapPointIds?.length ?? points.length;
@@ -494,7 +687,7 @@ function MapWorkspaceView() {
     const regionalAiInput = useMemo(() => {
         if (!boxStats || !boxPoints.length) return null;
         const modeSources = [...new Set(boxPoints.map(point => point.modeSource?.trim()).filter(Boolean) as string[])];
-        const descriptions = { none: "未启用额外筛选", velocity: `速率 ≤ ${threshold} mm/yr`, coherence: `相干性 < ${coherenceThreshold.toFixed(2)}`, anomaly: "明显沉降 / 加速沉降 / 阶段形变，已排除低质量点", pascLowConfidence: "PASC 低置信度结果", pascLimitedSpatial: "PASC 空间适用性有限结果" } as const;
+        const descriptions = { none: "未启用额外筛选", velocity: `速率 ≤ ${threshold} mm/yr`, coherence: `相干性 < ${coherenceThreshold.toFixed(2)}`, anomaly: `${priorityRule}；当前查看${anomalyView === "clustered" ? "异常聚集点" : anomalyView === "isolated" ? "离散候选，不计异常" : "质量排除点，不计异常"}`, pascLowConfidence: "PASC 低置信度结果", pascLimitedSpatial: "PASC 空间适用性有限结果" } as const;
         return {
             datasetName: datasetTitle,
             regionLabel: analysis.selectedRegion?.label || (activeFilter === "none" ? "自定义矩形区域" : "当前筛选结果"),
@@ -510,26 +703,25 @@ function MapWorkspaceView() {
             patternDistribution: Object.fromEntries(Object.entries(boxStats.modes).map(([mode, count]) => [mode, count / boxPoints.length * 100])),
             modeSource: modeSources.length ? modeSources.slice(0, 3).join("、") : null,
         };
-    }, [boxStats, boxPoints, threshold, coherenceThreshold, datasetTitle, analysis.selectedRegion, activeFilter, points, rangeStart, rangeEnd, hasTimeSeries]);
+    }, [boxStats, boxPoints, threshold, coherenceThreshold, datasetTitle, analysis.selectedRegion, activeFilter, points, rangeStart, rangeEnd, hasTimeSeries, priorityRule, anomalyView]);
     const regionalAiSummary = useMemo(() => {
         if (!regionalAiInput || !boxPoints.length) return null;
-        try { return buildAnalysisSummary({ points: boxPoints, datasetLabel: datasetTitle, timeRange: regionalAiInput.timeRange, filterDescription: regionalAiInput.filterDescription, coherenceThreshold, selectedRegion: analysis.selectedRegion, selectedRegionAreaKm2: boxStats?.areaKm2, mapView: analysis.mapView }); }
+        try { return buildAnalysisSummary({ points: boxPoints, anomalyPointIds: priorityPointIds, datasetLabel: datasetTitle, timeRange: regionalAiInput.timeRange, filterDescription: regionalAiInput.filterDescription, coherenceThreshold, selectedRegion: analysis.selectedRegion, selectedRegionAreaKm2: boxStats?.areaKm2, mapView: analysis.mapView }); }
         catch { return null; }
-    }, [regionalAiInput, boxPoints, datasetTitle, coherenceThreshold, analysis.selectedRegion, analysis.mapView, boxStats?.areaKm2]);
+    }, [regionalAiInput, boxPoints, datasetTitle, coherenceThreshold, analysis.selectedRegion, analysis.mapView, boxStats?.areaKm2, priorityPointIds]);
     const aiContextSignature = regionalAiSummary ? JSON.stringify(regionalAiSummary) : "no-region";
     useEffect(() => { setAiStatus("idle"); setAiResult(null); setAiError(""); setEvidenceOpen(false); }, [aiContextSignature]);
     useEffect(() => {
         if (!dataReady || (restoreRequested.current && !restoredContextKey.current)) return;
         const dates = points[0]?.dates || [], start = Math.min(rangeStart, Math.max(0, dates.length - 1)), end = Math.min(rangeEnd, Math.max(0, dates.length - 1));
-        const descriptions = { none: "未启用", velocity: `速率 ≤ ${threshold} mm/yr`, coherence: `相干性 < ${coherenceThreshold.toFixed(2)}`, anomaly: "明显沉降 / 加速沉降 / 阶段形变，已排除低质量点", pascLowConfidence: "PASC 低置信度结果", pascLimitedSpatial: "PASC 空间适用性有限结果" } as const;
-        updateAnalysis({ datasetId: privateDatasetId || publicDemos[activePublicDemo].datasetId, datasetName: datasetTitle, timeRange: { startIndex: start, endIndex: end, startDate: dates[start] || "—", endDate: dates[end] || "—" }, filters: { active: activeFilter, velocityMax: activeFilter === "velocity" ? threshold : null, coherenceMin: activeFilter === "coherence" || activeFilter === "anomaly" ? coherenceThreshold : null, resultCount: filteredPointCount, description: descriptions[activeFilter] }, activeColorMode: attribute, patternVisibility, selectedPointId: selected?.id || null, selectedRegionStats: contextRegionStats });
-    }, [privateDatasetId, activePublicDemo, datasetTitle, points, rangeStart, rangeEnd, activeFilter, threshold, coherenceThreshold, filteredPointCount, attribute, patternVisibility, selected?.id, contextRegionStats, updateAnalysis, dataReady]);
+        const descriptions = { none: "未启用", velocity: `速率 ≤ ${threshold} mm/yr`, coherence: `相干性 < ${coherenceThreshold.toFixed(2)}`, anomaly: `${priorityRule}；当前查看${anomalyView === "clustered" ? "异常聚集点" : anomalyView === "isolated" ? "离散候选，不计异常" : "质量排除点，不计异常"}`, pascLowConfidence: "PASC 低置信度结果", pascLimitedSpatial: "PASC 空间适用性有限结果" } as const;
+        updateAnalysis({ datasetId: localAnalysisIdentity?.datasetId || privateDatasetId || publicDemos[activePublicDemo].datasetId, datasetName: datasetTitle, timeRange: { startIndex: start, endIndex: end, startDate: dates[start] || "—", endDate: dates[end] || "—" }, filters: { active: activeFilter, velocityMax: activeFilter === "velocity" ? threshold : null, coherenceMin: activeFilter === "coherence" || activeFilter === "anomaly" ? coherenceThreshold : importCoherenceMin, resultCount: filteredPointCount, description: importCoherenceMin === null ? descriptions[activeFilter] : `${descriptions[activeFilter]}；导入显示相干性 ≥ ${importCoherenceMin.toFixed(2)}` }, activeColorMode: attribute, patternVisibility, selectedPointId: selected?.id || null, selectedRegionStats: contextRegionStats });
+    }, [localAnalysisIdentity, privateDatasetId, activePublicDemo, datasetTitle, points, rangeStart, rangeEnd, activeFilter, threshold, coherenceThreshold, importCoherenceMin, filteredPointCount, attribute, patternVisibility, selected?.id, contextRegionStats, updateAnalysis, dataReady, priorityRule, anomalyView]);
     const handleMapViewChange = useCallback((mapView: AnalysisMapView) => {
         if (restoreRequested.current && !restoredContextKey.current) return;
         updateAnalysis({ mapView });
     }, [updateAnalysis]);
     useEffect(() => { const stored = localStorage.getItem("lanjifyw-tianditu-key") || "", custom = localStorage.getItem("lanjifyw-custom-basemap") || ""; setTdtKey(stored); setKeyDraft(stored); setCustomBasemap(custom); setCustomDraft(custom); }, []);
-    useEffect(() => { void getSession().then(setAccount).catch(() => setAccount(null)); }, []);
     useEffect(() => {
         const urls = fieldObservationUrls.current;
         return () => { urls.forEach(url => URL.revokeObjectURL(url)); urls.clear(); };
@@ -560,12 +752,16 @@ function MapWorkspaceView() {
         const timer = window.setTimeout(() => setFieldObservations(current => current.map(observation => reconcileInsarLinks(observation, activeFieldDatasetId, pointIds))), 0);
         return () => window.clearTimeout(timer);
     }, [activeFieldDatasetId, points]);
-    useEffect(() => { const params = new URLSearchParams(window.location.search); if (!params.get("dataset")) trackEvent("demo_start", { demo_id: params.get("demo") === "landslide" ? "lajia-landslide-public" : params.get("demo") === "road" ? "haikou-jiangdong-road-public" : "haikou-public", entry: params.get("demo") ? "explicit_demo" : "map_default" }); }, []);
-    useEffect(() => { if (new URLSearchParams(window.location.search).get("tour") !== "portfolio") return; const taskTourTimer = window.setTimeout(() => { setPortfolioTourStep(1); setLeftCollapsed(true); setRightCollapsed(false); }, 0); return () => window.clearTimeout(taskTourTimer); }, []);
+    useEffect(() => { if (initialImport) return; const params = new URLSearchParams(window.location.search); if (!params.get("dataset")) trackEvent("demo_start", { demo_id: params.get("demo") === "landslide" ? "lajia-landslide-public" : params.get("demo") === "road" ? "haikou-jiangdong-road-public" : "haikou-public", entry: params.get("demo") ? "explicit_demo" : "map_default" }); }, [initialImport]);
+    useEffect(() => { if (initialImport || new URLSearchParams(window.location.search).get("tour") !== "portfolio") return; const taskTourTimer = window.setTimeout(() => { setPortfolioTourStep(1); setLeftCollapsed(true); setRightCollapsed(false); }, 0); return () => window.clearTimeout(taskTourTimer); }, [initialImport]);
     useEffect(() => {
-        if (!dataReady || deepLinkApplied.current) return;
+        if (initialImport || !dataReady || deepLinkApplied.current) return;
         const params = new URLSearchParams(window.location.search);
-        const requestedPanel = params.get("panel");
+        const requestedPanel = params.get("panel") || (params.get("demo") === "road" ? "route" : null);
+        if (requestedPanel === "route") {
+            const timer = window.setTimeout(() => { deepLinkApplied.current = true; setLeftTab("route"); setNavigationActive(true); setSelectionMode("single"); setSwipeEnabled(false); setSurface("left"); }, 0);
+            return () => window.clearTimeout(timer);
+        }
         if (requestedPanel !== "ai" && requestedPanel !== "action" && requestedPanel !== "field" && requestedPanel !== "filters") return;
         const settingsTimer = window.setTimeout(() => {
             deepLinkApplied.current = true;
@@ -585,14 +781,15 @@ function MapWorkspaceView() {
             }
         }, 0);
         return () => window.clearTimeout(settingsTimer);
-    }, [dataReady, setLeftCollapsed, setRightCollapsed]);
-    useEffect(() => { if (new URLSearchParams(window.location.search).get("intent") === "upload") {
+    }, [initialImport, dataReady, setLeftCollapsed, setRightCollapsed]);
+    useEffect(() => { if (!initialImport && new URLSearchParams(window.location.search).get("intent") === "upload") {
         setLeftTab("data"); setLeftCollapsed(false);
         setStatus("上传自己的数据：请确认 CSV 字段要求，然后选择本地文件。");
-    } }, []);
-    const saveAnalysisMeta = async (id: string, nextMapping: CsvMapping, result: DatasetParseResult) => { await patchPrivateDataset(id, { mapping: nextMapping, qualityReport: result.quality, schemaStatus: "validated", processStatus: "validated" }).catch(() => null); };
-    const applyResult = (result: DatasetParseResult, label: string, preserveAnalysis = false) => { const lastPeriod = Math.max(0, result.periods - 1), periodLabel = result.periods ? `${result.periods} 期` : "速率 / 分类结果"; pascRunId.current += 1; setPascOnlineRun(emptyPascOnlineRun); setLivePascPoints([]); setPoints(result.points); setSelected(null); setDatasetTitle(result.datasetTitle); setTimeIndex(lastPeriod); setRangeStart(0); setRangeEnd(lastPeriod); if (!result.periods) setAttribute("velocity"); setCompareIds([]); setCurveIds([]); setActiveQuickCaseId(null); setMapFocus(null); setBoxPoints([]); setActiveFilter("none"); setRightTab("point"); if (!preserveAnalysis) { setPatternVisibility("all"); setHiddenModes([]); } if (!preserveAnalysis) updateAnalysis({ selectedPointId: null, selectedRegion: null, selectedRegionStats: null }); setParseReport(result); setDataReady(true); setStatus(`${label} · ${result.points.length.toLocaleString()} 点 · ${periodLabel} · 模式字段 ${result.modeField} · 过滤 ${result.invalid} 条`); trackEvent("dataset_loaded", { dataset_type: privateDatasetId ? "private" : label.includes("公开示例") ? "demo" : "local", point_count: result.points.length, period_count: result.periods, invalid_count: result.invalid }); };
+    } }, [initialImport]);
+    const saveAnalysisMeta = async (id: string, nextMapping: CsvMapping, result: DatasetParseResult) => { if (USER_DATA_LOCAL_ONLY) return; await patchPrivateDataset(id, { mapping: nextMapping, qualityReport: result.quality, schemaStatus: "validated", processStatus: "validated" }).catch(() => null); };
+    const applyResult = (result: DatasetParseResult, label: string, preserveAnalysis = false) => { localHydrationRun.current += 1; localDatasetRef.current = null; setLocalDataset(null); setPriorityScopeIds(null); setLocalAnalysisIdentity(null); setLocalSeriesError(""); setLocalSeriesBusy(false); setNavigationPlan(null); const lastPeriod = Math.max(0, result.periods - 1), periodLabel = result.periods ? `${result.periods} 期` : "速率 / 分类结果"; pascRunId.current += 1; setPascOnlineRun(emptyPascOnlineRun); setLivePascPoints([]); setPoints(result.points); setSelected(null); setDatasetTitle(result.datasetTitle); setTimeIndex(lastPeriod); setRangeStart(0); setRangeEnd(lastPeriod); if (!result.periods) setAttribute("velocity"); setCompareIds([]); setCurveIds([]); setActiveQuickCaseId(null); setMapFocus(null); setBoxPoints([]); setActiveFilter("none"); setRightTab("point"); if (!preserveAnalysis) { setPatternVisibility("all"); setHiddenModes([]); } if (!preserveAnalysis) updateAnalysis({ selectedPointId: null, selectedRegion: null, selectedRegionStats: null }); setParseReport(result); setDataReady(true); setStatus(`${label} · ${result.points.length.toLocaleString()} 点 · ${periodLabel} · 模式字段 ${result.modeField} · 过滤 ${result.invalid} 条`); trackEvent("dataset_loaded", { dataset_type: privateDatasetId ? "private" : label.includes("公开示例") ? "demo" : "local", point_count: result.points.length, period_count: result.periods, invalid_count: result.invalid }); };
     const loadPublicDemo = (demoId: PublicDemoId, options: { updateUrl?: boolean; preserveAnalysis?: boolean } = {}) => {
+        setImportCoherenceMin(null);
         const demo = publicDemos[demoId];
         setBusy(`正在加载${demo.label}案例…`);
         setStatus(`正在读取${demo.label}公开示例数据…`);
@@ -622,6 +819,7 @@ function MapWorkspaceView() {
         }).catch(error => setStatus(error instanceof Error ? error.message : `${demo.label}示例加载失败`)).finally(() => setBusy(""));
     };
     const chooseFullCaseFile = (demoId: PublicDemoId) => {
+        if (accountSession.status !== "authenticated") { onRequireAccount(); return; }
         const demo = publicDemos[demoId];
         setActivePublicDemo(demoId);
         setDemoDepth("full");
@@ -631,9 +829,26 @@ function MapWorkspaceView() {
         setStatus(`${demo.label}完整数据：${demo.fullHint}`);
         fileRef.current?.click();
     };
-    const applyLocalResult = (result: PascLocalMapDataset) => { pascRunId.current += 1; setPascOnlineRun(emptyPascOnlineRun); setLivePascPoints([]); setPrivateDatasetId(""); setInspection(null); setMapping(null); setParseReport(null); setPoints(result.points); setSelected(null); setDatasetTitle(result.title); setTimeIndex(result.periods - 1); setRangeStart(0); setRangeEnd(result.periods - 1); setCompareIds([]); setCurveIds([]); setActiveQuickCaseId(null); setMapFocus({ bounds: pointBounds(result.points), token: Date.now() }); setBoxPoints([]); setActiveFilter("none"); setPatternVisibility("all"); setHiddenModes([]); setRightTab("pasc"); setAttribute("mode"); setVisible(current => ({ ...current, points: true })); updateAnalysis({ selectedPointId: null, selectedRegion: null, selectedRegionStats: null }); setDataReady(true); setStatus(result.mapSampled ? `浏览器本地 PASC 分析完成 · 全量 ${result.totalPredictedPoints.toLocaleString()} 点 · 地图抽样 ${result.points.length.toLocaleString()} 点 · ${result.periods} 期 · 原始 CSV 未上传` : `浏览器本地 PASC 分析完成 · ${result.points.length.toLocaleString()} 点 · ${result.periods} 期 · 过滤 ${result.invalidRows.toLocaleString()} 条 · 原始 CSV 未上传`); trackEvent("dataset_loaded", { dataset_type: "local_onnx", point_count: result.totalPredictedPoints, map_point_count: result.points.length, period_count: result.periods, invalid_count: result.invalidRows }); };
+    const chooseImportFile = () => {
+        if (accountSession.status !== "authenticated") { onRequireAccount(); return; }
+        fileRef.current?.click();
+    };
+    const applyLocalResult = (result: PascLocalMapDataset, session?: LocalAnalysisSession) => { localHydrationRun.current += 1; localDatasetRef.current = result; setLocalDataset(result); setPriorityScopeIds(null); setLocalAnalysisIdentity(session ? { datasetId: session.datasetId, analysisId: session.analysisId } : { datasetId: "local-file-" + crypto.randomUUID(), analysisId: "local-analysis-" + crypto.randomUUID() }); setLocalSeriesError(""); setLocalSeriesBusy(false); setNavigationPlan(null); setActiveNavigationLegId(null); if (fieldTaskPlan?.tasks.some(task => task.inspectionSource)) { setFieldTaskResult(null); setStatus("原考察任务来源已变化，请使用新的异常候选。"); } pascRunId.current += 1; setPascOnlineRun(emptyPascOnlineRun); setLivePascPoints([]); setPrivateDatasetId(""); setInspection(null); setMapping(null); setParseReport(null); setPoints(result.points); setSelected(null); setDatasetTitle(result.title); setTimeIndex(result.periods - 1); setRangeStart(0); setRangeEnd(result.periods - 1); setCompareIds([]); setCurveIds([]); setActiveQuickCaseId(null); setMapFocus({ bounds: pointBounds(result.points), token: Date.now() }); setBoxPoints([]); setActiveFilter("none"); setPatternVisibility("all"); setHiddenModes([]); setRightTab("pasc"); setAttribute("mode"); setVisible(current => ({ ...current, points: true })); updateAnalysis({ selectedPointId: null, selectedRegion: null, selectedRegionStats: null }); setDataReady(true); setStatus(`浏览器本地分析完成 · 全点 ${result.points.length.toLocaleString()} · 已分类 ${result.totalPredictedPoints.toLocaleString()} · ${result.periods} 期 · 无效 ${result.invalidRows.toLocaleString()} 行 · 原始 CSV 未上传`); trackEvent("dataset_loaded", { dataset_type: "local_onnx", point_count: result.totalPredictedPoints, map_point_count: result.points.length, period_count: result.periods, invalid_count: result.invalidRows }); };
+    const discardLocalAnalysis = () => {
+        localHydrationRun.current += 1; localDatasetRef.current = null; setLocalDataset(null); setLocalAnalysisIdentity(null); setPriorityScopeIds(null); setLocalSeriesBusy(false); setLocalSeriesError("");
+        setPoints([]); setSelected(null); setBoxPoints([]); setCompareIds([]); setCurveIds([]); setLivePascPoints([]); setActiveFilter("none"); setNavigationPlan(null); setActiveNavigationLegId(null); setFieldTaskResult(null); setParseReport(null);
+        updateAnalysis({ selectedPointId: null, selectedRegion: null, selectedRegionStats: null }); setStatus("当前临时分析结果已清理，考察目标保留但来源失效；可用原始文件重新分析。");
+    };
     const loadShowcaseDemo = () => { setBusy("正在六类模式教学示例…"); fetch("/data/haikou-pasc-showcase.csv").then(response => { if (!response.ok) throw new Error("Showcase Demo 不可用"); return response.text(); }).then(text => { const found = inspectCsv(text), demoMapping: CsvMapping = { ...found.mapping, displacementUnit: "mm", velocityUnit: "mm/year", signConvention: "toward_satellite_positive", preprocessingState: "already_smoothed" }, result = parseMappedCsv(text, "海口 PASC Showcase.csv", demoMapping, false); result.datasetTitle = "海口 PASC-TCN 248 期 Showcase Demo"; setPrivateDatasetId(""); applyResult(result, "海口 PASC Showcase Demo"); setStatus(`Showcase Demo · ${result.points.length.toLocaleString()} 点 · 248 期 · 每类 500 点；仅用于六类界面覆盖，不代表科学类别比例`); }).catch(error => setStatus(error instanceof Error ? error.message : "Showcase Demo 加载失败")).finally(() => setBusy("")); };
-    useEffect(() => { const params = new URLSearchParams(window.location.search); restoreRequested.current = params.get("restore") === "analysis"; const previewJobId = params.get("job"); if (previewJobId) { setPascExecutionMode("legacy"); jobPreviewLevel.current = ""; setJobPreviewId(previewJobId); setStatus("正在读取 Phase F 多级地图预览…"); return; } const privateId = params.get("dataset"); if (privateId) {
+    useEffect(() => { if (initialImport) return; const params = new URLSearchParams(window.location.search); restoreRequested.current = params.get("restore") === "analysis";
+        if (USER_DATA_LOCAL_ONLY && (params.get("job") || params.get("dataset") || params.get("source") === "local" || params.get("intent") === "upload")) {
+            restoreRequested.current = false;
+            setPascExecutionMode("local"); setPrivateDatasetId(""); setPoints([]); setSelected(null);
+            setDatasetTitle("本机 CSV · 等待选择文件"); setDataReady(true); setLeftTab("data"); setSurface("left");
+            setStatus("已登录，请选择当前电脑的 CSV。账户用于访问管理，文件、计算与结果留在当前设备，云端数据与分类服务已关闭。");
+            return;
+        }
+        const previewJobId = params.get("job"); if (previewJobId) { setPascExecutionMode("legacy"); jobPreviewLevel.current = ""; setJobPreviewId(previewJobId); setStatus("正在读取 Phase F 多级地图预览…"); return; } const privateId = params.get("dataset"); if (privateId) {
         setPascExecutionMode("legacy");
         setPrivateDatasetId(privateId);
         setBusy("正在读取账户私有数据…");
@@ -661,9 +876,33 @@ function MapWorkspaceView() {
             return;
         }
         loadPublicDemo(demoId, { preserveAnalysis: restoreRequested.current });
-    }, []);
+    }, [initialImport]);
     useEffect(() => {
-        if (!jobPreviewId) return;
+        if (!initialImport || !initialImportIdentity || !isAnalysisReady) return;
+        let cancelled = false;
+        queueMicrotask(() => {
+            if (cancelled) return;
+            const result = initialImport.result;
+            if (result) applyResult(result, initialImport.file.name);
+            else { setPoints([]); setDatasetTitle(initialImport.file.name); setDataReady(true); }
+            setInspection(initialImport.inspection ?? null);
+            setMapping(initialImport.mapping ?? initialImport.inspection?.mapping ?? null);
+            setPrivateDatasetId("");
+            setLocalAnalysisIdentity(initialImportIdentity);
+            setImportCoherenceMin(workspaceImportCoherenceMinimum(initialImport.coherenceMin));
+            setLocalPascFile(initialImport.file);
+            setPascExecutionMode("local");
+            setRightTab("pasc"); setSurface("right");
+            if (result?.points.length) setMapFocus({ bounds: pointBounds(result.points), token: Date.now() });
+            updateAnalysis({ datasetId: initialImportIdentity.datasetId, datasetName: result?.datasetTitle ?? initialImport.file.name, selectedPointId: null, selectedRegion: null, selectedRegionStats: null, mapView: null });
+            setStatus(`${initialImport.file.name} · ${result ? "已接入已确认数据" : "等待本机分析"}；原始文件保留在当前页面，确认设置后可手动开始本机分类。`);
+        });
+        return () => { cancelled = true; };
+        // Import initialization must not repeat when map controls or analysis state change.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialImport, initialImportIdentity, isAnalysisReady]);
+    useEffect(() => {
+        if (USER_DATA_LOCAL_ONLY || !jobPreviewId) return;
         const zoom = analysis.mapView?.zoom ?? 9, level = pascMapLevelForZoom(zoom);
         if (jobPreviewLevel.current === level) return;
         jobPreviewLevel.current = level;
@@ -706,7 +945,15 @@ function MapWorkspaceView() {
         setStatus("已恢复地图范围、时间区间、筛选条件与分析对象");
     }, [analysis, dataReady, isAnalysisReady, points, privateDatasetId]);
     const inspectFile = async (file?: File) => { if (!file)
-        return; trackEvent("dataset_upload_start", { source: "map_local", file_size_bytes: file.size }); if (pascExecutionMode === "local") {
+        return; if (!await requireAccountSession()) { onRequireAccount(); return; } onRequireAccount(); trackEvent("dataset_upload_start", { source: "map_local", file_size_bytes: file.size }); if (pascExecutionMode === "local" || USER_DATA_LOCAL_ONLY) {
+        setImportCoherenceMin(null);
+        localHydrationRun.current += 1;
+        localDatasetRef.current = null; setLocalDataset(null); setPriorityScopeIds(null); setLocalAnalysisIdentity(null);
+        setPoints([]); setSelected(null); setBoxPoints([]); setCompareIds([]); setCurveIds([]);
+        setNavigationPlan(null); setFieldTaskResult(null); setActiveNavigationLegId(null);
+        setPrivateDatasetId(""); setDatasetTitle(file.name); setActiveFilter("none");
+        setLocalSeriesBusy(false); setLocalSeriesError("");
+        updateAnalysis({ selectedPointId: null, selectedRegion: null, selectedRegionStats: null });
         setLocalPascFile(file);
         setRightTab("pasc");
         setRightCollapsed(false);
@@ -743,7 +990,9 @@ function MapWorkspaceView() {
             saveAnalysisMeta(privateDatasetId, mapping, result);
         setMappingOpen(false);
         setReportOpen(false);
-        void runPascOnlineRecognition(result.points, result.datasetTitle, mapping.preprocessingState);
+        if (USER_DATA_LOCAL_ONLY) {
+            setPascExecutionMode("local"); setLocalPascFile(pending.file ?? null); setRightTab("pasc"); setSurface("right"); setStatus(LOCAL_DATA_ONLY_MESSAGE);
+        } else void runPascOnlineRecognition(result.points, result.datasetTitle, mapping.preprocessingState);
     }
     catch (e) {
         trackEvent("dataset_upload_fail", { source: "map_local", reason: "mapping_or_parse_failed" });
@@ -778,7 +1027,7 @@ function MapWorkspaceView() {
         setAttribute("mode");
         setVisible(current => ({ ...current, points: true }));
     };
-    const selectPoint = useCallback((point: InsarPoint) => { trackEvent("point_click", { selection_mode: selectionMode, deformation_mode: normalizedMode(point.mode), result_count: 1 }); setRightTab("point"); setRightCollapsed(false); setLeftCollapsed(true); setActiveQuickCaseId(null); if (selectionMode === "compare" || selectionMode === "compareBox") {
+    const selectHydratedPoint = useCallback((point: InsarPoint) => { trackEvent("point_click", { selection_mode: selectionMode, deformation_mode: normalizedMode(point.mode), result_count: 1 }); setRightTab("point"); setRightCollapsed(false); setLeftCollapsed(true); setActiveQuickCaseId(null); if (selectionMode === "compare" || selectionMode === "compareBox") {
         setCompareIds(ids => { const update = updateComparison(ids, point.id); if (update.action === "limit") { setStatus(`多点对比最多选择 ${MAX_COMPARE_POINTS} 个点；请先移除一个点再继续。`); return update.ids; } if (update.action === "removed") {
             setCurveIds(current => current.filter(id => id !== point.id));
             setSelected(current => current?.id === point.id ? null : current);
@@ -791,6 +1040,17 @@ function MapWorkspaceView() {
         setActiveFieldObservationId(linked?.id ?? null);
         setActiveFieldPhotoId(linked?.photos[0]?.id ?? null);
     } }, [selectionMode, fieldObservations, activeFieldDatasetId]);
+    const selectPoint = useCallback((point: InsarPoint) => {
+        const dataset = localDatasetRef.current;
+        if (!dataset) { selectHydratedPoint(point); return; }
+        const request = ++localHydrationRun.current;
+        setLocalSeriesBusy(true); setLocalSeriesError("");
+        void dataset.hydratePoints([point.id]).then(loaded => {
+            if (request !== localHydrationRun.current || localDatasetRef.current !== dataset) return;
+            if (!loaded[0]) throw new Error("当前点不属于这份CSV，请重新选择。");
+            selectHydratedPoint({ ...loaded[0] }); setLocalSeriesRevision(revision => revision + 1);
+        }).catch(error => { if (request === localHydrationRun.current) setLocalSeriesError(error instanceof Error ? error.message : "点位曲线读取失败。"); }).finally(() => { if (request === localHydrationRun.current) setLocalSeriesBusy(false); });
+    }, [selectHydratedPoint]);
     const toggleCurve = (id: string) => setCurveIds(ids => ids.includes(id) ? ids.filter(item => item !== id) : [...ids, id]);
     const removeCompared = (id: string) => { setCompareIds(ids => ids.filter(item => item !== id)); setCurveIds(ids => ids.filter(item => item !== id)); setSelected(current => current?.id === id ? null : current); };
     const activateQuickCase = (item: DataBackedQuickCase) => {
@@ -804,6 +1064,7 @@ function MapWorkspaceView() {
     };
     const clearSelection = () => { setSelected(null); setActiveFieldObservationId(null); setCompareIds([]); setCurveIds([]); setActiveQuickCaseId(null); updateAnalysis({ selectedPointId: null }); setStatus("已清除选点，保留区域与筛选"); };
     const clearFilters = () => {
+        setImportCoherenceMin(null);
         setActiveFilter("none"); setPatternVisibility("all"); setHiddenModes([]);
         if (analysis.selectedRegion?.source !== "rectangle" && analysis.selectedRegion?.source !== "polygon") {
             setBoxPoints([]); updateAnalysis({ selectedRegion: null, selectedRegionStats: null });
@@ -833,37 +1094,55 @@ function MapWorkspaceView() {
         setStatus("未从 QGIS QML/XML 中识别到至少两个颜色");
         return;
     } setColors(parsed); setStatus(`已导入 QGIS 色带 · ${parsed.length} 个颜色节点`); };
+    const selectColorRamp = (preset: ColorRampPreset) => {
+        setColors([...preset.colors]);
+        setStatus(`已切换色带：${preset.label}`);
+    };
     const applyThreshold = () => { const chosen = points.filter(p => p.velocity <= threshold); trackEvent("filter_apply", { filter_type: "velocity", threshold, result_count: chosen.length }); trackEvent("region_select", { selection_type: "velocity_filter", result_count: chosen.length }); setSelectionMode("single"); setActiveFilter("velocity"); setBoxPoints(chosen); setRightTab("region"); setRightCollapsed(false); setLeftCollapsed(true); setSelected(null); updateAnalysis({ selectedPointId: null, selectedRegion: { bounds: pointBounds(chosen), pointIds: chosen.map(point => point.id), label: `速率 ≤ ${threshold} mm/yr`, source: "filter" } }); setStatus(`阈值筛选：速率 ≤ ${threshold} mm/yr · ${chosen.length.toLocaleString()} 点`); };
-    const setSafeCoherenceThreshold = (value: number) => setCoherenceThreshold(Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0)));
+    const setSafeCoherenceThreshold = (value: number) => { setCoherenceThreshold(Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0))); if (activeFilter === "anomaly") updateAnalysis({ selectedRegion: null }); };
     const applyCoherenceFilter = () => { const chosen = points.filter(p => p.coherence > 0 && p.coherence < coherenceThreshold); trackEvent("filter_apply", { filter_type: "coherence", threshold: coherenceThreshold, result_count: chosen.length }); trackEvent("region_select", { selection_type: "coherence_filter", result_count: chosen.length }); setSelectionMode("single"); setActiveFilter("coherence"); setAttribute("coherence"); setBoxPoints(chosen); setVisible(v => ({ ...v, quality: true })); setRightTab("region"); setSelected(null); updateAnalysis({ selectedPointId: null, selectedRegion: { bounds: pointBounds(chosen), pointIds: chosen.map(point => point.id), label: `低相干 < ${coherenceThreshold.toFixed(2)}`, source: "filter" } }); setStatus(`低相干筛选：相干性 < ${coherenceThreshold.toFixed(2)} · ${chosen.length.toLocaleString()} 点`); };
-    const showAllAnomalyPoints = (message?: string) => {
-        const chosen = anomalyDiscovery.points, bounds = pointBounds(chosen);
-        setSelectionMode("single"); setActiveFilter("anomaly"); setAttribute("velocity"); setBoxPoints(chosen); setSelected(null); setCompareIds([]); setCurveIds([]); setRightTab("region"); setRightCollapsed(false); setLeftCollapsed(true); setLeftTab("filters"); setVisible(value => ({ ...value, points: true }));
-        updateAnalysis({ selectedPointId: null, selectedRegion: chosen.length ? { bounds, pointIds: chosen.map(point => point.id), label: "异常点筛选结果", source: "anomaly" } : null });
+    const showAllAnomalyPoints = (message?: string, view: typeof anomalyView = "clustered") => {
+        setAnomalyView(view); setSelectionMode("single"); setActiveFilter("anomaly"); setAttribute("velocity"); setSelected(null); setCompareIds([]); setCurveIds([]); setPatternVisibility("all"); setHiddenModes([]); setRightTab("region"); setRightCollapsed(false); setLeftCollapsed(true); setLeftTab("anomaly"); setVisible(value => ({ ...value, points: true }));
+        updateAnalysis({ selectedPointId: null, selectedRegion: null, selectedRegionStats: null });
         if (message) setStatus(message);
     };
     const discoverAnomalies = () => {
-        const chosen = anomalyDiscovery.points;
-        trackEvent("filter_apply", { filter_type: "anomaly_discovery", result_count: chosen.length, excluded_low_quality: anomalyDiscovery.summary.excludedLowQuality });
-        trackEvent("region_select", { selection_type: "anomaly_discovery", result_count: chosen.length });
-        showAllAnomalyPoints(chosen.length ? `发现 ${chosen.length.toLocaleString()} 个异常监测点，其中 ${anomalyRegionResult.assignedPointCount.toLocaleString()} 点形成 ${anomalyRegionResult.regions.length.toLocaleString()} 个空间支持区域；已排除 ${anomalyDiscovery.summary.excludedLowQuality.toLocaleString()} 个低质量点。` : "当前数据未筛选出符合既定规则的异常监测点。");
+        trackEvent("filter_apply", { filter_type: "anomaly_discovery", result_count: prioritySelection.anomalies.length, excluded_low_quality: prioritySelection.excludedLowQuality.length });
+        showAllAnomalyPoints(`发现 ${prioritySelection.anomalies.length.toLocaleString()} 个聚集异常点 · ${anomalyRegionResult.regions.length} 个区域；${prioritySelection.isolated.length} 个离散大值点单列待查。`);
+    };
+    const applyAnomalyRules = (options: PriorityDeformationOptions) => {
+        const resolved = normalizePriorityOptions(options);
+        setPriorityOptions(resolved); setCoherenceThreshold(resolved.coherenceThreshold);
+        showAllAnomalyPoints("规则已应用，地图与统计已更新。异常需双指标达标且同向聚集。");
     };
     const focusAnomalyRegion = useCallback((region: AnomalyRegion) => {
-        const ids = new Set(region.pointIds), chosen = anomalyDiscovery.points.filter(point => ids.has(point.id));
-        trackEvent("region_select", { selection_type: "anomaly_region", region_id: region.id, result_count: chosen.length, radius_meters: anomalyRegionResult.parameters.radiusMeters, minimum_points: anomalyRegionResult.parameters.minimumPoints });
-        if (attribute === "mode") trackEvent("pattern_view_switch", { from: attribute, to: "velocity" });
-        setSelectionMode("single"); setActiveFilter("anomaly"); setAttributeState("velocity"); setBoxPoints(chosen); setSelected(null); setCompareIds([]); setCurveIds([]); setRightTab("region"); setRightCollapsed(false); setLeftCollapsed(true);
-        updateAnalysis({ selectedPointId: null, selectedRegion: { bounds: region.bounds, geometry: region.geometry, regionId: region.id, pointIds: region.pointIds, label: `自动空间分组 ${region.id}`, source: "anomalyRegion" } });
-        setStatus(`正在查看自动空间分组 ${region.id}：${region.pointCount.toLocaleString()} 个异常候选点，平均速率 ${region.meanVelocity.toFixed(1)} mm/yr。边界是点集包络，并非人工选区或业务边界。`);
-    }, [anomalyDiscovery.points, anomalyRegionResult.parameters, attribute, updateAnalysis]);
+        trackEvent("region_select", { selection_type: "anomaly_region", region_id: region.id, result_count: region.pointCount });
+        setAnomalyView("clustered"); setSelectionMode("single"); setActiveFilter("anomaly"); setAttributeState("velocity"); setSelected(null); setCompareIds([]); setCurveIds([]); setPatternVisibility("all"); setHiddenModes([]); setRightTab("region"); setRightCollapsed(false); setLeftCollapsed(true);
+        updateAnalysis({ selectedPointId: null, selectedRegion: { bounds: region.bounds, geometry: region.geometry, regionId: region.id, pointIds: region.pointIds, label: `异常聚集区 ${region.id}`, source: "anomalyRegion" } });
+        setStatus(`正在查看 ${region.id}：${region.pointCount.toLocaleString()} 个双指标达标的同向聚集点。`);
+    }, [updateAnalysis]);
+    const useSelectedAnomalyScope = () => { if (!boxPoints.length) return; setPriorityScopeIds(boxPoints.map(point => point.id)); showAllAnomalyPoints("正在按所选范围完整重算异常；范围外点仍可在地图查看。"); openLeft("anomaly"); };
     const discoverInspectionCandidates = () => { discoverAnomalies(); setRightTab("action"); };
     const focusInspectionCandidate = (region: AnomalyRegion) => { focusAnomalyRegion(region); setRightTab("action"); };
+    const inspectionNavigationContext = () => ({ datasetId: activeFieldDatasetId, analysisId: effectiveLocalAnalysisId ?? createLocalAnalysisId(activeFieldDatasetId, { priorityOptions, coherenceThreshold, evaluationDate: detectionDate }, { pointIds: priorityScopeIds }), datasetTitle, observationDate: detectionDate || currentDate, ruleSummary: priorityRule });
+    const acceptInspectionNavigation = (next: NavigationDraft, added: boolean) => {
+        setFieldTaskPlan(null); setFieldTaskResult(null); setFieldTaskStored(false);
+        changeNavigationDraft(next); openLeft("route");
+        setStatus(added ? "已加入真实考察目标，请确认车辆到达点和出发地后规划路线。" : "该考察目标已在行程中，请确认车辆到达点。");
+    };
+    const addPointToRoute = (point: InsarPoint) => {
+        try { const result = addInspectionPointToNavigation(fieldTaskPlan ? fieldTaskPlanToNavigationDraft(fieldTaskPlan) : navigationDraft, point, inspectionNavigationContext()); acceptInspectionNavigation(result.draft, result.added); }
+        catch (error) { setStatus(error instanceof Error ? error.message : "无法加入考察目标。"); }
+    };
+    const addRegionToRoute = (region: AnomalyRegion) => {
+        try { const result = addInspectionRegionToNavigation(fieldTaskPlan ? fieldTaskPlanToNavigationDraft(fieldTaskPlan) : navigationDraft, region, prioritySelection.anomalies, inspectionNavigationContext()); acceptInspectionNavigation(result.draft, result.added); }
+        catch (error) { setStatus(error instanceof Error ? error.message : "无法加入考察区域。"); }
+    };
     const changeAnomalyRegionParameters = (radiusMeters: number, minimumPoints: number) => {
-        setAnomalyRadiusMeters(Math.max(25, Math.min(5000, Number.isFinite(radiusMeters) ? radiusMeters : 60)));
-        setAnomalyMinimumPoints(Math.max(2, Math.min(50, Math.round(Number.isFinite(minimumPoints) ? minimumPoints : 5))));
-        if (activeFilter === "anomaly" && activeAnomalyRegionId) showAllAnomalyPoints("聚类参数已更新；已返回全部异常候选点，请重新选择区域。");
+        applyAnomalyRules({ ...priorityOptions, coherenceThreshold, radiusMeters, minimumPoints });
     };
     async function loadPascLargeJobResults(jobId: string, sourcePoints: InsarPoint[], activeRunId?: number) {
+        if (USER_DATA_LOCAL_ONLY) { setStatus(LOCAL_DATA_ONLY_MESSAGE); return; }
         const runId = activeRunId ?? ++pascRunId.current;
         setRightTab("pasc");
         setStatus("正在连接后台分类任务；已完成的批次会立即显示到地图…");
@@ -935,6 +1214,7 @@ function MapWorkspaceView() {
         sourcePreprocessing: CsvMapping["preprocessingState"] = mapping?.preprocessingState,
         sourceDatasetId: string = privateDatasetId,
     ) {
+        if (USER_DATA_LOCAL_ONLY) { setPascExecutionMode("local"); setStatus(LOCAL_DATA_ONLY_MESSAGE); return; }
         const runId = ++pascRunId.current;
         setLivePascPoints([]);
         try {
@@ -1023,6 +1303,7 @@ function MapWorkspaceView() {
         setStatus(`${label} · ${chosen.length.toLocaleString()} 点 · 已使用 PASC 六类固定色`);
     };
     const runAiInterpretation = async () => {
+        if (USER_DATA_LOCAL_ONLY) { setAiStatus("error"); setAiError("本站已关闭外部 AI；请使用上方本机数据分析助手。"); return; }
         if (!regionalAiInput || !regionalAiSummary) { trackEvent("ai_analysis_fail", { reason: "missing_region_context" }); setAiStatus("error"); setAiError("请先在“区域分析”中框选区域，或运行“发现异常”建立分析对象。"); return; }
         if (aiAccessMode === "personal" && personalAiKey.trim().length < 8) { setAiStatus("error"); setAiError("请先在 AI 服务设置中填写有效的个人 API Key。"); return; }
         setAiStatus("running"); setAiResult(null); setAiError(""); setEvidenceOpen(false);
@@ -1041,6 +1322,7 @@ function MapWorkspaceView() {
         }
     };
     const prepareAiInterpretation = async () => {
+        if (USER_DATA_LOCAL_ONLY) { setAiStatus("error"); setAiError("本站已关闭外部 AI；数据摘要保留在当前电脑。"); return; }
         if (!regionalAiInput || !regionalAiSummary) { trackEvent("ai_analysis_fail", { reason: "missing_region_context" }); setAiStatus("error"); setAiError("请先在“区域分析”中框选区域，或运行“发现异常”建立分析对象。"); return; }
         const prompt = buildDeepSeekWebPrompt(regionalAiSummary);
         setAiPrompt(prompt); setAiResult(null); setAiError(""); setAiStatus("prepared");
@@ -1076,8 +1358,8 @@ function MapWorkspaceView() {
     } });
     const exportPoint = () => { if (!selected) return; void runExport("单点 CSV", () => { downloadText(pointCsv(selected), `${safeExportName(selected.id)}-timeseries.csv`, "text/csv;charset=utf-8"); trackEvent("analysis_export", { export_type: "point_csv", period_count: selected.series.length }); }); };
     const exportComparison = () => { if (!curves.length) return; void runExport("多点对比 CSV", () => { downloadText(comparisonCsv(curves), `${safeExportName(datasetTitle)}-多点对比.csv`, "text/csv;charset=utf-8"); trackEvent("analysis_export", { export_type: "comparison_csv", point_count: curves.length }); }); };
-    const exportAoiPoints = () => { if (!boxPoints.length) return; void runExport("AOI 点位 CSV", () => { downloadText(aoiPointsCsv(boxPoints, timeIndex), `${safeExportName(datasetTitle)}-AOI点位.csv`, "text/csv;charset=utf-8"); trackEvent("analysis_export", { export_type: "aoi_points_csv", point_count: boxPoints.length }); }); };
-    const exportAoiSeries = (method: AoiAggregateMethod, enabledModes: string[]) => { if (!boxPoints.length) return; void runExport("AOI 聚合时序 CSV", () => { downloadText(aoiSeriesCsv(boxPoints, method, enabledModes, normalizedMode), `${safeExportName(datasetTitle)}-AOI-${method}.csv`, "text/csv;charset=utf-8"); trackEvent("analysis_export", { export_type: "aoi_series_csv", point_count: boxPoints.length, method }); }); };
+    const exportAoiPoints = () => { if (!boxPoints.length) return; void runExport("AOI 点位 CSV", () => { downloadText(activeFilter === "anomaly" ? anomalyPointsCsv(boxPoints, prioritySelection, Math.max(0, datasetPeriodCount - 1), { datasetId: activeFieldDatasetId, analysisId: currentNavigationAnalysisId, scope: anomalyScopeLabel }) : aoiPointsCsv(boxPoints, timeIndex), `${safeExportName(datasetTitle)}-AOI点位.csv`, "text/csv;charset=utf-8"); trackEvent("analysis_export", { export_type: "aoi_points_csv", point_count: boxPoints.length }); }); };
+    const exportAoiSeries = (method: AoiAggregateMethod, enabledModes: string[]) => { if (!boxPoints.length) return; void runExport("AOI 聚合时序 CSV", async () => { if (localDataset) { const result = await loadSelectedAoiSeries(method); const groups = result.groups.filter(group => enabledModes.includes(group.mode)); const rows = [["date", "overall_" + method, ...groups.map(group => group.mode)], ...result.dates.map((date, index) => [date, result.overall[index], ...groups.map(group => group.values[index])])]; downloadText(csvText(rows), safeExportName(datasetTitle) + "-AOI-" + method + ".csv", "text/csv;charset=utf-8"); } else downloadText(aoiSeriesCsv(boxPoints, method, enabledModes, normalizedMode), `${safeExportName(datasetTitle)}-AOI-${method}.csv`, "text/csv;charset=utf-8"); trackEvent("analysis_export", { export_type: "aoi_series_csv", point_count: boxPoints.length, method }); }); };
     const exportChart = (svg: SVGSVGElement, scope: "point" | "comparison" | "aoi") => void runExport("图表 PNG", async () => { await downloadSvgPng(svg, `${safeExportName(datasetTitle)}-${scope}-chart.png`); trackEvent("analysis_export", { export_type: `${scope}_chart_png` }); });
     const exportRuleSummary = () => void runExport("规则摘要", () => { downloadText("\uFEFF" + analysisRuleSummary.text, `${safeExportName(datasetTitle)}-分析规则摘要.txt`); trackEvent("analysis_export", { export_type: "rule_summary" }); });
     const exportInspectionBrief = () => void runExport("空间研判简报", () => { downloadText("\uFEFF" + buildInspectionBrief(datasetTitle, currentDate, inspectionCandidates), `${safeExportName(datasetTitle)}-空间研判简报.txt`); trackEvent("analysis_export", { export_type: "inspection_brief", region_count: inspectionCandidates.length }); });
@@ -1101,6 +1383,13 @@ function MapWorkspaceView() {
     const focusGisLayer = (layer: GisLayer) => {
         if (!layer.bounds) return;
         setMapFocus({ bounds: [layer.bounds.west, layer.bounds.south, layer.bounds.east, layer.bounds.north], token: Date.now() });
+    };
+    const focusGisFeature = (layer: GisLayer, featureId: string) => {
+        const feature = layer.features.find(item => item.id === featureId);
+        if (!feature) return;
+        const bounds = getGeometryBounds(feature.geometry);
+        setActiveGisFeatureId(feature.id);
+        if (bounds) setMapFocus({ bounds: [bounds.west, bounds.south, bounds.east, bounds.north], token: Date.now() });
     };
     const handleGisFeatureSelect = useCallback((_layerId: string, featureId: string) => {
         setActiveGisFeatureId(featureId);
@@ -1200,7 +1489,10 @@ function MapWorkspaceView() {
         setLeftTab("layers");
         if (bounds) setMapFocus({ bounds: [bounds.west, bounds.south, bounds.east, bounds.north], token: Date.now() });
     };
-    const shellStyle = { "--drawer-width": surface && !(surface === "left" && leftTab === "data") ? surface === "right" ? "var(--analysis-panel-width, 380px)" : "380px" : "0px" } as CSSProperties, currentValue = selected ? (selected.series[Math.min(timeIndex, selected.series.length - 1)] ?? selected.displacement) : 0;
+    const shellStyle = {
+        "--analysis-panel-width": `${drawerWidth}px`,
+        "--drawer-width": surface && !(surface === "left" && leftTab === "data") ? `${drawerWidth}px` : "0px",
+    } as CSSProperties, currentValue = selected ? (selected.series[Math.min(timeIndex, selected.series.length - 1)] ?? selected.displacement) : 0;
     const selectedInsight = selected ? buildPointInsight(selected, coherenceThreshold) : null;
     const selectedStageAnalysis = selected && selected.series.length >= 2 ? deriveTemporalStageAnalysis(selected) : null;
     const selectedTopTwo = selected ? topPascCandidates(selected.pasc) : [];
@@ -1209,7 +1501,7 @@ function MapWorkspaceView() {
     const activeFieldObservation = fieldObservations.find(observation => observation.id === activeFieldObservationId) ?? null;
     const activeFieldCandidates = activeFieldObservation ? insarCandidates(activeFieldObservation, points, activeFieldObservation.associationRadiusMeters, activeFieldDatasetId) : [];
     const activeFieldPrimary = activeFieldObservation ? primaryInsarPoint(activeFieldObservation, points, activeFieldDatasetId) : null;
-    const leftTaskTitles = { data: "数据", layers: "图层与样式", field: "现场记录", filters: "条件筛选", anomaly: "异常发现", time: "时间区间分析" };
+    const leftTaskTitles = { data: "数据", layers: "图层与样式", route: "驾车出行规划", field: "现场记录", filters: "条件筛选", anomaly: "异常发现", time: "时间区间分析" };
     const rightTaskTitles = { point: "点位分析", region: "区域分析", action: "核查候选", ai: "AI 解读", pasc: "模式识别 · PASC" };
     const taskValue = surface === "left" ? leftTab : rightTab;
     const analysisNavigation = <label className="workspace-task-select">分析任务<select aria-label="分析任务" value={taskValue} onChange={event => {
@@ -1219,26 +1511,33 @@ function MapWorkspaceView() {
     }}><option value="point">点位分析</option><option value="region">区域分析</option><option value="filters">条件筛选</option><option value="anomaly">异常发现</option><option value="pasc">模式识别 · PASC</option><option value="ai">AI 解读</option></select></label>;
     const inspectionNavigation = <div className="workspace-inspection-tabs" role="group" aria-label="核查任务"><button aria-pressed={surface === "right"} onClick={() => openRight("action")}>核查候选</button><button aria-pressed={surface === "left"} onClick={() => openLeft("field")}>现场记录</button></div>;
     return (
-        <main className="map-page phase-two-workspace navigation-workspace" aria-busy={!dataReady || Boolean(busy) || exportOperation.state === "running"}>
-            <WorkspaceHeader active={activeSection} onChange={openSection} onHelp={() => setGuideOpen(true)} />
+        <main data-local-priority-state={priorityState} data-local-dataset-id={localAnalysisIdentity?.datasetId ?? ""} data-local-analysis-id={effectiveLocalAnalysisId ?? ""} className={"map-page phase-two-workspace navigation-workspace" + (navigationActive ? " driving-workspace" : "")} aria-busy={!dataReady || Boolean(busy) || exportOperation.state === "running"}>
+            <WorkspaceHeader active={activeSection} onChange={openSection} onHelp={() => setGuideOpen(true)} onReturnToImport={onReturnToImport} />
             <FieldPhotoLightbox observation={activeFieldObservation} photoId={fieldLightboxPhotoId} onClose={() => setFieldLightboxPhotoId(null)} onChange={photoId => { setActiveFieldPhotoId(photoId); setFieldLightboxPhotoId(photoId); }} />
-            <input ref={fileRef} hidden type="file" accept=".csv,text/csv" onChange={e => inspectFile(e.target.files?.[0])} />
+            {localDataset && <nav className="local-workflow-progress" aria-label="CSV 分析到考察路线"><button onClick={() => openRight("pasc")}>1 · 本地分类 · {points.length.toLocaleString()} 点</button><button onClick={discoverInspectionCandidates} disabled={priorityState !== "ready"}>2 · 异常圈定 · {priorityState === "running" ? "计算中" : prioritySelection.anomalies.length.toLocaleString() + " 点"}</button><button onClick={() => openLeft("route")}>3 · 考察路线 · {navigationDraft.waypoints.filter(point => point.inspectionSource).length} 个目标</button></nav>}
+            {(priorityError || localSeriesError) && <p className="local-workflow-error" role="alert">{priorityError || localSeriesError}</p>}
+            {localSeriesBusy && <p className="local-workflow-error" role="status">正在从本机读取时序，请稍候…</p>}
+            <input ref={fileRef} hidden type="file" accept=".csv,text/csv" disabled={accountSession.status !== "authenticated"} onChange={e => inspectFile(e.target.files?.[0])} />
 
-            {portfolioTourStep !== null && <section className="portfolio-tour" aria-label="90 秒产品体验引导" aria-live="polite">
-                <header><div><small>产品操作引导</small><b>从 9,069 个点、210 期时序到可核查解释</b></div><button aria-label="退出产品体验引导" onClick={() => setPortfolioTourStep(null)}>×</button></header>
+            {portfolioTourStep !== null && <section className="portfolio-tour" aria-label="形变分析操作引导" aria-live="polite">
+                <header><div><small>形变分析操作引导</small><b>9,069 个点、210 期时序的证据复核</b></div><button aria-label="退出产品体验引导" onClick={() => setPortfolioTourStep(null)}>×</button></header>
                 <ol>
-                    <li className={portfolioTourStep === 1 ? "active" : portfolioTourStep > 1 ? "done" : ""}><i>筛</i><span>发现异常<small>质量门控后的候选点</small></span></li>
+                    <li className={portfolioTourStep === 1 ? "active" : portfolioTourStep > 1 ? "done" : ""}><i>筛</i><span>发现异常<small>双指标达标且同向聚集</small></span></li>
                     <li className={portfolioTourStep === 2 ? "active" : portfolioTourStep > 2 ? "done" : ""}><i>证</i><span>查看证据<small>空间支持与区域统计</small></span></li>
-                    <li className={portfolioTourStep === 3 ? "active" : ""}><i>释</i><span>AI 解读<small>只发送脱敏聚合摘要</small></span></li>
+                    <li className={portfolioTourStep === 3 ? "active" : ""}><i>释</i><span>{USER_DATA_LOCAL_ONLY ? "本机研判" : "AI 解读"}<small>{USER_DATA_LOCAL_ONLY ? "数据保留在当前电脑" : "只发送脱敏聚合摘要"}</small></span></li>
                 </ol>
-                {portfolioTourStep === 1 && <div className="portfolio-tour-action"><p>{dataReady ? "210 期原始密集案例已就绪。先运行一次可解释规则，排除低质量点并筛出明显沉降、加速型或分段型候选。" : "正在加载 9,069 点、210 期原始密集案例，请稍候。"}</p><button disabled={!dataReady} onClick={() => { discoverAnomalies(); setPortfolioTourStep(2); }}>发现异常候选 ↗</button></div>}
-                {portfolioTourStep === 2 && <div className="portfolio-tour-action"><p>{activeAnomalyRegionId ? `已定位 ${activeAnomalyRegionId}，右侧展示点数、速率、质量、模式分布与聚合时序。` : `已找到 ${anomalyDiscovery.points.length.toLocaleString()} 个候选点和 ${anomalyRegionResult.regions.length.toLocaleString()} 个空间支持区域。先定位证据最多的区域。`}</p><button onClick={() => { const first = anomalyRegionResult.regions[0]; if (first && !activeAnomalyRegionId) { focusAnomalyRegion(first); return; } setRightTab("ai"); setPortfolioTourStep(3); }}>{activeAnomalyRegionId ? "证据已核对，进入 AI 解读 ↗" : anomalyRegionResult.regions.length ? "定位首个异常区域 ↗" : "查看区域摘要并进入 AI ↗"}</button></div>}
-                {portfolioTourStep === 3 && <div className="portfolio-tour-action"><p>{aiStatus === "success" ? "AI 结论已生成。每条解释都可回看输入范围、点数、时间、筛选条件与质量证据。" : aiStatus === "error" ? "站点额度当前不可用时，可在右侧切换个人 API，或使用免费网页备用流程。" : "右侧只会发送不超过 12 KB 的聚合统计，不包含原始 CSV、点位编号或完整时序。"}</p><button disabled={!regionalAiSummary || aiStatus === "running"} onClick={() => { if (aiStatus === "success") setPortfolioTourStep(null); else void runAiInterpretation(); }}>{aiStatus === "success" ? "完成引导，继续自由探索" : aiStatus === "running" ? "正在生成解读…" : "一键生成 AI 解读 ↗"}</button><button className="tour-skip" onClick={() => setPortfolioTourStep(null)}>跳过 AI，进入专业工作台</button></div>}
+                {portfolioTourStep === 1 && <div className="portfolio-tour-action"><p>{dataReady ? "210 期原始密集案例已就绪。先筛选速率和累计量同时较大的点，再检查同向空间聚集与观测质量。" : "正在加载 9,069 点、210 期原始密集案例，请稍候。"}</p><button disabled={!dataReady} onClick={() => { discoverAnomalies(); setPortfolioTourStep(2); }}>发现异常候选 ↗</button></div>}
+                {portfolioTourStep === 2 && <div className="portfolio-tour-action"><p>{activeAnomalyRegionId ? `已定位 ${activeAnomalyRegionId}，右侧展示点数、速率、质量、模式分布与聚合时序。` : `已找到 ${prioritySelection.anomalies.length.toLocaleString()} 个候选点和 ${anomalyRegionResult.regions.length.toLocaleString()} 个空间支持区域。先定位证据最多的区域。`}</p><button onClick={() => { const first = [...anomalyRegionResult.regions].sort((a, b) => b.pointCount - a.pointCount)[0]; if (first && !activeAnomalyRegionId) { focusAnomalyRegion(first); return; } setRightTab("ai"); setPortfolioTourStep(3); }}>{activeAnomalyRegionId ? "证据已核对，进入 AI 解读 ↗" : anomalyRegionResult.regions.length ? "定位首个异常区域 ↗" : "查看区域摘要并进入 AI ↗"}</button></div>}
+                {portfolioTourStep === 3 && (USER_DATA_LOCAL_ONLY ? <div className="portfolio-tour-action"><p>在本机分析助手中查看当前区域的统计与证据。外部 AI 已关闭，文件与数据摘要保留在当前电脑；核查行程仍需手动确认。</p><button onClick={() => { setRightTab("ai"); setSurface("right"); setPortfolioTourStep(null); }}>查看本机分析助手 ↗</button></div> : <div className="portfolio-tour-action"><p>{aiStatus === "success" ? "AI 辅助解读已生成，可复核输入范围、点数、时间、筛选条件与质量证据。需现场核查时，可在“驾车”中手动选点并规划行程；入口与通行条件仍需人工核验。" : aiStatus === "error" ? "站点额度暂不可用，可在右侧切换个人 API，或使用网页备用流程。" : "仅发送不超过 12 KB 的聚合统计，不包含原始 CSV、点位编号或完整时序；解读结果需结合原始证据复核。"}</p><button disabled={!regionalAiSummary || aiStatus === "running"} onClick={() => { if (aiStatus === "success") setPortfolioTourStep(null); else void runAiInterpretation(); }}>{aiStatus === "success" ? "完成分析引导" : aiStatus === "running" ? "正在生成解读…" : "生成 AI 辅助解读 ↗"}</button><button className="tour-skip" onClick={() => setPortfolioTourStep(null)}>跳过解读，返回工作台</button></div>)}
             </section>}
 
             {exportOperation.state !== "idle" && <div className={`workspace-operation-state ${exportOperation.state}`} role={exportOperation.state === "error" ? "alert" : "status"} aria-live="polite"><i /> <span>{exportOperation.message}</span><button aria-label="关闭导出状态" onClick={() => setExportOperation(idleExportOperation)}>×</button></div>}
 
             <section className={"gis-shell phase-two-shell" + (surface && !(surface === "left" && leftTab === "data") ? " has-task-drawer" : "")} style={shellStyle}>
+                {navigationActive && <div className={"road-navigation-map-hint" + (navigationPickId ? " is-picking" : "")} role="status">
+                    <div><b>{navigationPickId ? `点击地图设置${navigationPickText}` : navigationBusy ? "滴图正在计算驾车路线…" : navigationPlan || fieldTaskResult ? "滴图驾车路线" : "从地图上的任意位置开始"}</b><span>{navigationPickId ? "可缩放、拖动寻找位置；按 Esc 取消。" : fieldTaskPlan ? "点选车辆停靠与核查目标；返程与同站任务分别管理。" : "点选起点、终点和途经点；不需要先导入路网。"}</span></div>
+                    {navigationPickId ? <button onClick={() => { setNavigationPickId(null); setSurface("left"); }}>取消选点</button> : leftCollapsed && <button onClick={() => openLeft("route")}>编辑行程</button>}
+                </div>}
                 <button className="workspace-data-card" aria-expanded={surface === "left" && leftTab === "data"} onClick={() => openSection("data")} title={datasetTitle}>
                     <span>当前数据 <i aria-hidden="true">⌄</i></span><strong>{datasetTitle}</strong>
                     <small>{points.length.toLocaleString()} 点 · {periodCount} 期</small>
@@ -1256,7 +1555,7 @@ function MapWorkspaceView() {
                     <button className="workspace-view-action" onClick={() => openLeft("layers")}><MapToolIcon name="layers" /><span>底图 / 图层</span></button>
                     <button className="workspace-view-action workspace-swipe-action" aria-pressed={swipeEnabled} disabled={!swipeEnabled && (!dataReady || !visible.points || !hasModes)} title="对照年均速率与已有形变模式；无分类数据时不可用" onClick={() => { if (!swipeEnabled) setSelectionMode("single"); setSwipeEnabled(value => !value); }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3" /><path d="M12 2v20M7 9v6M17 9v6" /></svg><span>{swipeEnabled ? "退出卷帘" : "卷帘对比"}</span></button>
                 </div>
-                {surface === "export" && <aside className="workspace-export-drawer" aria-label="导出材料">
+                {surface === "export" && <ResizableAnalysisPanel className="workspace-export-drawer" label="导出材料" collapsed={false} width={drawerWidth} onWidthChange={setDrawerWidth}>
                     <header className="panel-head"><span>导出材料</span><button aria-label="关闭导出" onClick={closeSurface}>×</button></header>
                     <div className="workspace-export-context"><b>{datasetTitle}</b><span>当前显示 {mapVisiblePointCount.toLocaleString()} 点 · {currentDate}</span><small>数据文件使用对应选点或选区，截图使用当前地图。</small></div>
                     <div className="workspace-export-actions">
@@ -1269,11 +1568,14 @@ function MapWorkspaceView() {
                         <button disabled={!inspectionCandidates.length || exportOperation.state === "running"} onClick={exportInspectionBrief}><MapToolIcon name="rules" /><span><b>核查简报 TXT</b><small>{inspectionCandidates.length} 个候选区域</small></span></button>
                         <button disabled={exportOperation.state === "running"} onClick={printAnalysis}><MapToolIcon name="export" /><span><b>打印 / 保存报告</b><small>打开浏览器打印视图</small></span></button>
                     </div>
-                </aside>}
-                <aside className={"gis-left phase-two-left workspace-task-drawer " + (leftTab === "data" ? "is-data-drawer " : "") + (leftCollapsed ? "is-collapsed" : "")} aria-label={leftTaskTitles[leftTab]}>
+                </ResizableAnalysisPanel>}
+                <ResizableAnalysisPanel className={"gis-left phase-two-left workspace-task-drawer " + (leftTab === "data" ? "is-data-drawer " : "") + (leftCollapsed ? "is-collapsed" : "")} label={leftTaskTitles[leftTab]} collapsed={leftCollapsed} resizable={leftTab !== "data"} width={drawerWidth} onWidthChange={setDrawerWidth}>
                     <div className="panel-head"><span>{leftTaskTitles[leftTab]}</span><button aria-label="关闭任务面板" onClick={closeSurface}>×</button></div>
                     {(leftTab === "filters" || leftTab === "anomaly") && analysisNavigation}
                     {leftTab === "field" && inspectionNavigation}
+                    <div hidden={leftTab !== "route"}>
+                        {fieldTaskPlan ? <RoadFieldTaskPanel currentDatasetId={activeFieldDatasetId} currentAnalysisId={currentNavigationAnalysisId} plan={fieldTaskPlan} stored={fieldTaskStored} onChange={changeFieldTasks} onSaved={saveFieldTaskMetadata} onRestore={(plan, saved = true) => openFieldTasks(plan, saved)} pickId={navigationPickId} onPick={beginNavigationPick} result={fieldTaskResult} onResult={acceptFieldTaskResult} onAdopt={adoptFieldTaskCandidate} evidenceOptions={fieldObservations.flatMap(observation => observation.photos.map(photo => ({ id: `field-photo:${observation.id}:${photo.id}`, label: `${observation.name} · ${photo.name}` })))} onBusy={setNavigationRequestBusy} activeLegId={activeNavigationLegId} onFocusLeg={focusNavigationLeg} onFocusPoint={focusNavigationPoint} /> : <RoadNavigationPanel currentDatasetId={activeFieldDatasetId} currentAnalysisId={currentNavigationAnalysisId} draft={navigationDraft} onChange={changeNavigationDraft} pickId={navigationPickId} onPick={beginNavigationPick} plan={navigationPlan} onPlan={acceptNavigationPlan} onBusy={setNavigationRequestBusy} evidence={roadRiskEvidenceInputs} activeLegId={activeNavigationLegId} onFocusLeg={focusNavigationLeg} onFocusPoint={focusNavigationPoint} onOpenFieldTasks={openFieldTasks} />}
+                    </div>
                     {leftTab === "data" && (
                         <div id="left-workspace-panel-data" className="workspace-tab-panel data-tab-panel" role="region" aria-label="数据详情">
                             <div className="dataset-card">
@@ -1288,7 +1590,7 @@ function MapWorkspaceView() {
                                 )}
                                 <b>{datasetTitle}</b>
                                 <span>{points.length.toLocaleString()} 个有效点 · 当前 {currentDate}</span>
-                                <button onClick={() => fileRef.current?.click()}>＋ {pascExecutionMode === "local" ? "本地分析 CSV" : "Legacy 字段映射导入"}</button>
+                                <button onClick={chooseImportFile}>＋ {pascExecutionMode === "local" ? "本地分析 CSV" : "Legacy 字段映射导入"}</button>
                                 <p className="dataset-local-privacy">数据默认在浏览器本地处理，原始 CSV 不会上传服务器。</p>
                                 <details className="workspace-details"><summary>数据详情与帮助</summary><p>观测覆盖：{points[0]?.dates?.[0] || "无时序"} — {points[0]?.dates?.at(-1) || "无时序"}</p><Link href="/datasets">我的数据</Link><button onClick={() => setGuideOpen(true)}>查看 CSV 数据规范</button>
                                 <button onClick={loadShowcaseDemo}>六类模式教学示例</button>
@@ -1311,7 +1613,7 @@ function MapWorkspaceView() {
                             </div>
                             <div className="layer-group">
                                 <small>业务与质量图层</small>
-                                {[["points", "InSAR 监测点", points.length], ["risk", "重点核查线索", riskCount], ["quality", "低相干 / 高缺测", qualityCount], ["boundary", "数据外包范围", 0]].map(([k, n, c]) => (
+                                {[["points", "InSAR 监测点", points.length], ["risk", "聚集异常线索", riskCount], ["quality", "低相干 / 高缺测", qualityCount], ["boundary", "数据外包范围", 0]].map(([k, n, c]) => (
                                     <label key={String(k)} title={k === "risk" ? priorityRule : undefined}>
                                         <input type="checkbox" checked={visible[k as keyof typeof visible]} onChange={e => setVisible(v => ({ ...v, [k]: e.target.checked }))} />
                                         <i className={"layer-dot " + k} /><span>{n}</span>
@@ -1331,12 +1633,26 @@ function MapWorkspaceView() {
                                         <label>间距<input type="number" value={interval} step="any" min="0" onChange={e => setInterval(+e.target.value)} /></label>
                                     </div>
                                 )}
+                                <fieldset className="ramp-presets">
+                                    <legend>色带方案</legend>
+                                    <div className="ramp-preset-grid">
+                                        {colorRampPresets.map(preset => {
+                                            const active = activeRamp?.id === preset.id;
+                                            return <button type="button" className={active ? "is-active" : ""} aria-pressed={active} onClick={() => selectColorRamp(preset)} key={preset.id}>
+                                                <i style={{ background: `linear-gradient(90deg,${preset.colors.join(",")})` }} />
+                                                <span>{preset.label}<small>{preset.hint}</small></span>
+                                                {active && <b aria-hidden="true">✓</b>}
+                                            </button>;
+                                        })}
+                                    </div>
+                                </fieldset>
                                 <div className="ramp-preview" style={{ background: "linear-gradient(90deg," + colors.join(",") + ")" }} />
-                                <span className="ramp-caption">{usesDefaultBcyr ? "GRASS bcyr · 低值红 → 高值蓝" : "自定义 QGIS 色带"}{attribute === "displacement" ? " · −100—100 mm / 20 mm" : attribute === "velocity" || attribute === "stageVelocity" ? " · −12.5—12.5 mm/yr / 2.5" : ""}</span>
+                                <span className="ramp-caption">{activeRamp ? `${activeRamp.label} · 低值 ${activeRamp.colors[0]} → 高值 ${activeRamp.colors.at(-1)}` : "自定义 QGIS 色带"}{attribute === "displacement" ? " · −100—100 mm / 20 mm" : attribute === "velocity" || attribute === "stageVelocity" ? " · −12.5—12.5 mm/yr / 2.5" : ""}</span>
                                 <button onClick={() => qgisRef.current?.click()}>导入 QGIS 色带（QML / XML）</button>
                                 <input ref={qgisRef} hidden type="file" accept=".qml,.xml,.txt" onChange={e => importRamp(e.target.files?.[0])} />
                             </div>
                             <label className="workspace-point-size">点大小<input aria-label="地图监测点大小" type="range" min="3" max="10" step="1" value={pointSize} onChange={e => setPointSize(Number(e.target.value))} /><b>{pointSize}px</b></label>
+                            <details className="road-optional-baseline"><summary>路网质检实验（与驾车规划独立）</summary><p>仅用于历史质检实验；这些 OSM 道路线不参与滴图驾车规划。</p><button disabled={gisImportBusy || gisLayers.some(layer => layer.provenance?.kind === "osm")} onClick={loadOptionalRoadBaseline}>手动加载 OSM 质检样本</button></details>
                             <GisLayerPanel
                                 layers={gisLayers}
                                 activeFeatureId={activeGisFeatureId}
@@ -1344,8 +1660,11 @@ function MapWorkspaceView() {
                                 message={gisImportMessage}
                                 onImport={file => void importGisLayer(file)}
                                 onUpdate={updateGisLayer}
-                                onRemove={id => { setGisLayers(current => current.filter(layer => layer.id !== id)); setActiveGisFeatureId(null); }}
+                                onRemove={id => { setGisLayers(current => current.filter(layer => layer.id !== id || layer.provenance?.builtIn)); setActiveGisFeatureId(null); }}
                                 onFocus={focusGisLayer}
+                                riskInputs={roadRiskEvidenceInputs}
+                                onFocusFeature={focusGisFeature}
+                                onRoutePlanChange={setRoadOpsRoutePlan}
                             />
                             <div className="map-source">
                                 <b>地图数据来源</b>
@@ -1401,21 +1720,13 @@ function MapWorkspaceView() {
                             {(activeFilter !== "none" || patternVisibility !== "all" || hiddenModes.length > 0) && <button className="clear-filter-button" onClick={clearFilters}>清除当前筛选</button>}
                         </div>
                     )}
-                    {leftTab === "anomaly" && <div className="workspace-tab-panel" aria-label="异常发现">                            <section className={"anomaly-discovery-card " + (activeFilter === "anomaly" ? "active" : "")}>
-                                <small>异常发现</small>
-                                <h3>先看值得关注的点</h3>
-                                <p>一次筛选明显沉降、加速沉降和阶段形变点，并排除低相干或高缺测观测。</p>
-                                <button onClick={discoverAnomalies}>{activeFilter === "anomaly" ? "重新发现异常" : "发现异常"} ↗</button>
-                                <span>规则透明：速率 ≤ −3 mm/yr，或模式字段为加速沉降 / 阶段形变。</span>
-                            </section>
-
-                        <details className="workspace-details"><summary>重点核查线索 · 分位规则</summary>                                <div className="priority-tail-control">
-                                    <label htmlFor="priority-tail-percent"><span>负向单侧比例</span><b>{priorityTailPercent}%</b></label>
-                                    <input id="priority-tail-percent" aria-label="重点核查负向单侧比例" type="range" min="1" max="20" step="1" value={priorityTailPercent} onChange={event => setPriorityTailPercent(clampPriorityTailPercent(Number(event.target.value)))} />
-                                    <div><span className="priority-reliable">可靠 {prioritySelection.reliable.length.toLocaleString()}</span><span className="priority-limited">质量受限 {prioritySelection.limited.length.toLocaleString()}</span></div>
-                                </div>
-                                <p className="layer-rule-note"><b>分位判定</b>{priorityRule}。按当前场景和时间轴重新计算，不假设不同场景共用固定毫米阈值。</p>
-</details>
+                    {leftTab === "anomaly" && <div className="workspace-tab-panel" aria-label="异常发现">
+                        <section className="anomaly-discovery-card"><small>异常发现</small><h3>大幅形变，且集中分布</h3><p>双指标同时达标 → 核对质量 → 同向空间聚集。</p></section>
+                        {anomalyDataNote && <p className="pasc-local-webgis-warning">{anomalyDataNote}</p>}
+                        <section className="anomaly-scope-controls"><p>当前异常分析范围：{anomalyScopeLabel}。聚类候选超过 50,000 时保留未评估状态，可圈选较小范围重算。</p><button type="button" onClick={() => { clearFilters(); setSelectionMode("box"); setRightTab("region"); setRightCollapsed(false); setStatus("请在全点地图圈选范围，再点击“用当前选区发现异常”。"); }}>在全点地图圈选范围</button><button type="button" disabled={!boxPoints.length} onClick={useSelectedAnomalyScope}>用当前选区发现异常</button>{priorityScopeIds !== null && <button type="button" onClick={() => { setPriorityScopeIds(null); showAllAnomalyPoints("正在按全数据范围重算异常。"); }}>恢复全数据异常分析</button>}</section>
+                        <AnomalyRuleControls key={JSON.stringify(prioritySelection.options)} options={prioritySelection.options} evaluationDate={detectionDate} onApply={applyAnomalyRules} />
+                        <div className="anomaly-result-counts" aria-label="异常筛选统计"><span>幅值达标<b>{prioritySelection.amplitudeCandidates.length}</b></span><span>聚集异常<b>{prioritySelection.anomalies.length}</b></span><span>离散待查<b>{prioritySelection.isolated.length}</b></span><span>质量排除<b>{prioritySelection.excludedLowQuality.length}</b></span></div>
+                        <p className="layer-rule-note">{priorityRule}</p>
                         <button className="workspace-text-action" onClick={() => setRuleSummaryOpen(true)}>查看当前分析依据</button>
                     </div>}
                     {leftTab === "time" && <div className="workspace-tab-panel" aria-label="时间区间分析">                            <div className="renderer-panel time-analysis">
@@ -1423,25 +1734,25 @@ function MapWorkspaceView() {
                                 {hasTimeSeries ? <><label>起始期<select value={rangeStart} onChange={e => { const value = +e.target.value; setRangeStart(value); setRangeEnd(current => Math.max(value + 1, current)); }}>{points[0]?.dates?.map((d, i) => <option value={i} key={d} disabled={i === periodCount - 1}>{d}</option>)}</select></label><label>结束期<select value={rangeEnd} onChange={e => { const value = +e.target.value; setRangeEnd(value); setRangeStart(current => Math.min(value - 1, current)); }}>{points[0]?.dates?.map((d, i) => <option value={i} key={d} disabled={i === 0}>{d}</option>)}</select></label><button disabled={rangeEnd <= rangeStart} onClick={() => setAttribute("stageVelocity")}>计算并按阶段速率显示</button></> : <span>当前原始密集文件未提供逐期累计形变，阶段速率和时间轴不生成虚拟结果。</span>}
                             </div>
 </div>}
-                </aside>
+                </ResizableAnalysisPanel>
 
                 <MapCanvas
                     points={points}
-                    livePascPoints={livePascPoints}
+                    livePascPoints={navigationActive ? [] : livePascPoints}
                     selected={selected}
                     onSelect={selectPoint}
                     onBoxSelect={handleBoxSelect}
                     onPolygonSelect={handlePolygonSelect}
                     onAnomalyRegionSelect={focusAnomalyRegion}
                     onViewChange={handleMapViewChange}
-                    visible={visible}
+                    visible={navigationActive ? { points: false, boundary: false, risk: false, quality: false } : visible}
                     base={base}
                     tdtKey={tdtKey}
                     customBasemap={customBasemap}
                     baseOpacity={baseOpacity}
                     pointSize={pointSize}
                     onEditStyle={() => openLeft("layers")}
-                    swipeEnabled={swipeEnabled && visible.points && (selectionMode === "single" || selectionMode === "compare")}
+                    swipeEnabled={!navigationActive && swipeEnabled && visible.points && (selectionMode === "single" || selectionMode === "compare")}
                     coherenceThreshold={coherenceThreshold}
                     priorityPointIds={priorityPointIds}
                     priorityLimitedPointIds={priorityLimitedPointIds}
@@ -1455,23 +1766,31 @@ function MapWorkspaceView() {
                     compareIds={compareIds}
                     boxIds={activeFilter === "velocity" || activeFilter === "coherence" || activeFilter === "pascLowConfidence" || activeFilter === "pascLimitedSpatial" ? [] : boxIds}
                     selectionMode={selectionMode}
-                    highlightKind={activeFilter === "anomaly" ? "anomaly" : activeFilter === "none" ? "region" : "filter"}
-                    selectionGeometry={analysis.selectedRegion?.source === "anomalyRegion" ? null : selectedAoiGeometry}
-                    anomalyRegions={mapAnomalyRegions}
+                    highlightKind={activeFilter === "anomaly" && anomalyView === "clustered" ? "anomaly" : activeFilter === "none" ? "region" : "filter"}
+                    selectionGeometry={navigationActive || analysis.selectedRegion?.source === "anomalyRegion" ? null : selectedAoiGeometry}
+                    anomalyRegions={navigationActive ? [] : mapAnomalyRegions}
                     activeAnomalyRegionId={activeAnomalyRegionId}
                     initialView={restoreRequested.current ? analysis.mapView : null}
                     focusBounds={mapFocus?.bounds || null}
                     focusToken={mapFocus?.token || 0}
-                    gisLayers={gisLayers}
+                    gisLayers={navigationActive ? [] : gisLayers}
                     activeGisFeatureId={activeGisFeatureId}
                     onGisFeatureSelect={handleGisFeatureSelect}
-                    fieldObservations={fieldObservations}
+                    roadOpsRoutePlan={navigationActive ? fieldTaskPlan ? fieldTaskMap : navigationPlan?.map ?? null : roadOpsRoutePlan}
+                    navigationActive={navigationActive}
+                    navigationPicking={navigationActive && Boolean(navigationPickId) && !navigationBusy}
+                    navigationPoints={navigationPoints}
+                    navigationActiveLegId={activeNavigationLegId}
+                    onNavigationLegSelect={focusNavigationLeg}
+                    navigationTargetPoints={navigationTargetPoints}
+                    onNavigationPick={pickNavigationCoordinate}
+                    fieldObservations={navigationActive ? [] : fieldObservations}
                     activeFieldObservationId={activeFieldObservationId}
                     onFieldObservationSelect={focusFieldObservation}
                     onFieldPhotoOpen={openFieldPhoto}
                 />
 
-                <ResizableAnalysisPanel collapsed={rightCollapsed} label={rightTaskTitles[rightTab]} className={"gis-detail phase-two-detail analysis-workbench-panel workspace-task-drawer " + (rightCollapsed ? "is-collapsed" : "")}>
+                <ResizableAnalysisPanel collapsed={rightCollapsed} label={rightTaskTitles[rightTab]} width={drawerWidth} onWidthChange={setDrawerWidth} className={"gis-detail phase-two-detail analysis-workbench-panel workspace-task-drawer " + (rightCollapsed ? "is-collapsed" : "")}>
                     <div className="panel-head"><span>{rightTaskTitles[rightTab]}</span><button aria-label="关闭分析结果" onClick={closeSurface}>×</button></div>
                     {rightTab === "action" ? inspectionNavigation : analysisNavigation}
                     {rightTab === "point" && (
@@ -1546,7 +1865,7 @@ function MapWorkspaceView() {
                                         <article><span>近一年速率</span><b>{selectedInsight.recentVelocity === null ? "—" : selectedInsight.recentVelocity.toFixed(2)}</b><small>{selected.series.length >= 2 ? `${selectedInsight.recentStartDate}—${selected.updated}` : "源文件未含逐期时序"}</small></article>
                                         <article className="quality-metric"><span>相干性 / 缺测率</span><b>{selected.coherence ? selected.coherence.toFixed(2) : "未提供"}</b><small>{(selected.missingRate * 100).toFixed(1)}% 缺测</small></article>
                                     </div>
-                                    {selected.series.length >= 2 ? <><div className="chart-head"><div><small>时间序列 · {selected.series.length} 期</small><h3>累计形变时间序列</h3></div><span>mm</span></div><TimeSeriesChart key={selected.id} point={selected} showTrend={showTrend} timeIndex={timeIndex} stageAnalysis={selectedStageAnalysis} exportBusy={exportOperation.state === "running"} onExportChart={svg => exportChart(svg, "point")} /><div className="chart-toggles"><label><input type="checkbox" checked={showTrend} onChange={e => setShowTrend(e.target.checked)} />线性拟合趋势</label><span>阶段速率 {stageVelocity(selected, rangeStart, rangeEnd).toFixed(1)} mm/yr</span></div></> : <section className="empty-curves timeseries-unavailable"><b>原始文件未提供逐期累计形变</b><span>该点仍保留速率、相干性、PASC 六类概率、置信度和空间可靠性；系统不会据此伪造时间序列。</span></section>}
+                                    {selected.series.length >= 2 ? <><div className="chart-head"><div><small>时间序列 · {selected.series.length} 期</small><h3>{selected.observedDates ? "模型预处理时序" : "累计形变时间序列"}</h3></div><span>mm</span></div><TimeSeriesChart key={selected.id} point={selected} showTrend={showTrend} timeIndex={timeIndex} stageAnalysis={selectedStageAnalysis} exportBusy={exportOperation.state === "running"} onExportChart={svg => exportChart(svg, "point")} /><div className="chart-toggles"><label><input type="checkbox" checked={showTrend} onChange={e => setShowTrend(e.target.checked)} />线性拟合趋势</label><span>阶段速率 {stageVelocity(selected, rangeStart, rangeEnd).toFixed(1)} mm/yr</span></div></> : <section className="empty-curves timeseries-unavailable"><b>原始文件未提供逐期累计形变</b><span>该点仍保留速率、相干性、PASC 六类概率、置信度和空间可靠性；系统不会据此伪造时间序列。</span></section>}
                                     {selectedStageAnalysis && <section className="point-stage-analysis"><header><span>{selectedStageAnalysis.source === "provided" ? "变化点结果" : "候选变化点 · 序列估算"}</span><b>{selectedStageAnalysis.changeDate}</b></header><div><article><span>前阶段斜率</span><b>{selectedStageAnalysis.slopeBefore.toFixed(1)}</b><small>mm / yr</small></article><article><span>后阶段斜率</span><b>{selectedStageAnalysis.slopeAfter.toFixed(1)}</b><small>mm / yr</small></article></div><p>{selectedStageAnalysis.method}</p></section>}
                                     <section className="point-explanation">
                                         <span>规则化解读</span>
@@ -1555,7 +1874,9 @@ function MapWorkspaceView() {
                                         {selectedInsight.explanation.map(sentence => <p key={sentence}>{sentence}</p>)}
                                         <small>解释仅基于当前点位数值、质量指标和已有模式字段，不构成工程安全判断或灾害预警。</small>
                                     </section>
-                                    <dl className="point-fields"><div><dt>点位编号</dt><dd>{selected.id}</dd></div><div><dt>当前渲染</dt><dd>{attributeNames[attribute]}</dd></div><div><dt>最近观测</dt><dd>{selected.updated}</dd></div><div><dt>有效期数</dt><dd>{selected.series.length} 期</dd></div></dl>
+                                    <button className="workspace-text-action" onClick={() => addPointToRoute(selected)}>加入考察目标</button>
+                                    {selected.observedSeries && <details className="local-observed-series"><summary>查看原始实测值与缺测标记</summary><p>异常依据使用真实观测；图表主曲线是模型预处理时序。</p><div style={{ maxHeight: 180, overflow: "auto" }}><table><thead><tr><th>日期</th><th>实测位移 mm</th></tr></thead><tbody>{selected.observedDates?.map((date, index) => <tr key={date}><td>{date}</td><td>{Number.isFinite(selected.observedSeries?.[index]) && (!selected.observedMask || selected.observedMask[index]) ? selected.observedSeries![index].toFixed(1) : "缺测"}</td></tr>)}</tbody></table></div></details>}
+                                    <dl className="point-fields"><div><dt>点位编号</dt><dd>{selected.id}</dd></div><div><dt>当前渲染</dt><dd>{attributeNames[attribute]}</dd></div><div><dt>最近观测</dt><dd>{selected.updated}</dd></div><div><dt>有效期数</dt><dd>{selected.effectiveEpochCount ?? selected.series.length} 期实测</dd></div></dl>
                                     <button className="button primary export-button" disabled={exportOperation.state === "running"} onClick={exportPoint}>导出单点 CSV ↓</button>
                                 </>
                             ) : !compared.length && !activeFieldObservation && (
@@ -1578,7 +1899,13 @@ function MapWorkspaceView() {
                                 result={anomalyRegionResult}
                                 activeRegionId={activeAnomalyRegionId}
                                 onSelect={focusAnomalyRegion}
-                                onShowAll={() => showAllAnomalyPoints(`已恢复全部 ${anomalyDiscovery.points.length.toLocaleString()} 个异常候选点。`)}
+                                onShowAll={() => showAllAnomalyPoints("已恢复全部异常聚集点。")}
+                                onShowIsolated={() => showAllAnomalyPoints("正在查看离散大值点，它们不计入聚集异常。", "isolated")}
+                                onShowExcluded={() => showAllAnomalyPoints("正在复核因质量排除的大值点，它们不计入异常。", "excluded")}
+                                selection={prioritySelection}
+                                view={anomalyView}
+                                evaluationDate={detectionDate}
+                                dataNote={anomalyDataNote}
                                 onParametersChange={changeAnomalyRegionParameters}
                             />}
                             {boxStats ? (
@@ -1588,7 +1915,7 @@ function MapWorkspaceView() {
                                         <h3>{analysis.selectedRegion?.label || (activeFilter === "none" ? "自定义分析区域" : "当前筛选结果")}</h3>
                                         <p>{analysis.timeRange.startDate}—{analysis.timeRange.endDate} · 当前期 {currentDate}</p>
                                     </header>
-                                    {activeFilter === "anomaly" && <div className="anomaly-result-banner"><b>{activeAnomalyRegionId ? `正在分析异常区域 ${activeAnomalyRegionId}` : `发现 ${anomalyDiscovery.summary.total.toLocaleString()} 个异常监测点`}</b><span>{activeAnomalyRegionId ? "当前统计来自该区域内真实候选点；边界为监测点分析包络。" : `${anomalyRegionResult.assignedPointCount.toLocaleString()} 点形成 ${anomalyRegionResult.regions.length.toLocaleString()} 个空间支持区域，另有 ${anomalyRegionResult.noisePointCount.toLocaleString()} 个离散候选点。`}</span></div>}
+                                    {activeFilter === "anomaly" && <div className="anomaly-result-banner"><b>{activeAnomalyRegionId ? `正在分析异常聚集区 ${activeAnomalyRegionId}` : anomalyView === "clustered" ? `${prioritySelection.anomalies.length} 个聚集异常点` : anomalyView === "isolated" ? "离散大值点 · 不计入异常" : "质量排除点 · 不计入异常"}</b><span>发现依据：全期速率与 {detectionDate || "末期"} 累计量；下方当前形变统计随时间轴回看。</span></div>}
                                     <div><span>AOI 面积</span><b>{boxStats.areaKm2 === null ? "—" : boxStats.areaKm2 < 1 ? boxStats.areaKm2.toFixed(3) : boxStats.areaKm2.toFixed(2)}</b><small>{boxStats.areaKm2 === null ? "属性筛选无绘制面积" : "km² · WGS84 球面估算"}</small></div>
                                     <div><span>{activeFilter === "none" ? "区域点数" : "筛选点数"}</span><b>{boxPoints.length.toLocaleString()}</b><small>个有效监测点</small></div>
                                     <div><span>平均速率</span><b>{boxStats.avg.toFixed(1)}</b><small>mm/yr</small></div>
@@ -1596,13 +1923,13 @@ function MapWorkspaceView() {
                                     {hasTimeSeries ? <><div><span>平均 / 中位当前形变</span><b>{boxStats.averageCurrent.toFixed(1)} / {boxStats.medianCurrentDisplacement.toFixed(1)}</b><small>mm</small></div><div><span>最大累计量</span><b>{boxStats.max.toFixed(1)}</b><small>mm · 绝对值</small></div></> : <div><span>数据形态</span><b>原始密集点</b><small>源文件未提供逐期累计形变</small></div>}
                                     <div><span>速率范围</span><b>{boxStats.minVelocity.toFixed(1)}—{boxStats.maxVelocity.toFixed(1)}</b><small>mm/yr</small></div>
                                     <div><span>平均相干性</span><b>{boxStats.averageCoherence === null ? "未提供" : boxStats.averageCoherence.toFixed(2)}</b><small>{boxStats.lowCoherenceCount} 个低相干 · {boxStats.missingDataCount} 个高缺测</small></div>
-                                    {activeFilter === "anomaly" && <div className="anomaly-rule-stats"><span>{activeAnomalyRegion ? `${activeAnomalyRegion.id} 规则证据` : "全部候选筛选依据"}</span><small>明显沉降 · {(activeAnomalyRegion?.clearSubsidenceCount ?? anomalyDiscovery.summary.clearSubsidence).toLocaleString()}</small><small>加速沉降模式 · {(activeAnomalyRegion?.acceleratingCount ?? anomalyDiscovery.summary.accelerating).toLocaleString()}</small><small>阶段形变模式 · {(activeAnomalyRegion?.piecewiseCount ?? anomalyDiscovery.summary.pattern).toLocaleString()}</small><small>{activeAnomalyRegion ? `邻域 ${anomalyRegionResult.parameters.radiusMeters} m · 最少 ${anomalyRegionResult.parameters.minimumPoints} 点` : `排除低质量 · ${anomalyDiscovery.summary.excludedLowQuality.toLocaleString()}`}</small></div>}
+                                    {activeFilter === "anomaly" && <div className="anomaly-rule-stats"><span>双指标 AND 同向聚集</span><small>|速率| ≥ {prioritySelection.thresholds.velocityMmPerYear} mm/yr</small><small>|累计量| ≥ {prioritySelection.thresholds.displacementMm} mm</small><small>邻域 {anomalyRadiusMeters} m · 至少 {anomalyMinimumPoints} 个不同位置</small><small>相干性待核实 · {boxPoints.filter(point => priorityLimitedPointIds.includes(point.id)).length}</small></div>}
                                     <div className="mode-breakdown"><span>形变模式统计</span>{deformationModeOrder.filter(mode => boxStats.modes[mode]).map(mode => <small key={mode} style={{ borderLeft: "4px solid " + colorForMode(mode) }}>{mode} · {boxStats.modes[mode].toLocaleString()} 点 · {((boxStats.modes[mode] / boxPoints.length) * 100).toFixed(0)}%</small>)}</div>
-                                    {hasTimeSeries ? <AoiTimeSeriesChart points={boxPoints} exportBusy={exportOperation.state === "running"} onExportData={exportAoiSeries} onExportChart={svg => exportChart(svg, "aoi")} /> : <div className="empty-curves timeseries-unavailable"><b>区域时序不可用</b><span>区域速率、相干性和形变模式统计仍来自当前框选的真实密集点。</span></div>}
+                                    <p className="layer-rule-note">异常分析范围：{anomalyScopeLabel}。圈选范围内的点并不自动视为异常。</p><button type="button" className="workspace-text-action" disabled={!boxPoints.length} onClick={useSelectedAnomalyScope}>用当前选区发现异常</button>{hasTimeSeries ? <AoiTimeSeriesChart points={boxPoints} loadSeries={localDataset ? loadSelectedAoiSeries : undefined} exportBusy={exportOperation.state === "running"} onExportData={exportAoiSeries} onExportChart={svg => exportChart(svg, "aoi")} /> : <div className="empty-curves timeseries-unavailable"><b>区域时序不可用</b><span>区域速率、相干性和形变模式统计仍来自当前框选的真实密集点。</span></div>}
                                     <div className="region-summary-actions phase-six-region-actions"><button disabled={exportOperation.state === "running"} onClick={exportAoiPoints}>导出 AOI 点位 CSV</button><Link href="/statistics">进入区域统计</Link><button onClick={clearRegionSelection}>清除区域与结果</button></div>
                                 </section>
                             ) : (
-                                <section className="region-empty"><b>{activeFilter === "anomaly" ? "暂无可靠异常筛选结果" : analysis.selectedRegion ? "AOI 内没有监测点" : "尚未建立分析区域"}</b><span>{activeFilter === "anomaly" ? "当前数据没有通过质量规则且符合异常筛选条件的监测点。" : analysis.selectedRegion ? "绘制几何已保留在地图上；请扩大区域或清除后重新绘制。" : "可拖动绘制矩形，或单击添加多边形顶点并双击完成；真实点位统计和聚合时序会保留在右侧。"}</span></section>
+                                <section className="region-empty"><b>{analysis.selectedRegion?.pointIdsComplete === false ? "已恢复分析范围，请重新圈选点位" : activeFilter === "anomaly" ? "当前视图没有符合条件的点" : analysis.selectedRegion ? "AOI 内没有监测点" : "尚未建立分析区域"}</b><span>{analysis.selectedRegion?.pointIdsComplete === false ? `上次选区包含 ${analysis.selectedRegion.pointCount?.toLocaleString() ?? "多"} 个点；恢复仅保留范围信息，重新圈选后才能统计和分析。` : activeFilter === "anomaly" ? `幅值达标 ${prioritySelection.amplitudeCandidates.length} 点；质量排除 ${prioritySelection.excludedLowQuality.length} 点；离散待查 ${prioritySelection.isolated.length} 点。可在上方分别复核；没有聚集结果不等于没有形变。` : analysis.selectedRegion ? "绘制几何已保留在地图上；请扩大区域或清除后重新绘制。" : "可拖动绘制矩形，或单击添加多边形顶点并双击完成；真实点位统计和聚合时序会保留在右侧。"}</span></section>
                             )}
                         </div>
                     )}
@@ -1619,6 +1946,8 @@ function MapWorkspaceView() {
                                 clusterMinimumPoints={anomalyRegionResult.parameters.minimumPoints}
                                 onDiscover={discoverInspectionCandidates}
                                 onFocus={focusInspectionCandidate}
+                                onAddRegionToNavigation={addRegionToRoute}
+                                navigationBusy={priorityState !== "ready"}
                                 onClearFocus={() => showAllAnomalyPoints("已取消当前空间分组，地图恢复显示全部异常候选点。")}
                                 onOpenLayers={() => { setLeftCollapsed(false); setRightCollapsed(true); setLeftTab("layers"); }}
                                 onOpenAi={() => { setRightTab("ai"); setRightCollapsed(false); setLeftCollapsed(true); }}
@@ -1627,18 +1956,21 @@ function MapWorkspaceView() {
                         </div>
                     )}
 
-                    {rightTab === "pasc" && (
-                        <div id="right-workspace-panel-pasc" className="workspace-tab-panel pasc-workspace-tab" role="region" aria-label="模式识别">
+                    {(rightTab === "pasc" || Boolean(localPascFile)) && (
+                        <div id="right-workspace-panel-pasc" hidden={rightTab !== "pasc"} style={rightTab !== "pasc" ? { display: "none" } : undefined} className="workspace-tab-panel pasc-workspace-tab" role="region" aria-label="模式识别">
                             <section className="pasc-execution-switch" aria-label="PASC 执行模式">
                                 <div><small>执行方式</small><b>分析执行位置</b></div>
-                                <span><button className={pascExecutionMode === "local" ? "active" : ""} onClick={() => setPascExecutionMode("local")}>Local · 浏览器</button><button className={pascExecutionMode === "legacy" ? "active" : ""} onClick={() => setPascExecutionMode("legacy")}>Legacy · 服务端</button></span>
+                                <span><button className={pascExecutionMode === "local" ? "active" : ""} onClick={() => setPascExecutionMode("local")}>浏览器本地 · 默认</button><button disabled={USER_DATA_LOCAL_ONLY} className={pascExecutionMode === "legacy" ? "active" : ""} onClick={() => { if (!USER_DATA_LOCAL_ONLY) setPascExecutionMode("legacy"); }}>{USER_DATA_LOCAL_ONLY ? "云端分析 · 已关闭" : "云端分析 · 备用"}</button></span>
                             </section>
-                            {pascExecutionMode === "local" ? <PascLocalWebGis
+                            <p className="layer-rule-note">日期列会自动识别并按时间排序，支持 D20240101、D_20240101、20240101、D_2024-01-01 等表头。选择文件后可查看实际期数与日期范围，核对设置后再开始分析。</p>
+                            {USER_DATA_LOCAL_ONLY && <p className="layer-rule-note">所有大小的 CSV 均使用本机处理路径，不会转为云端任务。本机资源和缓存按当前浏览器、网站域名隔离；更换域名或清理浏览器后需重新选文件，请下载保存结果。</p>}
+                            {pascExecutionMode === "local" || USER_DATA_LOCAL_ONLY ? <PascLocalWebGis
                                 key={localPascFile ? `${localPascFile.name}:${localPascFile.size}:${localPascFile.lastModified}` : "no-local-file"}
                                 file={localPascFile}
-                                authenticated={Boolean(account)}
-                                onChooseFile={() => fileRef.current?.click()}
+                                initialSettings={localImportSettings}
+                                onChooseFile={chooseImportFile}
                                 onApplied={applyLocalResult}
+                                onDiscard={discardLocalAnalysis}
                                 onFilter={applyPascResultFilter}
                             /> : <PascOnlineRecognition
                                 totalPoints={points.length}
@@ -1662,7 +1994,7 @@ function MapWorkspaceView() {
                     {rightTab === "ai" && (
                         <div id="right-workspace-panel-ai" className="workspace-tab-panel ai-analysis-tab" role="region" aria-label="AI 解读">
                             <AiEvidencePanel context={localAiContext} onAction={handleEvidenceAction} />
-                            <section className="ai-context-panel phase-five-ai-panel">
+                            {USER_DATA_LOCAL_ONLY ? <section className="ai-context-panel"><h3>外部 AI 已关闭</h3><p>数据摘要不会发送给站点后端或外部模型。上方分析助手在当前电脑处理当前数据。</p></section> : <section className="ai-context-panel phase-five-ai-panel">
                                 <header className="ai-panel-heading"><div><small>可选增强 · 会消耗模型额度</small><h3>外部模型区域解读（可选）</h3></div><div className="ai-panel-heading-actions"><span>{aiAccessMode === "site" ? "可选站点额度" : (personalAiProvider === "bailian" ? "百炼" : "DeepSeek") + " · 个人额度"}</span><button type="button" onClick={() => setAiSettingsOpen(true)}>配置 API</button></div></header>
                                 <p>上方分析助手直接处理当前数据。本区仅在你主动点击后调用外部模型，并且只发送不超过 12 KB 的脱敏聚合摘要。</p>
                                 <div className="ai-input-summary">
@@ -1688,6 +2020,7 @@ function MapWorkspaceView() {
                                 </details>
                                 {aiSettingsMessage && <p className="ai-config-success" role="status">{aiSettingsMessage}<button type="button" onClick={() => setAiSettingsOpen(true)}>修改</button></p>}
 
+                                {localDataset && boxPoints.some(point => !point.localSeriesHydrated) && <p className="layer-rule-note">大文件选区的完整时序按需载入，当前不生成依赖全部曲线的 AI 摘要。可在区域分析计算全量原始观测时序。</p>}
                                 {aiStatus === "idle" && <div className="ai-idle-state"><span>解读准备</span><b>{regionalAiSummary ? "区域摘要已准备" : "请先建立区域分析对象"}</b><p>{regionalAiSummary ? aiAccessMode === "site" ? "点击一次即可生成解读；使用站点额度，不需要任何配置。" : personalAiKey.trim().length >= 8 ? "将使用你的" + (personalAiProvider === "bailian" ? "百炼" : " DeepSeek") + "额度，Key 不会被保存。" : "请在上方 AI 服务设置中填写你的 API Key。" : "可前往区域分析使用矩形框选，或者运行一次异常发现。"}</p><button disabled={!regionalAiSummary || (aiAccessMode === "personal" && personalAiKey.trim().length < 8)} onClick={() => void runAiInterpretation()}>开始 AI 解读</button></div>}
                                 {aiStatus === "running" && <div className="ai-loading-state" role="status"><i/><b>正在生成区域解读</b><span>{aiAccessMode === "site" ? "正在调用站点配置的模型，请稍候…" : "正在使用你的个人额度调用模型，Key 用后即丢…"}</span></div>}
                                 {aiStatus === "error" && <div className="ai-error-state" role="alert"><span>解读中断</span><b>本次解读未完成</b><p>{aiError}</p><div><button onClick={() => void prepareAiInterpretation()}>使用免费网页备用</button><button onClick={() => void runAiInterpretation()}>重试 AI 解读</button></div></div>}
@@ -1721,7 +2054,7 @@ function MapWorkspaceView() {
                                     <div className="ai-next-actions"><span>继续分析</span><button onClick={discoverAnomalies}>定位异常点</button><button onClick={showPrimaryModes}>查看主要模式</button><button onClick={downloadAiSummary}>生成分析摘要</button></div>
                                     <small className="ai-boundary">结果只解释当前结构化统计，不构成工程安全判断、灾害预测或处置建议。</small>
                                 </div>}
-                            </section>
+                            </section>}
                         </div>
                     )}
                 </ResizableAnalysisPanel>
@@ -1734,10 +2067,10 @@ function MapWorkspaceView() {
                 <p>条件：{analysis.filters.description || "未启用"} · 区域：{analysis.selectedRegion?.label || "尚未建立区域"} · 选点：{selected?.id || "无"}</p>
             </section>
             <footer className="timeline-bar phase-two-timeline">
-                {hasTimeSeries ? <><span>{points[0]?.dates?.[0] || "起始"}</span><input type="range" min="0" max={Math.max(0, periodCount - 1)} value={Math.min(timeIndex, periodCount - 1)} onChange={e => { setTimeIndex(+e.target.value); if (attribute !== "displacement") setAttribute("displacement"); }} aria-label="观测日期与累计形变渲染时间轴" /><b>{currentDate}</b><small>{timeIndex + 1} / {periodCount} 期</small></> : <><span>原始密集点结果</span><span className="timeline-static-note">逐期累计形变未随源文件提供</span><b>速率 / 分类</b><small>{points.length.toLocaleString()} 点</small></>}
+                {hasTimeSeries ? <><span>{points[0]?.dates?.[0] || "起始"}</span><input type="range" min="0" max={Math.max(0, periodCount - 1)} value={Math.min(timeIndex, periodCount - 1)} onChange={e => { setTimeIndex(+e.target.value); if (attribute !== "displacement") setAttribute("displacement"); }} aria-label={localDataset ? "模型预处理日期与累计形变渲染时间轴" : "观测日期与累计形变渲染时间轴"} /><b>{currentDate}</b><small>{timeIndex + 1} / {periodCount} {localDataset ? "模型节点" : "期"}</small></> : <><span>原始密集点结果</span><span className="timeline-static-note">逐期累计形变未随源文件提供</span><b>速率 / 分类</b><small>{points.length.toLocaleString()} 点</small></>}
                 <button className="workspace-time-action" onClick={() => openLeft("time")}>区间分析</button>
             </footer>
-            <div className="workspace-status-line" role="status"><span title={busy || status}>{busy || status}</span><b>{mapVisiblePointCount.toLocaleString()} / {points.length.toLocaleString()} 点显示</b>{activeFilter !== "none" && <button onClick={() => openLeft("filters")}>筛选已生效</button>}</div>
+            <div className="workspace-status-line" role="status">{navigationActive ? <><span>路线计算：滴图 Web 服务 · 当前底图独立于路线服务 · 选点不调用驾车接口</span><small className="workspace-boundary-note">非商业作品集 · 路线规划，非实时语音导航</small></> : <><span title={busy || status}>{busy || status}</span><b>{mapVisiblePointCount.toLocaleString()} / {points.length.toLocaleString()} 点显示</b><small className="workspace-boundary-note" title="本平台仅用于非商业作品集演示和现场辅助核查，不代表权威路网，也不构成工程安全判断。">作品集演示 · 非权威路网</small>{importCoherenceMin !== null && <button type="button" onClick={() => { setImportCoherenceMin(null); setStatus("已恢复显示全部有效点，原始数据未改变。"); }}>相干性 ≥ {importCoherenceMin.toFixed(2)} · 清除</button>}{activeFilter !== "none" && <button onClick={() => openLeft("filters")}>筛选已生效</button>}</>}</div>
 
             {sourceOpen && (
                 <div className="config-backdrop" onMouseDown={() => setSourceOpen(false)}>
@@ -1756,7 +2089,7 @@ function MapWorkspaceView() {
                 <div className="config-backdrop">
                     <section className="config-dialog mapping-dialog" role="dialog" aria-modal="true">
                         <button className="dialog-close" onClick={() => setMappingOpen(false)}>×</button><span className="eyebrow">FIELD MAPPING</span><h2>CSV 字段映射向导</h2>
-                        <p>确认系统识别结果。带 * 的字段必须指定；日期列按列名自动识别。</p>
+                        <p>确认系统识别结果。带 * 的字段必须指定；日期列按列名自动识别并按时间排序，支持 D20240101、D_20240101、20240101、D_2024-01-01 等表头。</p>
                         <div className="mapping-grid">{fieldLabels.map(field => <label key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><select value={mapping[field.key]} onChange={e => setMapping({ ...mapping, [field.key]: e.target.value })}><option value="">— 不使用 —</option>{inspection.headers.map(h => <option value={h} key={h}>{h}</option>)}</select></label>)}</div>
                         <div className="pasc-mapping-confirmations">
                             <label><span>形变单位 *</span><select value={mapping.displacementUnit ?? "unknown"} onChange={e => setMapping({ ...mapping, displacementUnit: e.target.value as CsvMapping["displacementUnit"] })}><option value="unknown">待确认</option><option value="mm">mm</option><option value="cm">cm</option><option value="m">m</option></select></label>
@@ -1764,7 +2097,7 @@ function MapWorkspaceView() {
                             <label><span>形变正负号 *</span><select value={mapping.signConvention ?? "unknown"} onChange={e => setMapping({ ...mapping, signConvention: e.target.value as CsvMapping["signConvention"] })}><option value="unknown">待确认</option><option value="toward_satellite_positive">朝卫星为正</option><option value="away_from_satellite_positive">远离卫星为正</option></select></label>
                             <label><span>预处理状态 *</span><select value={mapping.preprocessingState ?? "unknown"} onChange={e => setMapping({ ...mapping, preprocessingState: e.target.value as CsvMapping["preprocessingState"] })}><option value="unknown">待确认</option><option value="raw">raw</option><option value="already_smoothed">already_smoothed</option></select></label>
                         </div>
-                        <div className="mapping-dates"><b>累计形变日期列</b><span>已识别 {mapping.timeCols.length} 列</span><small>{mapping.timeCols.slice(0, 6).join("、")}{mapping.timeCols.length > 6 ? " …" : ""}</small></div>
+                        <div className="mapping-dates"><b>累计形变日期列</b><span>已自动找到 {mappingDates.length} 期 · {mapping.timeCols.length} 列</span><small>{mappingDates.length ? `${mappingDates[0].canonical} 至 ${mappingDates.at(-1)!.canonical} · ` : "未找到有效日期 · "}{mapping.timeCols.slice(0, 6).join("、")}{mapping.timeCols.length > 6 ? " …" : ""}</small></div>
                         {inspection.warnings.length > 0 && <ul className="mapping-warnings">{inspection.warnings.map(w => <li key={w}>{w}</li>)}</ul>}
                         <div className="dialog-actions"><button className="button ghost" onClick={() => setMappingOpen(false)}>取消</button><button className="button primary" onClick={confirmMapping}>验证并导入</button></div>
                     </section>
@@ -1784,10 +2117,10 @@ function MapWorkspaceView() {
             {guideOpen && (
                 <div className="config-backdrop" onMouseDown={() => setGuideOpen(false)}>
                     <section className="config-dialog csv-guide" onMouseDown={e => e.stopPropagation()}>
-                        <button className="dialog-close" onClick={() => setGuideOpen(false)}>×</button><span className="eyebrow">CSV SCHEMA</span><h2>CSV 数据规范</h2>
-                        <div className="schema-grid"><article><b>能力字段</b><p>经纬度必需；velocity 可缺失，有至少 2 个真实日期值时按最小二乘计算。20 期为扩展实验门槛；20—39 期仅供探索性判读。</p></article><article><b>PASC 六分类</b><p>固定 Stable、Linear、Piecewise、Decelerating、Accelerating、Undefined；Stepwise 只标 legacy。</p></article><article><b>确认项</b><p>单位、符号和 raw / already_smoothed 必须明确确认，禁止按数值猜测。</p></article><article><b>本阶段边界</b><p>Phase A 只做兼容性与离线结果展示，不执行 Adapter、SG 或在线推理。</p></article></div>
+                        <button className="dialog-close" onClick={() => setGuideOpen(false)}>×</button><span className="eyebrow">WORKSPACE GUIDE</span><h2>分析与外业核查指南</h2>
+                        <div className="schema-grid"><article><b>数据字段</b><p>经纬度必需；velocity 可缺失，有至少 2 个真实日期值时按最小二乘计算。20 期为扩展实验门槛；20—39 期仅供探索性判读。</p></article><article><b>PASC 六分类</b><p>固定 Stable、Linear、Piecewise、Decelerating、Accelerating、Undefined；Stepwise 只标 legacy。</p></article><article><b>导入确认</b><p>单位、符号和 raw / already_smoothed 必须明确确认，禁止按数值猜测；字段导入不等于已执行模型识别。</p></article><article><b>外业驾车规划</b><p>在“驾车”中手动选择起点、终点与途经点，按需设置停留时间和访问顺序。路线由滴图 Web 服务生成，与 OSM 等底图独立。</p></article><article><b>进入条件核验</b><p>路线生成不等于入口已核验。停车、禁入、封路与最后一段接近方式需人工确认；本平台不提供实时导航或通行保证。</p></article><article><b>现场证据</b><p>在“核查”的现场记录中保存位置、照片与说明，复核监测点关联。现场记录与分析结果均需保留来源和适用边界。</p></article></div>
                         <div className="csv-example"><code>point_id,longitude,latitude,velocity,label,mode_source,confidence,coherence,D20200101,D20200113</code></div>
-                        <div className="dialog-actions"><button className="button ghost" onClick={() => setGuideOpen(false)}>继续体验示例</button><button className="button primary" onClick={() => { setGuideOpen(false); fileRef.current?.click(); }}>选择本地 CSV</button></div>
+                        <div className="dialog-actions"><button className="button ghost" onClick={() => setGuideOpen(false)}>继续体验示例</button><button className="button primary" onClick={() => { setGuideOpen(false); chooseImportFile(); }}>选择本地 CSV</button></div>
                     </section>
                 </div>
             )}

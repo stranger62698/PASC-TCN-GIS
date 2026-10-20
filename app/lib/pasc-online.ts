@@ -373,8 +373,8 @@ export function mergePascOnlineResults(points: InsarPoint[], value: unknown): { 
 
 export function filterPascOnlinePoints(points: InsarPoint[], filter: PascOnlineFilter) {
   return points.filter(point => filter === "lowConfidence"
-    ? point.pasc?.lowConfidence === true
-    : point.pasc?.spatialApplicability === "limited_reference");
+    ? point.localSeriesIndex !== undefined ? typeof point.modeConfidence === "number" && point.modeConfidence < 0.6 : point.pasc?.lowConfidence === true
+    : (point.spatialApplicability ?? (point.localSeriesIndex === undefined ? point.pasc?.spatialApplicability : undefined)) === "limited_reference");
 }
 
 export class PascProxyError extends Error {

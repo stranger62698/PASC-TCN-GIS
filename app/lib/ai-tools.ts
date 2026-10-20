@@ -4,13 +4,13 @@ import { analyzeRoadRisk, type InsarSpatialMetric } from "./road-landslide-analy
 import { retrieveKnowledge } from "./rag-retriever";
 import { runBatchedSpatialTask } from "./spatial-analysis";
 
-export type AiPointMetric = InsarSpatialMetric & { name?: string; coherence?: number; missingRate?: number; modeConfidence?: number };
+export type AiPointMetric = InsarSpatialMetric & { name?: string; coherence?: number; missingRate?: number; modeConfidence?: number | null };
 export type LocalAiContext = { points: AiPointMetric[]; allPoints?: AiPointMetric[]; scopeLabel: string; scopeBounds?: GisBounds | null; activePoint?: AiPointMetric | null; layers: GisLayer[] };
 
 const UNSUPPORTED = /预测.*(时间|日期)|什么时候.*发生|灾害.*发生(时间|日期)|发生日期|确定.*原因|天气预报|法律责任|自动处置|替我.*确认/;
 
 function format(value: number | null, digits = 1) { return value === null || !Number.isFinite(value) ? "—" : value.toFixed(digits); }
-function modeKey(value: string | undefined) {
+function modeKey(value: string | null | undefined) {
   const mode = String(value ?? "").trim().toLowerCase();
   if (/stable|稳定/.test(mode)) return "stable";
   if (/accelerat|加速/.test(mode)) return "accelerating";

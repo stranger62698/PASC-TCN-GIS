@@ -95,6 +95,7 @@ export type DatasetParseResult = {
 
 export type RenderAttribute = "velocity" | "displacement" | "stageVelocity" | "mode" | "coherence" | "missing";
 export type RenderStyle = {
+  dataRevision?: number;
   attribute: RenderAttribute;
   min: number;
   max: number;
@@ -107,6 +108,9 @@ export type RenderStyle = {
 
 /** Official GRASS bcyr rule nodes: blue -> cyan -> yellow -> red. */
 export const GRASS_BCYR_COLORS = ["#0000ff", "#00ffff", "#ffff00", "#ff0000"] as const;
+
+/** Default InSAR display ramp: negative deformation is red and positive deformation is green. */
+export const INSAR_RED_GREEN_COLORS = ["#c92f2f", "#ef6548", "#fdbb6c", "#fff2a6", "#b8df82", "#55a868", "#18794e"] as const;
 
 const extraAliases = {
   velocity: ["average_velocity", "v", "速率"],
@@ -144,7 +148,8 @@ export const resemblesDateField = resemblesPascDateField;
 export function inspectCsv(text: string): CsvInspection {
   const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter(line => line.trim());
   if (lines.length < 2) throw new Error("CSV 至少需要标题行和一行数据");
-  const headers = splitCsv(lines[0]);
+  const headers = splitCsv(lines[0]).map(header => header.trim());
+  if (new Set(headers).size !== headers.length) throw new Error("CSV 表头去除首尾空白后存在重复字段名，请重命名后重试。");
   const dateAnalysis = analyzePascDateColumns(headers);
   const timeCols = uniqueSortedDateColumns(dateAnalysis).map(item => item.original);
   const semantics: PascSemanticField[] = ["point_id", "longitude", "latitude", "velocity", "coherence", "project_name"];
@@ -207,6 +212,7 @@ function detectCategorical(headers: string[], rows: string[][], blocked: Set<num
 }
 
 const numeric = (value: string | undefined) => {
+  if (value === undefined || value.trim() === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
@@ -383,7 +389,8 @@ export function parseMappedCsv(text: string, fileName: string, mapping: CsvMappi
   void strictVelocity;
   const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter(line => line.trim());
   if (lines.length < 2) throw new Error("CSV 至少需要标题行和一行数据");
-  const headers = splitCsv(lines[0]);
+  const headers = splitCsv(lines[0]).map(header => header.trim());
+  if (new Set(headers).size !== headers.length) throw new Error("CSV 表头去除首尾空白后存在重复字段名，请重命名后重试。");
   const rows = lines.slice(1).map(splitCsv);
   const index = (field: string) => field ? headers.indexOf(field) : -1;
   const resolved: CsvMapping = {
@@ -393,13 +400,20 @@ export function parseMappedCsv(text: string, fileName: string, mapping: CsvMappi
     signConvention: mapping.signConvention ?? "unknown",
     preprocessingState: mapping.preprocessingState ?? "unknown",
   };
-  const dateAnalysis = analyzePascDateColumns(headers, resolved.timeCols);
+  const selectedDateAnalysis = analyzePascDateColumns(headers, resolved.timeCols);
+  const selectedDates = new Set(selectedDateAnalysis.parsed.map(date => date.canonical));
+  // Automatic mapping keeps one column per day; still validate every alias for a used day.
+  const dateAnalysis = {
+    ...selectedDateAnalysis,
+    duplicateDates: analyzePascDateColumns(headers).duplicateDates.filter(group => selectedDates.has(group.canonical)),
+  };
   if (dateAnalysis.failed.length) throw new Error(`PASC_DATE_PARSE_FAILED：${dateAnalysis.failed.join("、")}`);
   rows.forEach((row, rowIndex) => {
     const conflicts = duplicateDateConflicts(row, headers, dateAnalysis);
     if (conflicts.length) throw new Error(`PASC_DUPLICATE_DATE_CONFLICT：第 ${rowIndex + 2} 行 ${conflicts.map(group => group.canonical).join("、")}`);
   });
-  const dateFields = uniqueSortedDateColumns(dateAnalysis);
+  const duplicateDateIndexes = new Map(dateAnalysis.duplicateDates.map(group => [group.canonical, group.fields.map(index)]));
+  const dateFields = uniqueSortedDateColumns(dateAnalysis).map(date => ({ ...date, sourceIndexes: duplicateDateIndexes.get(date.canonical) ?? [date.index] }));
   let modeField = resolved.mode;
   const blocked = new Set([
     resolved.lon, resolved.lat, resolved.velocity, resolved.id, resolved.modeSource,
@@ -437,7 +451,11 @@ export function parseMappedCsv(text: string, fileName: string, mapping: CsvMappi
     const series: number[] = [], dates: string[] = [];
     let missing = 0;
     dateFields.forEach(date => {
-      const value = numeric(cells[date.index]);
+      let value: number | null = null;
+      for (const sourceIndex of date.sourceIndexes) {
+        value = numeric(cells[sourceIndex]);
+        if (value !== null) break;
+      }
       if (value === null) missing += 1;
       else { const converted = value * displacementFactor * signFactor; series.push(converted === 0 ? 0 : converted); dates.push(date.canonical); }
     });
@@ -567,12 +585,21 @@ export function parseMappedCsv(text: string, fileName: string, mapping: CsvMappi
 export function stageVelocity(point: InsarPoint, start: number, end: number) {
   const first = Math.max(0, Math.min(start, end));
   const last = Math.min(point.series.length - 1, Math.max(start, end));
+  if (point.renderStageStart === first && point.renderStageEnd === last) return point.renderStageVelocity ?? NaN;
+  if (point.localSeriesIndex !== undefined && !point.localSeriesHydrated) return NaN;
   return slopePerYear(point.series.slice(first, last + 1), point.dates?.slice(first, last + 1) ?? []);
+}
+
+/** A loaded display column remains available even after the detailed row cache evicts it. */
+export function renderedDisplacementAt(point: InsarPoint, timeIndex: number) {
+  const index = Math.min(Math.max(0, timeIndex), Math.max(0, point.series.length - 1));
+  if (point.renderTimeIndex === index) return point.renderDisplacement ?? NaN;
+  return point.series[index] ?? point.displacement;
 }
 
 export function renderValue(point: InsarPoint, style: RenderStyle) {
   switch (style.attribute) {
-    case "displacement": return point.series[Math.min(style.timeIndex, point.series.length - 1)] ?? point.displacement;
+    case "displacement": return renderedDisplacementAt(point, style.timeIndex);
     case "stageVelocity": return stageVelocity(point, style.rangeStart, style.rangeEnd);
     case "coherence": return point.coherence;
     case "missing": return point.missingRate * 100;

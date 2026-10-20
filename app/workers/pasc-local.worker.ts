@@ -14,7 +14,8 @@ import {
   type PascLocalPreparedData,
 } from "../lib/pasc-local-preprocess";
 import { quantizeInsarSeries } from "../lib/insar-precision";
-import { PASC_LOCAL_MAP_SAMPLE_POINTS, assertLocalFileSize, isStreamingLocalFile } from "../lib/pasc-local-limits";
+import { encodeLocalSeriesRows, localSeriesRecordBytes } from "../lib/local-series-store";
+import { assertLocalFileSize, isStreamingLocalFile, requiresLocalCsvSplit } from "../lib/pasc-local-limits";
 import type {
   PascLocalCompletePayload,
   PascLocalWorkerRequest,
@@ -265,7 +266,7 @@ async function createSession(forceWasm: boolean) {
   ort.env.logLevel = "warning";
   ort.env.wasm.numThreads = 1;
   ort.env.wasm.proxy = false;
-  ort.env.wasm.wasmPaths = "/__pasc-local/worker/";
+  ort.env.wasm.wasmPaths = new URL("./", workerScope.location.href).href;
   const hasWebGpu = !forceWasm && Boolean((workerScope.navigator as Navigator & { gpu?: unknown }).gpu);
   if (hasWebGpu) {
     try {
@@ -283,373 +284,220 @@ async function createSession(forceWasm: boolean) {
   };
 }
 
-type LargeSampleRecord = {
-  pointId: string;
-  rawModeIndex: number;
-  modeIndex: number;
-  confidence: number;
-  probabilities: Float32Array;
-  longitude: number;
-  latitude: number;
-  velocity: number;
-  velocityProvided: number;
-  coherence: number;
-  coherenceProvided: number;
-  missingRate: number;
-  displacementSeries: Int32Array;
-  spatialReliability: number;
-  spatialGateMean: number;
-  spatialReferenceSource: number;
+type Predictions = {
+  rawModeIndex: Uint8Array; modeIndex: Uint8Array; confidence: Float32Array; probabilities: Float32Array;
+  spatialReliability: Float32Array; spatialGateMean: Float32Array; spatialReferenceSource: Uint8Array;
+  classCounts: Uint32Array; inferenceMs: number; areaMs: number; batchCount: number; classified: number;
 };
 
-function mix32(value: number) {
-  let mixed = value | 0;
-  mixed = Math.imul(mixed ^ (mixed >>> 16), 0x45d9f3b);
-  mixed = Math.imul(mixed ^ (mixed >>> 16), 0x45d9f3b);
-  return (mixed ^ (mixed >>> 16)) >>> 0;
+function selectEligible(data: PascLocalPreparedData) {
+  const indices = Array.from({ length: data.pointIds.length }, (_, index) => index).filter(index => !data.classificationEligible || data.classificationEligible[index] === 1);
+  if (indices.length === data.pointIds.length) return { data, indices };
+  const vector = (input: Float32Array, width = 1) => {
+    const output = new Float32Array(indices.length * width);
+    indices.forEach((source, target) => output.set(input.subarray(source * width, (source + 1) * width), target * width));
+    return output;
+  };
+  return {
+    indices,
+    data: { ...data, pointIds: indices.map(index => data.pointIds[index]),
+      longitude: vector(data.longitude), latitude: vector(data.latitude), velocity: vector(data.velocity),
+      coherence: vector(data.coherence), series: vector(data.series, data.timeSteps), physics: vector(data.physics, physicsFeatures),
+    },
+  };
 }
 
-function reservoirSlot(seen: number, limit: number) {
-  if (seen <= limit) return seen - 1;
-  const candidate = mix32(seen) % seen;
-  return candidate < limit ? candidate : -1;
+async function predictEligible(data: PascLocalPreparedData, reference: ReferenceData, session: ort.InferenceSession, batchSize: number, onProgress?: (completed: number, total: number) => void): Promise<Predictions> {
+  const total = data.pointIds.length;
+  const prediction: Predictions = {
+    rawModeIndex: new Uint8Array(total).fill(5), modeIndex: new Uint8Array(total).fill(5),
+    confidence: new Float32Array(total).fill(NaN), probabilities: new Float32Array(total * 6).fill(NaN),
+    spatialReliability: new Float32Array(total), spatialGateMean: new Float32Array(total), spatialReferenceSource: new Uint8Array(total),
+    classCounts: new Uint32Array(6), inferenceMs: 0, areaMs: 0, batchCount: 0, classified: 0,
+  };
+  const eligible = selectEligible(data);
+  if (!eligible.indices.length) return prediction;
+  const areaStartedAt = performance.now();
+  const area = await buildAreaContext(eligible.data);
+  prediction.areaMs = performance.now() - areaStartedAt;
+  for (let offset = 0; offset < eligible.indices.length; offset += batchSize) {
+    if (cancelled) throw new DOMException("cancelled", "AbortError");
+    const count = Math.min(batchSize, eligible.indices.length - offset);
+    const started = performance.now();
+    const built = buildFeeds(eligible.data, reference, area, offset, count);
+    const outputs = await session.run(built.feeds);
+    const logits = outputs.logits?.data as Float32Array | undefined;
+    const gateMeans = outputs.spatial_gate_mean?.data as Float32Array | undefined;
+    if (!logits || !gateMeans) throw new Error("ONNX 输出契约不完整。");
+    for (let row = 0; row < count; row += 1) {
+      const target = eligible.indices[offset + row];
+      const raw = stableSoftmaxRow(logits.subarray(row * 6, row * 6 + 6));
+      const calibrated = calibratePascProbabilities(raw, [2, 3, 4], 1.35);
+      const label = maximumIndex(calibrated);
+      prediction.rawModeIndex[target] = maximumIndex(raw); prediction.modeIndex[target] = label;
+      prediction.confidence[target] = calibrated[label]; prediction.probabilities.set(calibrated, target * 6);
+      prediction.spatialReliability[target] = built.reliability[row]; prediction.spatialGateMean[target] = gateMeans[row];
+      prediction.spatialReferenceSource[target] = built.referenceSource[row]; prediction.classCounts[label] += 1;
+    }
+    prediction.inferenceMs += performance.now() - started; prediction.batchCount += 1; prediction.classified += count;
+    post({ type: "BATCH_DONE", completed: prediction.classified, total: eligible.indices.length, elapsedMs: performance.now() - started });
+    if (onProgress) onProgress(prediction.classified, eligible.indices.length);
+    else progress("predicting", prediction.classified / eligible.indices.length, "正在本地分类 · " + prediction.classified.toLocaleString() + " / " + eligible.indices.length.toLocaleString());
+  }
+  return prediction;
 }
 
 function csvCell(value: unknown) {
-  const text = String(value ?? "");
-  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+  const text = typeof value === "number" && !Number.isFinite(value) ? "" : String(value ?? "");
+  return /[",\r\n]/.test(text) ? '"' + text.replaceAll('"', '""') + '"' : text;
 }
-
 function sourceLabel(code: number) {
   return code === 1 ? "frozen_training_reference" : code === 2 ? "batch_local_research_area" : "none";
 }
-
 async function openLargeResultFile() {
   if (!workerScope.navigator.storage?.getDirectory) throw new Error("OPFS 本地结果存储不可用。");
   const root = await workerScope.navigator.storage.getDirectory();
   const directory = "lanjifyw-pasc-local";
   const folder = await root.getDirectoryHandle(directory, { create: true });
-  const fileName = `pasc-local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.csv`;
-  const handle = await folder.getFileHandle(fileName, { create: true });
-  const writable = await handle.createWritable();
-  return { root, folder, directory, fileName, writable };
+  const name = "pasc-local-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+  const fileName = name + ".csv", seriesFileName = name + ".series";
+  const writable = await (await folder.getFileHandle(fileName, { create: true })).createWritable();
+  let seriesWritable: FileSystemWritableFileStream;
+  try { seriesWritable = await (await folder.getFileHandle(seriesFileName, { create: true })).createWritable(); }
+  catch (error) { await writable.abort(); await folder.removeEntry(fileName).catch(() => undefined); throw error; }
+  return { folder, directory, fileName, seriesFileName, writable, seriesWritable };
 }
-
-function assembleLargeSample(
-  sample: LargeSampleRecord[],
-  classCounts: Uint32Array,
-  metadata: {
-    dates: string[];
-    sourceEpochs: number;
-    insertedEpochs: number;
-    totalRows: number;
-    invalidRows: number;
-    totalPredictedPoints: number;
-    elapsedMs: number;
-    provider: "webgpu" | "wasm";
-    batchSize: number;
-    fileSizeBytes: number;
-    csvParsingMs: number;
-    preprocessingMs: number;
-    modelLoadingMs: number;
-    inferenceMs: number;
-    batchCount: number;
-    resultStorage: NonNullable<PascLocalCompletePayload["resultStorage"]>;
-  },
-): PascLocalCompletePayload {
-  const count = sample.length;
-  const timeSteps = metadata.dates.length;
-  const rawModeIndex = new Uint8Array(count);
-  const modeIndex = new Uint8Array(count);
-  const confidence = new Float32Array(count);
-  const probabilities = new Float32Array(count * PASC_LOCAL_CLASS_NAMES.length);
-  const longitude = new Float32Array(count);
-  const latitude = new Float32Array(count);
-  const velocity = new Float32Array(count);
-  const velocityProvided = new Uint8Array(count);
-  const coherence = new Float32Array(count);
-  const coherenceProvided = new Uint8Array(count);
-  const missingRate = new Float32Array(count);
-  const displacementSeries = new Int32Array(count * timeSteps);
-  const spatialReliability = new Float32Array(count);
-  const spatialGateMean = new Float32Array(count);
-  const spatialReferenceSource = new Uint8Array(count);
-  sample.forEach((record, index) => {
-    rawModeIndex[index] = record.rawModeIndex;
-    modeIndex[index] = record.modeIndex;
-    confidence[index] = record.confidence;
-    probabilities.set(record.probabilities, index * PASC_LOCAL_CLASS_NAMES.length);
-    longitude[index] = record.longitude;
-    latitude[index] = record.latitude;
-    velocity[index] = record.velocity;
-    velocityProvided[index] = record.velocityProvided;
-    coherence[index] = record.coherence;
-    coherenceProvided[index] = record.coherenceProvided;
-    missingRate[index] = record.missingRate;
-    displacementSeries.set(record.displacementSeries, index * timeSteps);
-    spatialReliability[index] = record.spatialReliability;
-    spatialGateMean[index] = record.spatialGateMean;
-    spatialReferenceSource[index] = record.spatialReferenceSource;
-  });
+function finalValues(input: Float32Array, width: number, count: number) {
+  return Float32Array.from({ length: count }, (_, index) => input[index * width + width - 1]);
+}
+function lightweightResult(data: PascLocalPreparedData, prediction: Predictions) {
   return {
-    pointIds: sample.map(record => record.pointId), rawModeIndex, modeIndex, confidence, probabilities, classCounts,
-    longitude, latitude, velocity, velocityProvided, coherence, coherenceProvided, missingRate,
-    displacementSeries, displacementScale: 0.1, displacementEncoding: "int32_tenth_mm",
-    spatialReliability, spatialGateMean, spatialReferenceSource,
-    dates: metadata.dates, sourceEpochs: metadata.sourceEpochs, insertedEpochs: metadata.insertedEpochs,
-    totalRows: metadata.totalRows, invalidRows: metadata.invalidRows, timeSteps,
-    elapsedMs: metadata.elapsedMs, provider: metadata.provider, batchSize: metadata.batchSize,
-    fileSizeBytes: metadata.fileSizeBytes, csvParsingMs: metadata.csvParsingMs,
-    preprocessingMs: metadata.preprocessingMs, modelLoadingMs: metadata.modelLoadingMs,
-    inferenceMs: metadata.inferenceMs, averageBatchMs: metadata.batchCount ? metadata.inferenceMs / metadata.batchCount : 0,
-    batchCount: metadata.batchCount, totalPredictedPoints: metadata.totalPredictedPoints,
-    mapSampled: metadata.totalPredictedPoints > count, largeFileMode: true, resultStorage: metadata.resultStorage,
+    pointIds: data.pointIds, rawModeIndex: prediction.rawModeIndex, modeIndex: prediction.modeIndex, confidence: prediction.confidence,
+    probabilities: prediction.probabilities, longitude: data.longitude, latitude: data.latitude, velocity: data.velocity,
+    velocityProvided: data.velocityProvided, coherence: data.coherence, coherenceProvided: data.coherenceProvided, missingRate: data.missingRate,
+    spatialReliability: prediction.spatialReliability, spatialGateMean: prediction.spatialGateMean, spatialReferenceSource: prediction.spatialReferenceSource,
+    effectiveEpochs: data.effectiveEpochs!, classificationEligible: data.classificationEligible!, sourceRowNumbers: data.sourceRowNumbers!,
+    observedDisplacement: finalValues(data.observedSeries!, data.sourceEpochs, data.pointIds.length),
+    processedDisplacement: finalValues(data.displacementSeries, data.timeSteps, data.pointIds.length),
   };
 }
+type LightResult = ReturnType<typeof lightweightResult>;
 
+function transferResult(result: PascLocalCompletePayload) {
+  const buffers = (Object.values(result) as unknown[]).filter((value): value is ArrayBufferView => ArrayBuffer.isView(value)).map(value => value.buffer as ArrayBuffer);
+  post({ type: "COMPLETE", result }, [...new Set(buffers)]);
+}
 async function runLargeFile(message: Extract<PascLocalWorkerRequest, { type: "START" }>) {
-  const startedAt = performance.now();
-  progress("loading_model", 0, "正在准备大文件本地 ONNX 与 OPFS");
-  const modelStartedAt = performance.now();
+  const startedAt = performance.now(), modelStartedAt = performance.now();
   const reference = await loadReference();
   const engine = await createSession(Boolean(message.forceWasm));
   const modelLoadingMs = performance.now() - modelStartedAt;
-  const output = await openLargeResultFile();
-  const header = "point_id,lon,lat,velocity_mm_per_year,mode,mode_name,confidence,spatial_reliability,spatial_gate_mean,spatial_reference,coherence,missing_rate,epochs\n";
+  let output: Awaited<ReturnType<typeof openLargeResultFile>>;
+  try { output = await openLargeResultFile(); }
+  catch (error) { await engine.session.release(); throw error; }
+  const header = "point_id,lon,lat,velocity_mm_per_year,mode,mode_name,confidence,spatial_reliability,spatial_gate_mean,spatial_reference,coherence,missing_rate,epochs,classification_status,effective_epochs,source_row\n";
   let outputBytes = new TextEncoder().encode(header).byteLength;
-  await output.writable.write(header);
-  const classCounts = new Uint32Array(PASC_LOCAL_CLASS_NAMES.length);
-  const sample: LargeSampleRecord[] = [];
-  let predicted = 0;
-  let inferenceMs = 0;
-  let areaMs = 0;
-  let batchCount = 0;
+  const classCounts = new Uint32Array(6), chunks: LightResult[] = [];
+  let pointCount = 0, classified = 0, inferenceMs = 0, areaMs = 0, batchCount = 0, streamingProgress = 0;
   let summary: Awaited<ReturnType<typeof streamAndPreprocessLocalCsvBatches>> | null = null;
   try {
-    summary = await streamAndPreprocessLocalCsvBatches(
-      message.file,
-      message.settings,
-      message.batchSize,
-      async data => {
-        if (cancelled) throw new DOMException("cancelled", "AbortError");
-        const areaStartedAt = performance.now();
-        const area = await buildAreaContext(data);
-        areaMs += performance.now() - areaStartedAt;
-        const batchStartedAt = performance.now();
-        const built = buildFeeds(data, reference, area, 0, data.pointIds.length);
-        const outputs = await engine.session.run(built.feeds);
-        const logits = outputs.logits?.data as Float32Array | undefined;
-        const gateMeans = outputs.spatial_gate_mean?.data as Float32Array | undefined;
-        if (!logits || !gateMeans) throw new Error("ONNX 输出契约不完整。");
-        const lines: string[] = [];
-        for (let row = 0; row < data.pointIds.length; row += 1) {
-          const raw = stableSoftmaxRow(logits.subarray(row * 6, row * 6 + 6));
-          const calibrated = calibratePascProbabilities(raw, [2, 3, 4], 1.35);
-          const classIndex = maximumIndex(calibrated);
-          const rawClassIndex = maximumIndex(raw);
-          classCounts[classIndex] += 1;
-          predicted += 1;
-          const source = built.referenceSource[row];
-          lines.push([
-            data.pointIds[row], data.longitude[row], data.latitude[row], Math.round(data.velocity[row] * 10) / 10,
-            classNamesZh[classIndex], PASC_LOCAL_CLASS_NAMES[classIndex], calibrated[classIndex].toFixed(6),
-            built.reliability[row].toFixed(6), gateMeans[row].toFixed(6), sourceLabel(source),
-            data.coherenceProvided[row] ? data.coherence[row].toFixed(4) : "", data.missingRate[row].toFixed(6), data.timeSteps,
-          ].map(csvCell).join(","));
-          const slot = reservoirSlot(predicted, PASC_LOCAL_MAP_SAMPLE_POINTS);
-          if (slot >= 0) {
-            const encodedSeries = new Int32Array(data.timeSteps);
-            for (let step = 0; step < data.timeSteps; step += 1) {
-              const encoded = Math.round(data.displacementSeries[row * data.timeSteps + step] * 10);
-              if (!Number.isFinite(encoded) || encoded < -2_147_483_648 || encoded > 2_147_483_647) throw new Error("形变值超出一位小数量化范围。");
-              encodedSeries[step] = encoded;
-            }
-            sample[slot] = {
-              pointId: data.pointIds[row], rawModeIndex: rawClassIndex, modeIndex: classIndex,
-              confidence: calibrated[classIndex], probabilities: Float32Array.from(calibrated),
-              longitude: data.longitude[row], latitude: data.latitude[row], velocity: data.velocity[row],
-              velocityProvided: data.velocityProvided[row], coherence: data.coherence[row],
-              coherenceProvided: data.coherenceProvided[row], missingRate: data.missingRate[row],
-              displacementSeries: encodedSeries, spatialReliability: built.reliability[row],
-              spatialGateMean: gateMeans[row], spatialReferenceSource: source,
-            };
-          }
-        }
-        const outputChunk = lines.join("\n") + "\n";
-        outputBytes += new TextEncoder().encode(outputChunk).byteLength;
-        await output.writable.write(outputChunk);
-        inferenceMs += performance.now() - batchStartedAt;
-        batchCount += 1;
-        post({ type: "BATCH_DONE", completed: predicted, total: predicted, elapsedMs: performance.now() - batchStartedAt });
-      },
-      (value, detail) => progress("streaming", value, `${detail} · 已完成 ${predicted.toLocaleString()} 点`),
-      () => cancelled,
-    );
-    await output.writable.close();
+    await output.writable.write(header);
+    summary = await streamAndPreprocessLocalCsvBatches(message.file, message.settings, message.batchSize, async data => {
+      if (cancelled) throw new DOMException("cancelled", "AbortError");
+      const prediction = await predictEligible(data, reference, engine.session, message.batchSize, (completed, total) =>
+        progress("predicting", streamingProgress, "大文件完整分析 · 累计已分类 " + (classified + completed).toLocaleString() + " 点 · 当前批次 " + completed.toLocaleString() + " / " + total.toLocaleString()));
+      inferenceMs += prediction.inferenceMs; areaMs += prediction.areaMs; batchCount += prediction.batchCount; classified += prediction.classified;
+      prediction.classCounts.forEach((value, index) => { classCounts[index] += value; });
+      const lines = data.pointIds.map((id, row) => [
+        id, data.longitude[row], data.latitude[row], Math.round(data.velocity[row] * 10) / 10,
+        data.classificationEligible![row] ? classNamesZh[prediction.modeIndex[row]] : "未分类",
+        data.classificationEligible![row] ? PASC_LOCAL_CLASS_NAMES[prediction.modeIndex[row]] : "",
+        prediction.confidence[row], prediction.spatialReliability[row], prediction.spatialGateMean[row], sourceLabel(prediction.spatialReferenceSource[row]),
+        data.coherenceProvided[row] ? data.coherence[row] : "", data.missingRate[row], data.timeSteps,
+        data.classificationEligible![row] ? "classified" : "insufficient_epochs", data.effectiveEpochs![row], data.sourceRowNumbers![row],
+      ].map(csvCell).join(","));
+      const csv = lines.join("\n") + "\n"; outputBytes += new TextEncoder().encode(csv).byteLength;
+      await output.writable.write(csv);
+      await output.seriesWritable.write(encodeLocalSeriesRows(data.displacementSeries, data.observedSeries!, data.observedMask!, data.pointIds.length, data.timeSteps, data.sourceEpochs));
+      chunks.push(lightweightResult(data, prediction)); pointCount += data.pointIds.length;
+    }, (value, detail) => { streamingProgress = value; progress("streaming", value, detail + " · 已保留 " + pointCount.toLocaleString() + " 点"); }, () => cancelled);
+    await output.writable.close(); await output.seriesWritable.close();
   } catch (error) {
-    await output.writable.abort().catch(() => undefined);
-    await output.folder.removeEntry(output.fileName).catch(() => undefined);
+    await output.writable.abort().catch(() => undefined); await output.seriesWritable.abort().catch(() => undefined);
+    await output.folder.removeEntry(output.fileName).catch(() => undefined); await output.folder.removeEntry(output.seriesFileName).catch(() => undefined);
     throw error;
-  } finally {
-    await engine.session.release();
-  }
+  } finally { await engine.session.release(); }
   if (!summary) throw new Error("大文件流式分析未生成摘要。");
-  progress("finalizing", 1, `正在生成 ${sample.length.toLocaleString()} 点地图抽样预览`);
-  const result = assembleLargeSample(sample, classCounts, {
-    dates: summary.dates, sourceEpochs: summary.sourceEpochs, insertedEpochs: summary.insertedEpochs,
-    totalRows: summary.totalRows, invalidRows: summary.invalidRows, totalPredictedPoints: predicted,
-    elapsedMs: performance.now() - startedAt, provider: engine.provider, batchSize: message.batchSize,
-    fileSizeBytes: message.file.size, csvParsingMs: summary.csvParsingMs,
-    preprocessingMs: summary.preprocessingMs + areaMs, modelLoadingMs, inferenceMs, batchCount,
+  progress("finalizing", 1, "正在接入全部 " + pointCount.toLocaleString() + " 个有效点");
+  const combined = {} as LightResult;
+  for (const key of Object.keys(chunks[0]) as Array<keyof LightResult>) {
+    if (key === "pointIds") { combined.pointIds = chunks.flatMap(chunk => chunk.pointIds); continue; }
+    const first = chunks[0][key] as Uint8Array | Uint32Array | Float32Array;
+    const length = chunks.reduce((sum, chunk) => sum + chunk[key].length, 0);
+    const vector = first instanceof Float32Array ? new Float32Array(length) : first instanceof Uint32Array ? new Uint32Array(length) : new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) { const values = chunk[key] as typeof vector; vector.set(values, offset); offset += values.length; }
+    (combined as unknown as Record<string, unknown>)[key] = vector;
+  }
+  const result: PascLocalCompletePayload = {
+    ...combined, classCounts, displacementSeries: new Int32Array(0), displacementScale: 0.1, displacementEncoding: "int32_tenth_mm",
+    dates: summary.dates, observedDates: summary.observedDates, sourceEpochs: summary.sourceEpochs, insertedEpochs: summary.insertedEpochs,
+    timeSteps: summary.timeSteps, totalRows: summary.totalRows, invalidRows: summary.invalidRows,
+    invalidReasons: summary.invalidReasons, invalidExamples: summary.invalidExamples,
+    elapsedMs: performance.now() - startedAt, provider: engine.provider, batchSize: message.batchSize, fileSizeBytes: message.file.size,
+    csvParsingMs: summary.csvParsingMs, preprocessingMs: summary.preprocessingMs + areaMs, modelLoadingMs, inferenceMs,
+    averageBatchMs: batchCount ? inferenceMs / batchCount : 0, batchCount, totalPredictedPoints: classified, mapSampled: false, largeFileMode: true,
+    analysisScope: "full", sourceTruncated: false,
     resultStorage: { kind: "opfs", directory: output.directory, fileName: output.fileName, byteLength: outputBytes },
-  });
-  post({ type: "COMPLETE", result }, [
-    result.rawModeIndex.buffer, result.modeIndex.buffer, result.confidence.buffer, result.probabilities.buffer,
-    result.classCounts.buffer, result.longitude.buffer, result.latitude.buffer, result.velocity.buffer,
-    result.velocityProvided.buffer, result.coherence.buffer, result.coherenceProvided.buffer,
-    result.missingRate.buffer, result.displacementSeries.buffer, result.spatialReliability.buffer,
-    result.spatialGateMean.buffer, result.spatialReferenceSource.buffer,
-  ]);
+    seriesStorage: { kind: "opfs", directory: output.directory, fileName: output.seriesFileName, pointCount, timeSteps: summary.timeSteps,
+      observedEpochs: summary.sourceEpochs, recordBytes: localSeriesRecordBytes(summary.timeSteps, summary.sourceEpochs) },
+  };
+  transferResult(result);
 }
 
 async function run(message: Extract<PascLocalWorkerRequest, { type: "START" }>) {
   assertLocalFileSize(message.file.size);
-  if (message.batchSize > 1024) {
-    throw new Error("batch 2048 已实测超过 WebGPU 2 GiB 单缓冲限制；请选择 256、512 或 1024。");
-  }
+  if (message.batchSize > 1024) throw new Error("batch 2048 已实测超过 WebGPU 2 GiB 单缓冲限制；请选择 256、512 或 1024。");
   const analysisScope = message.analysisScope ?? "full";
-  if (isStreamingLocalFile(message.file.size) && analysisScope === "full") {
-    await runLargeFile(message);
-    return;
-  }
+  if (analysisScope === "full" && requiresLocalCsvSplit(message.file.size)) throw new Error("超过 1 GiB 的 CSV 请先在本机分片，再逐片分析；原文件不会上传。");
+  if (isStreamingLocalFile(message.file.size) && analysisScope === "full") { await runLargeFile(message); return; }
   const startedAt = performance.now();
-  progress("loading_file", 0, "正在读取 " + message.file.name);
   progress("parsing", 0, "正在解析 CSV");
-  const data = await parseAndPreprocessLocalCsv(
-    message.file,
-    message.settings,
-    (value, detail) => progress(value < 1 ? "parsing" : "preprocessing", value, detail),
-    () => cancelled,
-    analysisScope === "quick" ? message.quickPointLimit : undefined,
-  );
-  if (cancelled) throw new DOMException("cancelled", "AbortError");
-  progress("preprocessing", 1, "正在构建无标签空间邻域");
-  const areaStartedAt = performance.now();
-  const area = await buildAreaContext(data);
-  const areaElapsedMs = performance.now() - areaStartedAt;
+  const data = await parseAndPreprocessLocalCsv(message.file, message.settings,
+    (value, detail) => progress(value < 1 ? "parsing" : "preprocessing", value, detail), () => cancelled,
+    analysisScope === "quick" ? message.quickPointLimit : undefined);
   if (cancelled) throw new DOMException("cancelled", "AbortError");
   progress("loading_model", 0, "正在加载本地 ONNX 模型");
-  // The local-only builder embeds both private assets in this ignored bundle.
-  // Decode the smaller reference before initializing the ORT runtime.
   const modelStartedAt = performance.now();
   const reference = await loadReference();
   const engine = await createSession(Boolean(message.forceWasm));
   const modelLoadingMs = performance.now() - modelStartedAt;
-  const total = data.pointIds.length;
-  const rawModeIndex = new Uint8Array(total);
-  const modeIndex = new Uint8Array(total);
-  const confidence = new Float32Array(total);
-  const probabilities = new Float32Array(total * PASC_LOCAL_CLASS_NAMES.length);
-  const spatialReliability = new Float32Array(total);
-  const spatialGateMean = new Float32Array(total);
-  const spatialReferenceSource = new Uint8Array(total);
-  const classCounts = new Uint32Array(PASC_LOCAL_CLASS_NAMES.length);
-  let inferenceMs = 0;
-  let batchCount = 0;
-  progress("predicting", 0, "正在本地分类 · batch " + message.batchSize);
-  try {
-    for (let offset = 0; offset < total; offset += message.batchSize) {
-      if (cancelled) throw new DOMException("cancelled", "AbortError");
-      const count = Math.min(message.batchSize, total - offset);
-      const batchStartedAt = performance.now();
-      const batch = buildFeeds(data, reference, area, offset, count);
-      const outputs = await engine.session.run(batch.feeds);
-      const logits = outputs.logits?.data as Float32Array | undefined;
-      const gateMeans = outputs.spatial_gate_mean?.data as Float32Array | undefined;
-      if (!logits) throw new Error("ONNX 输出契约缺少 logits。");
-      if (!gateMeans) throw new Error("ONNX 输出契约缺少 spatial_gate_mean。");
-      spatialReliability.set(batch.reliability, offset);
-      spatialGateMean.set(gateMeans, offset);
-      spatialReferenceSource.set(batch.referenceSource, offset);
-      for (let row = 0; row < count; row += 1) {
-        const raw = stableSoftmaxRow(logits.subarray(row * 6, row * 6 + 6));
-        const calibrated = calibratePascProbabilities(raw, [2, 3, 4], 1.35);
-        const classIndex = maximumIndex(calibrated);
-        rawModeIndex[offset + row] = maximumIndex(raw);
-        modeIndex[offset + row] = classIndex;
-        confidence[offset + row] = calibrated[classIndex];
-        probabilities.set(calibrated, (offset + row) * PASC_LOCAL_CLASS_NAMES.length);
-        classCounts[classIndex] += 1;
-      }
-      const batchElapsedMs = performance.now() - batchStartedAt;
-      inferenceMs += batchElapsedMs;
-      batchCount += 1;
-      const completed = offset + count;
-      post({ type: "BATCH_DONE", completed, total, elapsedMs: batchElapsedMs });
-      progress("predicting", completed / total, "正在本地分类 · " + completed.toLocaleString() + " / " + total.toLocaleString());
-    }
-  } finally {
-    await engine.session.release();
-  }
-  progress("finalizing", 1, "正在生成结果");
-  const quantizedDisplacement = quantizeInsarSeries(data.displacementSeries);
+  let prediction: Predictions;
+  try { prediction = await predictEligible(data, reference, engine.session, message.batchSize); }
+  finally { await engine.session.release(); }
+  progress("finalizing", 1, "正在生成完整本地结果");
+  const hasMissing = data.displacementSeries.some(value => !Number.isFinite(value));
+  const quantized = hasMissing
+    ? { values: Int32Array.from(data.displacementSeries, value => {
+      if (!Number.isFinite(value)) return -2_147_483_648;
+      const encoded = Math.round(value * 10);
+      if (encoded <= -2_147_483_648 || encoded > 2_147_483_647) throw new Error("形变值超出一位小数量化范围。");
+      return encoded;
+    }), scale: 0.1 as const, encoding: "int32_tenth_mm" as const }
+    : quantizeInsarSeries(data.displacementSeries);
   const result: PascLocalCompletePayload = {
-    pointIds: data.pointIds,
-    rawModeIndex,
-    modeIndex,
-    confidence,
-    probabilities,
-    classCounts,
-    longitude: data.longitude,
-    latitude: data.latitude,
-    velocity: data.velocity,
-    velocityProvided: data.velocityProvided,
-    coherence: data.coherence,
-    coherenceProvided: data.coherenceProvided,
-    missingRate: data.missingRate,
-    displacementSeries: quantizedDisplacement.values,
-    displacementScale: quantizedDisplacement.scale,
-    displacementEncoding: quantizedDisplacement.encoding,
-    spatialReliability,
-    spatialGateMean,
-    spatialReferenceSource,
-    dates: data.dates,
-    sourceEpochs: data.sourceEpochs,
-    insertedEpochs: data.insertedEpochs,
-    totalRows: data.totalRows,
-    invalidRows: data.invalidRows,
-    timeSteps: data.timeSteps,
-    elapsedMs: performance.now() - startedAt,
-    provider: engine.provider,
-    batchSize: message.batchSize,
-    fileSizeBytes: message.file.size,
-    csvParsingMs: data.csvParsingMs,
-    preprocessingMs: data.preprocessingMs + areaElapsedMs,
-    modelLoadingMs,
-    inferenceMs,
-    averageBatchMs: batchCount ? inferenceMs / batchCount : 0,
-    batchCount,
-    analysisScope,
-    sourceTruncated: analysisScope === "quick" && Boolean(message.quickPointLimit && data.pointIds.length >= message.quickPointLimit),
+    ...lightweightResult(data, prediction), classCounts: prediction.classCounts,
+    displacementSeries: quantized.values, displacementScale: quantized.scale, displacementEncoding: quantized.encoding,
+    observedSeries: data.observedSeries, observedMask: data.observedMask, observedDates: data.observedDates,
+    dates: data.dates, sourceEpochs: data.sourceEpochs, insertedEpochs: data.insertedEpochs, totalRows: data.totalRows,
+    invalidRows: data.invalidRows, invalidReasons: data.invalidReasons, invalidExamples: data.invalidExamples, timeSteps: data.timeSteps,
+    elapsedMs: performance.now() - startedAt, provider: engine.provider, batchSize: message.batchSize, fileSizeBytes: message.file.size,
+    csvParsingMs: data.csvParsingMs, preprocessingMs: data.preprocessingMs + prediction.areaMs, modelLoadingMs,
+    inferenceMs: prediction.inferenceMs, averageBatchMs: prediction.batchCount ? prediction.inferenceMs / prediction.batchCount : 0,
+    batchCount: prediction.batchCount, totalPredictedPoints: prediction.classified, mapSampled: false,
+    analysisScope, sourceTruncated: analysisScope === "quick" && data.pointIds.length >= (message.quickPointLimit ?? 5000),
   };
-  post({ type: "COMPLETE", result }, [
-    rawModeIndex.buffer,
-    modeIndex.buffer,
-    confidence.buffer,
-    probabilities.buffer,
-    classCounts.buffer,
-    data.longitude.buffer,
-    data.latitude.buffer,
-    data.velocity.buffer,
-    data.velocityProvided.buffer,
-    data.coherence.buffer,
-    data.coherenceProvided.buffer,
-    data.missingRate.buffer,
-    quantizedDisplacement.values.buffer,
-    spatialReliability.buffer,
-    spatialGateMean.buffer,
-    spatialReferenceSource.buffer,
-  ]);
+  transferResult(result);
 }
 
 workerScope.addEventListener("message", event => {

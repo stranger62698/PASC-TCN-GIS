@@ -1,4 +1,5 @@
 import type { InsarPoint } from "../data/site.js";
+import { renderedDisplacementAt } from "./insar-v2.js";
 
 export type AoiCoordinate = [number, number];
 
@@ -38,28 +39,51 @@ export type AoiSummary = {
 
 const EARTH_RADIUS_METERS = 6_371_008.8;
 
-const finiteValues = (values: Array<number | null | undefined>) => values.filter((value): value is number => Number.isFinite(value));
-
-export function aggregateValue(values: Array<number | null | undefined>, method: AoiAggregateMethod): number | null {
-  const supplied = finiteValues(values).sort((a, b) => a - b);
-  if (!supplied.length) return null;
-  if (method === "mean") return supplied.reduce((sum, value) => sum + value, 0) / supplied.length;
-  const middle = Math.floor(supplied.length / 2);
-  return supplied.length % 2 ? supplied[middle] : (supplied[middle - 1] + supplied[middle]) / 2;
+function selectValue(values: number[], target: number) {
+  let left = 0, right = values.length - 1;
+  while (left < right) {
+    const pivot = values[(left + right) >>> 1];
+    let low = left, high = right;
+    while (low <= high) {
+      while (values[low] < pivot) low += 1;
+      while (values[high] > pivot) high -= 1;
+      if (low <= high) {
+        const value = values[low]; values[low] = values[high]; values[high] = value;
+        low += 1; high -= 1;
+      }
+    }
+    if (target <= high) right = high;
+    else if (target >= low) left = low;
+    else break;
+  }
+  return values[target];
 }
-
+export function aggregateValue(values: Array<number | null | undefined>, method: AoiAggregateMethod): number | null {
+  let sum = 0, count = 0;
+  const supplied: number[] = [];
+  for (const value of values) if (typeof value === "number" && Number.isFinite(value)) {
+    sum += value; count += 1;
+    if (method === "median") supplied.push(value);
+  }
+  if (!count) return null;
+  if (method === "mean") return sum / count;
+  const middle = Math.floor(count / 2), upper = selectValue(supplied, middle);
+  return count % 2 ? upper : (selectValue(supplied, middle - 1) + upper) / 2;
+}
 export function rectangleGeometry(bounds: [number, number, number, number]): AoiGeometry {
   const [west, south, east, north] = bounds;
   return { type: "rectangle", coordinates: [[west, south], [east, south], [east, north], [west, north]] };
 }
 
 export function geometryBounds(geometry: AoiGeometry): [number, number, number, number] {
-  if (!geometry.coordinates.length) return [0, 0, 0, 0];
-  const longitudes = geometry.coordinates.map(([longitude]) => longitude);
-  const latitudes = geometry.coordinates.map(([, latitude]) => latitude);
-  return [Math.min(...longitudes), Math.min(...latitudes), Math.max(...longitudes), Math.max(...latitudes)];
+  let west = Infinity, south = Infinity, east = -Infinity, north = -Infinity;
+  for (const [longitude, latitude] of geometry.coordinates) {
+    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) continue;
+    west = Math.min(west, longitude); east = Math.max(east, longitude);
+    south = Math.min(south, latitude); north = Math.max(north, latitude);
+  }
+  return west === Infinity ? [0, 0, 0, 0] : [west, south, east, north];
 }
-
 export function pointInPolygon(longitude: number, latitude: number, coordinates: AoiCoordinate[]): boolean {
   if (coordinates.length < 3) return false;
   let inside = false;
@@ -94,16 +118,28 @@ export function aggregateAoiSeries(
   method: AoiAggregateMethod,
   modeForPoint: (point: InsarPoint) => string = point => point.mode || "未分类",
 ): AoiSeries {
-  const periodCount = Math.max(0, ...points.map(point => point.series.length));
+  let periodCount = 0;
+  const grouped = new Map<string, InsarPoint[]>();
+  for (const point of points) {
+    periodCount = Math.max(periodCount, point.series.length);
+    const mode = modeForPoint(point), group = grouped.get(mode);
+    if (group) group.push(point); else grouped.set(mode, [point]);
+  }
   const dateSource = points.find(point => (point.dates?.length || 0) === periodCount)?.dates
-    ?? points.find(point => point.dates?.length)?.dates
-    ?? [];
+    ?? points.find(point => point.dates?.length)?.dates ?? [];
   const dates = Array.from({ length: periodCount }, (_, index) => dateSource[index] || `第 ${index + 1} 期`);
-  const aggregate = (items: InsarPoint[]) => dates.map((_, index) => aggregateValue(items.map(point => point.series[index]), method));
-  const groups = [...new Set(points.map(modeForPoint))].map(mode => {
-    const matching = points.filter(point => modeForPoint(point) === mode);
-    return { mode, pointCount: matching.length, values: aggregate(matching) };
+  const aggregate = (items: InsarPoint[]) => dates.map((_, index) => {
+    if (method === "mean") {
+      let sum = 0, count = 0;
+      for (const point of items) {
+        const value = point.series[index];
+        if (typeof value === "number" && Number.isFinite(value)) { sum += value; count += 1; }
+      }
+      return count ? sum / count : null;
+    }
+    return aggregateValue(items.map(point => point.series[index]), method);
   });
+  const groups = Array.from(grouped, ([mode, items]) => ({ mode, pointCount: items.length, values: aggregate(items) }));
   return { dates, overall: aggregate(points), groups };
 }
 
@@ -115,30 +151,34 @@ export function summarizeAoi(
   geometry?: AoiGeometry | null,
 ): AoiSummary | null {
   if (!points.length) return null;
-  const velocities = finiteValues(points.map(point => point.velocity));
-  const currentValues = finiteValues(points.map(point => point.series[Math.min(timeIndex, point.series.length - 1)] ?? point.displacement));
-  const suppliedCoherence = points.filter(point => Number.isFinite(point.coherence) && point.coherence > 0);
-  const lowCoherenceCount = points.filter(point => point.coherence > 0 && point.coherence < coherenceThreshold).length;
-  const missingDataCount = points.filter(point => point.missingRate > .2).length;
-  const modeCounts = points.reduce((counts, point) => {
-    const mode = modeForPoint(point);
-    counts[mode] = (counts[mode] || 0) + 1;
-    return counts;
-  }, {} as Record<string, number>);
+  const velocities: number[] = [], currentValues: number[] = [], modeCounts: Record<string, number> = {};
+  let velocitySum = 0, currentSum = 0, minimumVelocity = Infinity, maximumVelocity = -Infinity, maximumAbsoluteDisplacement = 0;
+  let coherenceSum = 0, coherenceCount = 0, lowCoherenceCount = 0, missingDataCount = 0, qualityConcernCount = 0;
+  for (const point of points) {
+    if (Number.isFinite(point.velocity)) {
+      velocities.push(point.velocity); velocitySum += point.velocity;
+      minimumVelocity = Math.min(minimumVelocity, point.velocity); maximumVelocity = Math.max(maximumVelocity, point.velocity);
+    }
+    const value = renderedDisplacementAt(point, timeIndex);
+    if (Number.isFinite(value)) { currentValues.push(value); currentSum += value; maximumAbsoluteDisplacement = Math.max(maximumAbsoluteDisplacement, Math.abs(value)); }
+    if (Number.isFinite(point.coherence) && point.coherence > 0) { coherenceSum += point.coherence; coherenceCount += 1; }
+    const low = point.coherence > 0 && point.coherence < coherenceThreshold, missing = point.missingRate > .2;
+    if (low) lowCoherenceCount += 1;
+    if (missing) missingDataCount += 1;
+    if (low || missing) qualityConcernCount += 1;
+    const mode = modeForPoint(point), previous = Object.prototype.hasOwnProperty.call(modeCounts, mode) ? modeCounts[mode] : 0;
+    if (previous) modeCounts[mode] = previous + 1;
+    else Object.defineProperty(modeCounts, mode, { value: 1, enumerable: true, configurable: true, writable: true });
+  }
   return {
-    areaKm2: aoiAreaKm2(geometry),
-    pointCount: points.length,
-    meanVelocity: aggregateValue(velocities, "mean") ?? 0,
+    areaKm2: aoiAreaKm2(geometry), pointCount: points.length,
+    meanVelocity: velocities.length ? velocitySum / velocities.length : 0,
     medianVelocity: aggregateValue(velocities, "median") ?? 0,
-    minimumVelocity: velocities.length ? Math.min(...velocities) : 0,
-    maximumVelocity: velocities.length ? Math.max(...velocities) : 0,
-    meanCurrentDisplacement: aggregateValue(currentValues, "mean") ?? 0,
+    minimumVelocity: velocities.length ? minimumVelocity : 0,
+    maximumVelocity: velocities.length ? maximumVelocity : 0,
+    meanCurrentDisplacement: currentValues.length ? currentSum / currentValues.length : 0,
     medianCurrentDisplacement: aggregateValue(currentValues, "median") ?? 0,
-    maximumAbsoluteDisplacement: currentValues.length ? Math.max(...currentValues.map(Math.abs)) : 0,
-    averageCoherence: suppliedCoherence.length ? suppliedCoherence.reduce((sum, point) => sum + point.coherence, 0) / suppliedCoherence.length : null,
-    lowCoherenceCount,
-    missingDataCount,
-    qualityConcernCount: points.filter(point => (point.coherence > 0 && point.coherence < coherenceThreshold) || point.missingRate > .2).length,
-    modeCounts,
+    maximumAbsoluteDisplacement, averageCoherence: coherenceCount ? coherenceSum / coherenceCount : null,
+    lowCoherenceCount, missingDataCount, qualityConcernCount, modeCounts,
   };
 }

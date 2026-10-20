@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "roadops-didi-contract-replay-manifest-v1",
+  "generatedAt": "2026-09-22T00:00:00.000Z",
+  "sourceFile": "jiangdong-route-demo.json",
+  "sourceSha256": "ad05166c5dbde135c9248382127d7c445d024dc8d141b8056c2bb75aaf73053b",
+  "outputFile": "jiangdong-didi-contract-replay.json",
+  "outputSha256": "0b1418d3717683876a32d925dd6cc000fad24f0951e3202d0ace0bedacaf1b88",
+  "upstreamRequests": 0,
+  "containsDidiResponse": false,
+  "disclaimer": "固定脱敏契约回放：几何来自仓库内保存的 OSM 演示路线，不是本次滴图调用结果，不消耗额度，不提供导航。"
+}

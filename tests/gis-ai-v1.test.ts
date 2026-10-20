@@ -87,7 +87,9 @@ test("field observation UI is wired into both the workspace and Leaflet map", ()
   const map = readFileSync("app/components/WebGisMap.tsx", "utf8");
   assert.match(workspace, /FieldObservationPanel/);
   assert.match(workspace, /FIELD_ASSOCIATION_LIMIT_METERS = 500/);
-  assert.match(workspace, /fieldObservations=\{fieldObservations\}/);
+  // Route planning hides inspection overlays; switching back restores the
+  // existing observation collection instead of clearing or replacing it.
+  assert.match(workspace, /fieldObservations=\{\s*navigationActive\s*\?\s*\[\]\s*:\s*fieldObservations\s*\}/);
   assert.match(workspace, /confirmed-primary/);
   assert.match(map, /field-camera-pin/);
   assert.match(map, /onFieldPhotoOpen/);

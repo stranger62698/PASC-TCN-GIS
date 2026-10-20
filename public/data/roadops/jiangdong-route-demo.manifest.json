@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "roadops-route-demo-manifest-v1",
+  "fixtureId": "roadops-jiangdong-offline-route-v1",
+  "generatedAt": "2026-09-22T00:00:00Z",
+  "sourceFile": "jiangdong-osm-roads.geojson",
+  "sourceSha256": "13fbf59cf6bffde889205167b0f2179f565684a119bfff4956472907bfd1dc67",
+  "outputFile": "jiangdong-route-demo.json",
+  "outputSha256": "ad05166c5dbde135c9248382127d7c445d024dc8d141b8056c2bb75aaf73053b",
+  "pointCount": 8,
+  "candidateCount": 6,
+  "matrixDirectedPairCount": 56,
+  "savedRouteFeatureCount": 42,
+  "unreachablePointIds": [
+    "checkpoint-f"
+  ],
+  "externalRouteRequests": 0,
+  "disclaimer": "固定离线演示成本与保存的 OSM 道路形状，仅用于作品集交互和算法验证，不提供导航。"
+}

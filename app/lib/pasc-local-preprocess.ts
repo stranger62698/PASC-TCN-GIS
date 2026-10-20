@@ -1,5 +1,5 @@
-import { parsePascDateHeader, resolvePascField } from "./pasc-schema";
-import { PASC_LOCAL_STREAM_CHUNK_BYTES } from "./pasc-local-limits";
+import { parsePascDateHeader, resolvePascField, type PascFieldResolution } from "./pasc-schema";
+import { assertLocalAnalysisRows, PASC_LOCAL_MAX_CSV_RECORD_BYTES, PASC_LOCAL_MAX_ID_CHARACTERS, PASC_LOCAL_PREPARED_BUDGET_BYTES, PASC_LOCAL_STREAM_CHUNK_BYTES } from "./pasc-local-limits";
 
 export const PASC_LOCAL_CLASS_NAMES = [
   "Stable",
@@ -10,7 +10,14 @@ export const PASC_LOCAL_CLASS_NAMES = [
   "Undefined",
 ] as const;
 
+export type PascLocalField = "point_id" | "longitude" | "latitude" | "velocity" | "coherence";
+export type PascLocalFieldMapping = Partial<Record<PascLocalField, string>>;
+export type PascLocalCsvInspection = { headers: string[]; fields: Record<PascLocalField, PascFieldResolution>; dateCount: number; startDate: string; endDate: string };
+
+export const normalizeLocalCsvHeaders = (headers: string[]) => headers.map(value => value.replace(/^\uFEFF/, "").trim());
+
 export type PascLocalSettings = {
+  fieldMapping?: PascLocalFieldMapping;
   displacementUnit: "mm" | "cm" | "m";
   velocityUnit: "mm/year" | "cm/year" | "m/year";
   signConvention: "model_native" | "subsidence_negative" | "subsidence_positive";
@@ -37,6 +44,14 @@ export type PascLocalPreparedData = {
   insertedEpochs: number;
   csvParsingMs: number;
   preprocessingMs: number;
+  observedDates?: string[];
+  observedSeries?: Float32Array;
+  observedMask?: Uint8Array;
+  effectiveEpochs?: Uint32Array;
+  classificationEligible?: Uint8Array;
+  sourceRowNumbers?: Uint32Array;
+  invalidReasons?: { invalidCoordinate: number; insufficientEpochs: number; duplicateIds: number };
+  invalidExamples?: Array<{ rowNumber: number; pointId: string; reason: string }>;
 };
 
 export type PascLocalProgress = (progress: number, detail: string) => void;
@@ -240,12 +255,32 @@ type CsvDescriptor = {
   insertedEpochs: number;
 };
 
-function buildDescriptor(headers: string[]): CsvDescriptor {
-  const idIndex = headers.indexOf(resolvePascField(headers, "point_id").field);
-  const longitudeIndex = headers.indexOf(resolvePascField(headers, "longitude").field);
-  const latitudeIndex = headers.indexOf(resolvePascField(headers, "latitude").field);
-  const velocityIndex = headers.indexOf(resolvePascField(headers, "velocity").field);
-  const coherenceIndex = headers.indexOf(resolvePascField(headers, "coherence").field);
+export function resolveLocalCsvFields(headers: string[], mapping: PascLocalFieldMapping = {}) {
+  if (headers.some(header => !header)) throw new Error("CSV 存在空字段名，请命名后重试。");
+  if (new Set(headers).size !== headers.length) throw new Error("CSV 存在重复字段名，请重命名后重试。");
+  const resolveField = (key: PascLocalField) => {
+    if (mapping[key] !== undefined) {
+      if (mapping[key] && !headers.includes(mapping[key]!)) throw new Error(`所选字段不存在：${mapping[key]}`);
+      return mapping[key]!;
+    }
+    return resolvePascField(headers, key).field;
+  };
+  const keys: PascLocalField[] = ["point_id", "longitude", "latitude", "velocity", "coherence"];
+  const fields = Object.fromEntries(keys.map(key => [key, resolveField(key)])) as Record<PascLocalField, string>;
+  if (fields.longitude && fields.longitude === fields.latitude) throw new Error("经度和纬度不能使用同一列。");
+  const selected = Object.values(fields).filter(Boolean);
+  if (new Set(selected).size !== selected.length) throw new Error("不同含义的字段不能使用同一列，请核对字段映射。");
+  if (selected.some(field => parsePascDateHeader(field))) throw new Error("日期观测列不能同时用作坐标、编号、速率或相干性。");
+  return fields;
+}
+
+function buildDescriptor(headers: string[], mapping: PascLocalFieldMapping = {}): CsvDescriptor {
+  const fields = resolveLocalCsvFields(headers, mapping);
+  const idIndex = headers.indexOf(fields.point_id);
+  const longitudeIndex = headers.indexOf(fields.longitude);
+  const latitudeIndex = headers.indexOf(fields.latitude);
+  const velocityIndex = headers.indexOf(fields.velocity);
+  const coherenceIndex = headers.indexOf(fields.coherence);
   if (longitudeIndex < 0 || latitudeIndex < 0) throw new Error("无法自动识别经度和纬度字段。");
   const grouped = new Map<number, number[]>();
   headers.forEach((header, index) => {
@@ -286,9 +321,11 @@ async function streamCsvRows(
   let inQuotes = false;
   let quotePending = false;
   let bytes = 0;
+  let recordCharacters = 0;
   const emitRow = () => {
     row.push(field);
     field = "";
+    recordCharacters = 0;
     const emitted = row.some(value => value.trim() !== "") ? onRow(row, rowNumber++) : undefined;
     row = [];
     return emitted;
@@ -297,6 +334,8 @@ async function streamCsvRows(
   const consume = async (text: string) => {
     for (let index = 0; index < text.length; index += 1) {
       if (isCancelled()) throw new DOMException("cancelled", "AbortError");
+      recordCharacters += 1;
+      if (recordCharacters > PASC_LOCAL_MAX_CSV_RECORD_BYTES) throw new Error("CSV 单行过长：请检查超长字段或未闭合引号，原文件不会上传。");
       const character = text[index];
       if (quotePending) {
         quotePending = false;
@@ -339,16 +378,40 @@ async function streamCsvRows(
   }
 }
 
+/** Read only the CSV header locally, using the same quoted-row parser as inference. */
+export async function inspectLocalCsv(file: File): Promise<PascLocalCsvInspection> {
+  let headers: string[] = [];
+  await streamCsvRows(file, row => { headers = normalizeLocalCsvHeaders(row); return false; }, () => {}, () => false, 64 * 1024);
+  if (!headers.length) throw new Error("CSV 为空，无法识别字段。");
+  if (headers.some(header => !header)) throw new Error("CSV 存在空字段名，请命名后重试。");
+  if (new Set(headers).size !== headers.length) throw new Error("CSV 存在重复字段名，请重命名后重试。");
+  const keys: PascLocalField[] = ["point_id", "longitude", "latitude", "velocity", "coherence"];
+  const fields = Object.fromEntries(keys.map(key => [key, resolvePascField(headers, key)])) as PascLocalCsvInspection["fields"];
+  const dates = [...new Set(headers.map(header => parsePascDateHeader(header)?.canonical).filter((date): date is string => Boolean(date)))].sort();
+  return { headers, fields, dateCount: dates.length, startDate: dates[0] || "", endDate: dates.at(-1) || "" };
+}
+
 export type PascLocalStreamSummary = {
   totalRows: number;
   invalidRows: number;
   validRows: number;
+  classifiedRows: number;
   dates: string[];
+  observedDates: string[];
   timeSteps: number;
   sourceEpochs: number;
   insertedEpochs: number;
   csvParsingMs: number;
   preprocessingMs: number;
+  invalidReasons: { invalidCoordinate: number; insufficientEpochs: number; duplicateIds: number };
+  invalidExamples: Array<{ rowNumber: number; pointId: string; reason: string }>;
+};
+
+type PreparedRow = {
+  id: string; rowNumber: number; lon: number; lat: number; velocity: number; velocityProvided: number;
+  coherence: number; coherenceProvided: number; missingRate: number; effectiveEpochs: number;
+  eligible: number; observed: Float32Array; mask: Uint8Array;
+  normalized: Float32Array; processed: Float32Array; physics: Float32Array;
 };
 
 export async function streamAndPreprocessLocalCsvBatches(
@@ -359,143 +422,131 @@ export async function streamAndPreprocessLocalCsvBatches(
   onProgress: PascLocalProgress,
   isCancelled: () => boolean,
   chunkBytes = PASC_LOCAL_STREAM_CHUNK_BYTES,
+  maxPoints?: number,
 ): Promise<PascLocalStreamSummary> {
   if (!Number.isInteger(batchRows) || batchRows < 1) throw new Error("本地流式 batch 必须为正整数。");
+  if (!Number.isSafeInteger(chunkBytes) || chunkBytes < 1 || chunkBytes > PASC_LOCAL_STREAM_CHUNK_BYTES) throw new Error("本地读取数据块必须在 1 字节至 8 MiB 之间。");
   const startedAt = performance.now();
-  let preprocessingMs = 0;
-  let batchCallbackMs = 0;
+  let preprocessingMs = 0, batchCallbackMs = 0, totalRows = 0, invalidRows = 0, validRows = 0, classifiedRows = 0;
   let descriptor: CsvDescriptor | null = null;
-  let totalRows = 0;
-  let invalidRows = 0;
-  let validRows = 0;
+  let rows: PreparedRow[] = [];
+  const ids = new Set<string>();
+  let idCharacters = 0;
+  const invalidReasons = { invalidCoordinate: 0, insufficientEpochs: 0, duplicateIds: 0 };
+  const invalidExamples: PascLocalStreamSummary["invalidExamples"] = [];
+  const example = (rowNumber: number, pointId: string, reason: string) => {
+    if (invalidExamples.length < 20) invalidExamples.push({ rowNumber, pointId, reason });
+  };
   const displacementFactor = settings.displacementUnit === "m" ? 1000 : settings.displacementUnit === "cm" ? 10 : 1;
   const velocityFactor = settings.velocityUnit === "m/year" ? 1000 : settings.velocityUnit === "cm/year" ? 10 : 1;
   const signFactor = settings.signConvention === "subsidence_positive" ? -1 : 1;
-  let pointIds: string[] = [];
-  let longitude: number[] = [];
-  let latitude: number[] = [];
-  let velocity: number[] = [];
-  let velocityProvided: number[] = [];
-  let coherence: number[] = [];
-  let coherenceProvided: number[] = [];
-  let missingRate: number[] = [];
-  let series: Float32Array[] = [];
-  let displacement: Float32Array[] = [];
-  let physics: Float32Array[] = [];
-
-  const reset = () => {
-    pointIds = []; longitude = []; latitude = []; velocity = []; velocityProvided = [];
-    coherence = []; coherenceProvided = []; missingRate = []; series = []; displacement = []; physics = [];
-  };
   const flush = async () => {
-    const activeDescriptor = descriptor;
-    if (!activeDescriptor || !pointIds.length) return;
-    const count = pointIds.length;
-    const normalized = new Float32Array(count * activeDescriptor.targetDays.length);
-    const processed = new Float32Array(count * activeDescriptor.targetDays.length);
-    const physical = new Float32Array(count * 13);
-    for (let index = 0; index < count; index += 1) {
-      normalized.set(series[index], index * activeDescriptor.targetDays.length);
-      processed.set(displacement[index], index * activeDescriptor.targetDays.length);
-      physical.set(physics[index], index * 13);
-    }
+    const active = descriptor;
+    if (!active || !rows.length) return;
+    const current = rows; rows = [];
+    const count = current.length, timeSteps = active.targetDays.length, epochs = active.dateGroups.length;
+    const series = new Float32Array(count * timeSteps);
+    const displacementSeries = new Float32Array(count * timeSteps);
+    const physics = new Float32Array(count * 13);
+    const observedSeries = new Float32Array(count * epochs);
+    const observedMask = new Uint8Array(count * epochs);
+    current.forEach((row, index) => {
+      series.set(row.normalized, index * timeSteps);
+      displacementSeries.set(row.processed, index * timeSteps);
+      physics.set(row.physics, index * 13);
+      observedSeries.set(row.observed, index * epochs);
+      observedMask.set(row.mask, index * epochs);
+    });
     const batch: PascLocalPreparedData = {
-      pointIds,
-      longitude: Float32Array.from(longitude),
-      latitude: Float32Array.from(latitude),
-      velocity: Float32Array.from(velocity),
-      velocityProvided: Uint8Array.from(velocityProvided),
-      coherence: Float32Array.from(coherence),
-      coherenceProvided: Uint8Array.from(coherenceProvided),
-      missingRate: Float32Array.from(missingRate),
-      series: normalized,
-      displacementSeries: processed,
-      physics: physical,
-      dates: activeDescriptor.dates,
-      timeSteps: activeDescriptor.targetDays.length,
-      totalRows: count,
-      invalidRows: 0,
-      sourceEpochs: activeDescriptor.dateGroups.length,
-      insertedEpochs: activeDescriptor.insertedEpochs,
-      csvParsingMs: 0,
-      preprocessingMs: 0,
+      pointIds: current.map(row => row.id),
+      longitude: Float32Array.from(current, row => row.lon), latitude: Float32Array.from(current, row => row.lat),
+      velocity: Float32Array.from(current, row => row.velocity), velocityProvided: Uint8Array.from(current, row => row.velocityProvided),
+      coherence: Float32Array.from(current, row => row.coherence), coherenceProvided: Uint8Array.from(current, row => row.coherenceProvided),
+      missingRate: Float32Array.from(current, row => row.missingRate), series, displacementSeries, physics,
+      observedSeries, observedMask, observedDates: active.dateGroups.map(group => new Date(group.timestamp).toISOString().slice(0, 10)),
+      effectiveEpochs: Uint32Array.from(current, row => row.effectiveEpochs),
+      classificationEligible: Uint8Array.from(current, row => row.eligible),
+      sourceRowNumbers: Uint32Array.from(current, row => row.rowNumber),
+      dates: active.dates, timeSteps, totalRows: count, invalidRows: 0, sourceEpochs: epochs,
+      insertedEpochs: active.insertedEpochs, csvParsingMs: 0, preprocessingMs: 0,
     };
-    reset();
     const callbackStartedAt = performance.now();
     await onBatch(batch);
     batchCallbackMs += performance.now() - callbackStartedAt;
   };
 
-  await streamCsvRows(file, (cells, rowNumber) => {
+  await streamCsvRows(file, async (cells, rowNumber) => {
     if (rowNumber === 0) {
-      cells[0] = cells[0].replace(/^\uFEFF/, "");
-      descriptor = buildDescriptor(cells);
+      descriptor = buildDescriptor(normalizeLocalCsvHeaders(cells), settings.fieldMapping);
+      const rowBytes = descriptor.targetDays.length * 8 + descriptor.dateGroups.length * 5 + 13 * 4;
+      if (rowBytes * batchRows * 2 > PASC_LOCAL_PREPARED_BUDGET_BYTES) throw new Error("当前日期维度与批量超过本机内存预算，请减小批量后重试；原文件不会上传。");
       return;
     }
     totalRows += 1;
-    const activeDescriptor = descriptor as CsvDescriptor | null;
-    if (!activeDescriptor) throw new Error("CSV 缺少标题行。");
-    const lon = finite(cells[activeDescriptor.longitudeIndex]);
-    const lat = finite(cells[activeDescriptor.latitudeIndex]);
+    assertLocalAnalysisRows(totalRows);
+    const active = descriptor as CsvDescriptor | null;
+    if (!active) throw new Error("CSV 缺少标题行。");
+    const id = active.idIndex >= 0 && cells[active.idIndex]?.trim() ? cells[active.idIndex].trim() : String(totalRows);
+    if (ids.has(id)) { invalidReasons.duplicateIds += 1; throw new Error("第 " + (rowNumber + 1) + " 行存在重复点编号：" + id + "。请使用唯一编号后重试。"); }
+    idCharacters += id.length;
+    if (idCharacters > PASC_LOCAL_MAX_ID_CHARACTERS) throw new Error("点位编号超过当前单片内存预算，请在本机选择更少行数分片后重试；原文件不会上传。");
+    ids.add(id);
+    const lon = finite(cells[active.longitudeIndex]), lat = finite(cells[active.latitudeIndex]);
     if (lon === null || lat === null || lon < -180 || lon > 180 || lat < -90 || lat > 90 || (lon === 0 && lat === 0)) {
-      invalidRows += 1;
-      return;
+      invalidRows += 1; invalidReasons.invalidCoordinate += 1; example(rowNumber + 1, id, "invalid_coordinate"); return;
     }
-    const sourceDays: number[] = [];
-    const sourceValues: number[] = [];
-    const origin = activeDescriptor.dateGroups[0].timestamp;
-    for (const group of activeDescriptor.dateGroups) {
-      const values = group.indices.map(index => finite(cells[index])).filter((value): value is number => value !== null);
-      if (new Set(values.map(value => value.toPrecision(14))).size > 1) throw new Error(`第 ${rowNumber + 1} 行存在同日重复字段冲突。`);
+    const sourceDays: number[] = [], sourceValues: number[] = [];
+    const observed = new Float32Array(active.dateGroups.length).fill(NaN);
+    const mask = new Uint8Array(active.dateGroups.length);
+    const origin = active.dateGroups[0].timestamp;
+    active.dateGroups.forEach((group, index) => {
+      const values = group.indices.map(column => finite(cells[column])).filter((value): value is number => value !== null);
+      if (new Set(values.map(value => value.toPrecision(14))).size > 1) throw new Error("第 " + (rowNumber + 1) + " 行存在同日重复字段冲突。");
       if (values.length) {
-        sourceDays.push(Math.round((group.timestamp - origin) / 86_400_000));
-        sourceValues.push(f32(values[0] * displacementFactor * signFactor));
+        const normalized = f32(values[0] * displacementFactor * signFactor);
+        if (!Number.isFinite(normalized)) throw new Error("第 " + (rowNumber + 1) + " 行形变值超出数值范围。");
+        observed[index] = normalized; mask[index] = 1;
+        sourceDays.push(Math.round((group.timestamp - origin) / 86_400_000)); sourceValues.push(normalized);
       }
-    }
-    if (sourceValues.length < 20) {
-      invalidRows += 1;
-      return;
-    }
-    let rate = finite(cells[activeDescriptor.velocityIndex]);
+    });
+    const eligible = sourceValues.length >= 20 ? 1 : 0;
+    if (!eligible) { invalidReasons.insufficientEpochs += 1; example(rowNumber + 1, id, "classification_insufficient_epochs"); }
+    else classifiedRows += 1;
+    let rate = finite(cells[active.velocityIndex]);
     const hasVelocity = rate !== null;
-    if (rate === null) rate = slope(Float32Array.from(sourceDays, day => f32(day / 365.25)), Float32Array.from(sourceValues));
+    if (rate === null) rate = sourceValues.length >= 2 ? slope(Float32Array.from(sourceDays, day => f32(day / 365.25)), Float32Array.from(sourceValues)) : NaN;
     else rate = f32(rate * velocityFactor * signFactor);
-    const rawCoherence = finite(cells[activeDescriptor.coherenceIndex]);
+    const rawCoherence = finite(cells[active.coherenceIndex]);
     const rowCoherence = Math.max(0, Math.min(1, rawCoherence ?? 0.5));
     const rowStartedAt = performance.now();
-    const rowResult = preprocessTimeSeries({
-      sourceDays: Float32Array.from(sourceDays),
-      sourceValues: Float32Array.from(sourceValues),
-      targetDays: activeDescriptor.targetDays,
-      years: activeDescriptor.years,
-      velocity: rate,
-      coherence: rowCoherence,
+    // Eligible points retain the exact frozen preprocessing. Ineligible points never enter ONNX.
+    const prepared = eligible ? preprocessTimeSeries({
+      sourceDays: Float32Array.from(sourceDays), sourceValues: Float32Array.from(sourceValues),
+      targetDays: active.targetDays, years: active.years, velocity: rate, coherence: rowCoherence,
       preprocessingState: settings.preprocessingState,
-    });
+    }) : {
+      normalizedSeries: new Float32Array(active.targetDays.length), scaledPhysics: new Float32Array(13),
+      processedSeries: sourceValues.length ? interpolate(Float32Array.from(sourceDays), Float32Array.from(sourceValues), active.targetDays) : new Float32Array(active.targetDays.length).fill(NaN),
+    };
     preprocessingMs += performance.now() - rowStartedAt;
-    pointIds.push(activeDescriptor.idIndex >= 0 && cells[activeDescriptor.idIndex]?.trim() ? cells[activeDescriptor.idIndex].trim() : String(validRows + 1));
-    longitude.push(lon); latitude.push(lat); velocity.push(rate); velocityProvided.push(hasVelocity ? 1 : 0);
-    coherence.push(rowCoherence); coherenceProvided.push(rawCoherence === null ? 0 : 1);
-    missingRate.push(1 - sourceValues.length / activeDescriptor.dateGroups.length);
-    series.push(rowResult.normalizedSeries); displacement.push(rowResult.processedSeries); physics.push(rowResult.scaledPhysics);
+    rows.push({ id, rowNumber: rowNumber + 1, lon, lat, velocity: rate, velocityProvided: hasVelocity ? 1 : 0,
+      coherence: rowCoherence, coherenceProvided: rawCoherence === null ? 0 : 1,
+      missingRate: 1 - sourceValues.length / active.dateGroups.length, effectiveEpochs: sourceValues.length,
+      eligible, observed, mask, normalized: prepared.normalizedSeries, processed: prepared.processedSeries, physics: prepared.scaledPhysics });
     validRows += 1;
-    if (pointIds.length >= batchRows) return flush();
-  }, bytes => onProgress(Math.min(0.995, bytes / Math.max(file.size, 1)), `已流式读取 ${(bytes / 1_048_576).toFixed(1)} MB`), isCancelled, chunkBytes);
+    if (rows.length >= batchRows) await flush();
+    if (maxPoints && validRows >= maxPoints) return false;
+  }, bytes => onProgress(Math.min(0.995, bytes / Math.max(file.size, 1)), "已流式读取 " + (bytes / 1_048_576).toFixed(1) + " MB"), isCancelled, chunkBytes);
   await flush();
-  const completedDescriptor = descriptor as CsvDescriptor | null;
-  if (!completedDescriptor) throw new Error("CSV 缺少标题行。");
+  const active = descriptor as CsvDescriptor | null;
+  if (!active) throw new Error("CSV 缺少标题行。");
   if (!validRows) throw new Error("没有可用于本地 PASC 分析的有效监测点。");
-  const elapsed = performance.now() - startedAt;
   return {
-    totalRows,
-    invalidRows,
-    validRows,
-    dates: completedDescriptor.dates,
-    timeSteps: completedDescriptor.targetDays.length,
-    sourceEpochs: completedDescriptor.dateGroups.length,
-    insertedEpochs: completedDescriptor.insertedEpochs,
-    csvParsingMs: Math.max(0, elapsed - preprocessingMs - batchCallbackMs),
-    preprocessingMs,
+    totalRows, invalidRows, validRows, classifiedRows, dates: active.dates,
+    observedDates: active.dateGroups.map(group => new Date(group.timestamp).toISOString().slice(0, 10)),
+    timeSteps: active.targetDays.length, sourceEpochs: active.dateGroups.length, insertedEpochs: active.insertedEpochs,
+    csvParsingMs: Math.max(0, performance.now() - startedAt - preprocessingMs - batchCallbackMs),
+    preprocessingMs, invalidReasons, invalidExamples,
   };
 }
 
@@ -506,120 +557,33 @@ export async function parseAndPreprocessLocalCsv(
   isCancelled: () => boolean,
   maxPoints?: number,
 ): Promise<PascLocalPreparedData> {
-  const parsingStartedAt = performance.now();
-  let preprocessingMs = 0;
-  let descriptor: CsvDescriptor | null = null;
-  const pointIds: string[] = [];
-  const longitudeBlocks: number[] = [];
-  const latitudeBlocks: number[] = [];
-  const velocityBlocks: number[] = [];
-  const velocityProvidedBlocks: number[] = [];
-  const coherenceBlocks: number[] = [];
-  const coherenceProvidedBlocks: number[] = [];
-  const missingRateBlocks: number[] = [];
-  const seriesBlocks: Float32Array[] = [];
-  const displacementBlocks: Float32Array[] = [];
-  const physicsBlocks: Float32Array[] = [];
-  let totalRows = 0;
-  let invalidRows = 0;
-  const displacementFactor = settings.displacementUnit === "m" ? 1000 : settings.displacementUnit === "cm" ? 10 : 1;
-  const velocityFactor = settings.velocityUnit === "m/year" ? 1000 : settings.velocityUnit === "cm/year" ? 10 : 1;
-  const signFactor = settings.signConvention === "subsidence_positive" ? -1 : 1;
-
-  await streamCsvRows(file, (cells, rowNumber) => {
-    if (rowNumber === 0) {
-      cells[0] = cells[0].replace(/^\uFEFF/, "");
-      descriptor = buildDescriptor(cells);
-      return;
-    }
-    totalRows += 1;
-    const activeDescriptor = descriptor as CsvDescriptor | null;
-    if (!activeDescriptor) throw new Error("CSV 缺少标题行。");
-    const longitude = finite(cells[activeDescriptor.longitudeIndex]);
-    const latitude = finite(cells[activeDescriptor.latitudeIndex]);
-    if (longitude === null || latitude === null || longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90 || (longitude === 0 && latitude === 0)) {
-      invalidRows += 1;
-      return;
-    }
-    const sourceDays: number[] = [];
-    const sourceValues: number[] = [];
-    const origin = activeDescriptor.dateGroups[0].timestamp;
-    for (const group of activeDescriptor.dateGroups) {
-      const values = group.indices.map(index => finite(cells[index])).filter((value): value is number => value !== null);
-      if (new Set(values.map(value => value.toPrecision(14))).size > 1) throw new Error(`第 ${rowNumber + 1} 行存在同日重复字段冲突。`);
-      if (values.length) {
-        sourceDays.push(Math.round((group.timestamp - origin) / 86_400_000));
-        sourceValues.push(f32(values[0] * displacementFactor * signFactor));
-      }
-    }
-    if (sourceValues.length < 20) {
-      invalidRows += 1;
-      return;
-    }
-    let velocity = finite(cells[activeDescriptor.velocityIndex]);
-    const velocityProvided = velocity !== null;
-    if (velocity === null) velocity = slope(Float32Array.from(sourceDays, day => f32(day / 365.25)), Float32Array.from(sourceValues));
-    else velocity = f32(velocity * velocityFactor * signFactor);
-    const rawCoherence = finite(cells[activeDescriptor.coherenceIndex]);
-    const coherence = Math.max(0, Math.min(1, rawCoherence ?? 0.5));
-    const rowPreprocessingStartedAt = performance.now();
-    const result = preprocessTimeSeries({
-      sourceDays: Float32Array.from(sourceDays),
-      sourceValues: Float32Array.from(sourceValues),
-      targetDays: activeDescriptor.targetDays,
-      years: activeDescriptor.years,
-      velocity,
-      coherence,
-      preprocessingState: settings.preprocessingState,
-    });
-    preprocessingMs += performance.now() - rowPreprocessingStartedAt;
-    pointIds.push(activeDescriptor.idIndex >= 0 && cells[activeDescriptor.idIndex]?.trim() ? cells[activeDescriptor.idIndex].trim() : String(pointIds.length + 1));
-    longitudeBlocks.push(longitude);
-    latitudeBlocks.push(latitude);
-    velocityBlocks.push(velocity);
-    velocityProvidedBlocks.push(velocityProvided ? 1 : 0);
-    coherenceBlocks.push(coherence);
-    coherenceProvidedBlocks.push(rawCoherence === null ? 0 : 1);
-    missingRateBlocks.push(1 - sourceValues.length / activeDescriptor.dateGroups.length);
-    seriesBlocks.push(result.normalizedSeries);
-    displacementBlocks.push(result.processedSeries);
-    physicsBlocks.push(result.scaledPhysics);
-    if (maxPoints && pointIds.length >= maxPoints) return false;
-  }, bytes => onProgress(Math.min(0.98, bytes / Math.max(file.size, 1)), `已读取 ${(bytes / 1_048_576).toFixed(1)} MB`), isCancelled);
-
-  const streamElapsedMs = performance.now() - parsingStartedAt;
-  const streamingPreprocessingMs = preprocessingMs;
-  const completedDescriptor = descriptor as CsvDescriptor | null;
-  if (!completedDescriptor) throw new Error("CSV 缺少标题行。");
-  if (!pointIds.length) throw new Error("没有可用于本地 PASC 分析的有效监测点。");
-  onProgress(1, maxPoints && pointIds.length >= maxPoints ? `快速验证已取得前 ${pointIds.length.toLocaleString()} 个有效点` : `已预处理 ${pointIds.length.toLocaleString()} 个有效点`);
-  const assemblyStartedAt = performance.now();
-  const series = new Float32Array(pointIds.length * completedDescriptor.targetDays.length);
-  const displacementSeries = new Float32Array(pointIds.length * completedDescriptor.targetDays.length);
-  const physics = new Float32Array(pointIds.length * 13);
-  seriesBlocks.forEach((values, index) => series.set(values, index * completedDescriptor.targetDays.length));
-  displacementBlocks.forEach((values, index) => displacementSeries.set(values, index * completedDescriptor.targetDays.length));
-  physicsBlocks.forEach((values, index) => physics.set(values, index * 13));
-  preprocessingMs += performance.now() - assemblyStartedAt;
+  const batches: PascLocalPreparedData[] = [];
+  let retainedBytes = 0;
+  const summary = await streamAndPreprocessLocalCsvBatches(file, settings, 1024, async batch => {
+    retainedBytes += Object.values(batch).reduce<number>((sum, value) => sum + (ArrayBuffer.isView(value) ? value.byteLength : 0), 0);
+    // Final concatenation needs a second copy while the batches remain reachable.
+    if (retainedBytes * 2 > PASC_LOCAL_PREPARED_BUDGET_BYTES) throw new Error("完整分析时序超过本机内存预算，请先在本机分片后逐片分析；原文件不会上传。");
+    batches.push(batch);
+  }, onProgress, isCancelled, PASC_LOCAL_STREAM_CHUNK_BYTES, maxPoints);
+  const concatenate = <T extends Float32Array | Uint8Array | Uint32Array>(key: keyof PascLocalPreparedData, width: number, allocate: (size: number) => T): T => {
+    const output = allocate(summary.validRows * width);
+    let offset = 0;
+    for (const batch of batches) { const values = batch[key] as T; output.set(values, offset); offset += values.length; }
+    return output;
+  };
+  onProgress(1, "已预处理 " + summary.validRows.toLocaleString() + " 个有效点");
   return {
-    pointIds,
-    longitude: Float32Array.from(longitudeBlocks),
-    latitude: Float32Array.from(latitudeBlocks),
-    velocity: Float32Array.from(velocityBlocks),
-    velocityProvided: Uint8Array.from(velocityProvidedBlocks),
-    coherence: Float32Array.from(coherenceBlocks),
-    coherenceProvided: Uint8Array.from(coherenceProvidedBlocks),
-    missingRate: Float32Array.from(missingRateBlocks),
-    series,
-    displacementSeries,
-    physics,
-    dates: completedDescriptor.dates,
-    timeSteps: completedDescriptor.targetDays.length,
-    totalRows,
-    invalidRows,
-    sourceEpochs: completedDescriptor.dateGroups.length,
-    insertedEpochs: completedDescriptor.insertedEpochs,
-    csvParsingMs: Math.max(0, streamElapsedMs - streamingPreprocessingMs),
-    preprocessingMs,
+    pointIds: batches.flatMap(batch => batch.pointIds),
+    longitude: concatenate("longitude", 1, size => new Float32Array(size)), latitude: concatenate("latitude", 1, size => new Float32Array(size)),
+    velocity: concatenate("velocity", 1, size => new Float32Array(size)), velocityProvided: concatenate("velocityProvided", 1, size => new Uint8Array(size)),
+    coherence: concatenate("coherence", 1, size => new Float32Array(size)), coherenceProvided: concatenate("coherenceProvided", 1, size => new Uint8Array(size)),
+    missingRate: concatenate("missingRate", 1, size => new Float32Array(size)), series: concatenate("series", summary.timeSteps, size => new Float32Array(size)),
+    displacementSeries: concatenate("displacementSeries", summary.timeSteps, size => new Float32Array(size)), physics: concatenate("physics", 13, size => new Float32Array(size)),
+    observedSeries: concatenate("observedSeries", summary.sourceEpochs, size => new Float32Array(size)), observedMask: concatenate("observedMask", summary.sourceEpochs, size => new Uint8Array(size)),
+    effectiveEpochs: concatenate("effectiveEpochs", 1, size => new Uint32Array(size)), classificationEligible: concatenate("classificationEligible", 1, size => new Uint8Array(size)),
+    sourceRowNumbers: concatenate("sourceRowNumbers", 1, size => new Uint32Array(size)),
+    observedDates: summary.observedDates, dates: summary.dates, timeSteps: summary.timeSteps,
+    totalRows: summary.totalRows, invalidRows: summary.invalidRows, sourceEpochs: summary.sourceEpochs, insertedEpochs: summary.insertedEpochs,
+    csvParsingMs: summary.csvParsingMs, preprocessingMs: summary.preprocessingMs, invalidReasons: summary.invalidReasons, invalidExamples: summary.invalidExamples,
   };
 }

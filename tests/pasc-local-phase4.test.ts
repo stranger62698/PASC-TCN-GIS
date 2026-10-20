@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { adaptLocalPredictionToMapData, localPredictionCsv } from "../app/lib/pasc-local-map-adapter.js";
 import type { PascLocalCompletePayload } from "../app/lib/pasc-local-worker-protocol.js";
+import { exportOriginalWithPascFields } from "../app/lib/pasc-local-export.js";
 
 function fixture(): PascLocalCompletePayload {
   return {
@@ -74,7 +75,7 @@ test("large-file adapter preserves the full analyzed count while exposing a boun
   assert.equal(dataset.totalPredictedPoints, 125_000);
   assert.equal(dataset.mapSampled, true);
   assert.equal(dataset.points.length, 2);
-  assert.match(dataset.points[1].warnings.join(" "), /当前处理批次内无标签邻点/);
+  assert.match((dataset.points[1].warnings ?? []).join(" "), /当前处理批次内无标签邻点/);
 });
 
 test("Phase 4 local export is a browser-ready CSV with the required result fields", () => {
@@ -89,7 +90,7 @@ test("Phase 4 Local UI has no task Blob or server inference call path", async ()
   const component = await readFile("app/components/PascLocalWebGis.tsx", "utf8");
   assert.match(component, /new Worker\(PASC_LOCAL_WORKER_URL/);
   assert.match(component, /localPredictionCsv/);
-  assert.match(component, /登录只解锁功能/);
+  assert.match(component, /登录后使用本机分析/);
   assert.doesNotMatch(component, /fetch\s*\(/);
   assert.doesNotMatch(component, /\/api\/pasc|\/v1\/jobs|meta\.json/i);
 });
@@ -98,4 +99,44 @@ test("Phase 4 adapter rejects partial payloads before mutating map state", () =>
   const result = fixture();
   result.confidence = Float32Array.from([0.8]);
   assert.throws(() => adaptLocalPredictionToMapData(result, "broken.csv"), /长度不一致/);
+});
+
+test("original CSV export uses confirmed mapping and skips blank coordinates without shifting predictions", async () => {
+  const dates = Array.from({ length: 20 }, (_, index) => `D202401${String(index + 1).padStart(2, "0")}`);
+  const values = dates.map((_, index) => -index);
+  const source = new File([
+    ["sample_code", "coord_a", "coord_b", ...dates].join(",") + "\n" +
+    ["P-1", 110.1, 20.1, ...values].join(",") + "\n" +
+    ["invalid", "", 20.1, ...values].join(",") + "\n" +
+    ["P-2", 110.2, 20.2, ...values].join(","),
+  ], "custom.csv");
+  let output = "";
+  let closed = false;
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", { configurable: true, value: {
+    showSaveFilePicker: async () => ({ createWritable: async () => ({
+      write: async (chunk: string) => { output += chunk; },
+      close: async () => { closed = true; },
+    }) }),
+  } });
+  try {
+    await exportOriginalWithPascFields({ source, result: fixture(), suggestedName: "result.csv", fieldMapping: { point_id: "sample_code", longitude: "coord_a", latitude: "coord_b", velocity: "", coherence: "" } });
+    assert.equal(closed, true);
+    const rows = output.trim().split("\r\n");
+    assert.equal(rows.length, 4);
+    assert.match(rows[1], /线性型,Linear/);
+    const headers = rows[0].replace(/^\uFEFF/, "").split(","), invalid = rows[2].split(",");
+    for (const column of ["pasc_mode", "pasc_mode_name", "pasc_confidence", "pasc_spatial_reliability", "pasc_spatial_gate_mean", "pasc_spatial_reference"]) assert.equal(invalid[headers.indexOf(column)], "");
+    assert.equal(invalid[headers.indexOf("pasc_status")], "invalid_coordinate");
+    assert.equal(invalid[headers.indexOf("pasc_status_reason")], "coordinates_missing_or_non_numeric");
+    assert.equal(invalid[headers.indexOf("pasc_effective_observations")], "20");
+    assert.match(rows[3], /未定义型,Undefined/);
+    const firstOutput = output;
+    output = "";
+    await exportOriginalWithPascFields({ source: new File([firstOutput], "classified.csv"), result: fixture(), suggestedName: "rerun.csv", fieldMapping: { point_id: "sample_code", longitude: "coord_a", latitude: "coord_b", velocity: "", coherence: "" } });
+    assert.equal(output, firstOutput, "re-analysis replaces the six prediction columns without duplicating headers");
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
 });

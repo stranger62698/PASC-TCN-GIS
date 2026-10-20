@@ -6,33 +6,35 @@ import { cases } from "../app/data/site.js";
 import { GRASS_BCYR_COLORS, colorFor, inspectCsv, parseMappedCsv } from "../app/lib/insar-v2.js";
 import { buildInspectionBrief, buildInspectionCandidates } from "../app/lib/inspection-action.js";
 import type { AnomalyRegion } from "../app/lib/anomaly-regions.js";
-import { calculatePriorityThresholds, selectPriorityDeformationPoints } from "../app/lib/priority-deformation.js";
+import { selectPriorityDeformationPoints } from "../app/lib/priority-deformation.js";
+import { LOCAL_DATA_BLOCKED_ENDPOINTS, ONLINE_SERVICE_ENDPOINTS, USER_DATA_LOCAL_ONLY, localDataOnlyResponse } from "../app/lib/data-processing-policy.js";
 
 const priorityPoint = (index: number, velocity: number, displacement: number, coherence = .9) => ({
-  id: `priority-test-${index}`, name: `priority-test-${index}`, lon: 110 + index * .001, lat: 20,
+  id: `priority-test-${index}`, name: `priority-test-${index}`, lon: 110 + index * .00005, lat: 20,
   velocity, displacement, coherence, missingRate: 0, mode: "线性型", updated: "2026-09-06",
   series: [0, displacement],
 });
 
-test("priority deformation uses the joint negative empirical tail and keeps quality separate", () => {
-  const points = Array.from({ length: 10 }, (_, index) => priorityPoint(index, -10 + index, -100 + index * 10, index === 0 ? .9 : .5));
-  const thresholds = calculatePriorityThresholds(points, 1, 20);
-  assert.equal(thresholds.displacementMm, -82);
-  assert.equal(thresholds.velocityMmPerYear, -8.2);
-  const selection = selectPriorityDeformationPoints(points, 1, { tailPercent: 20, coherenceThreshold: .75 });
-  assert.deepEqual(selection.candidates.map(point => point.id), ["priority-test-0", "priority-test-1"]);
-  assert.deepEqual(selection.reliable.map(point => point.id), ["priority-test-0"]);
-  assert.deepEqual(selection.limited.map(point => point.id), ["priority-test-1"]);
-  assert.equal(selection.ruleVersion, "negative-tail-v1");
+test("priority deformation requires joint magnitude, quality and spatial support", () => {
+  const points = Array.from({ length: 6 }, (_, index) => priorityPoint(index, -10, -30, index === 5 ? .5 : .9));
+  const selection = selectPriorityDeformationPoints(points, 1, { coherenceThreshold: .75 });
+  assert.deepEqual(selection.thresholds, { displacementMm: 30, velocityMmPerYear: 10 });
+  assert.equal(selection.anomalies.length, 5);
+  assert.equal(selection.reliable.length, 5);
+  assert.equal(selection.excludedLowQuality.length, 1);
+  assert.equal(selection.limited.length, 0);
+  assert.equal(selection.ruleVersion, "magnitude-spatial-v2");
 });
 
-test("priority deformation never promotes the positive side of a distribution", () => {
-  const points = Array.from({ length: 10 }, (_, index) => priorityPoint(index, 1 + index, 10 + index * 10));
-  const selection = selectPriorityDeformationPoints(points, 1, { tailPercent: 20 });
-  assert.equal(selection.candidates.length, 0);
+test("priority deformation can detect a concentrated positive cluster independently", () => {
+  const points = Array.from({ length: 5 }, (_, index) => priorityPoint(index, 10, 30));
+  const selection = selectPriorityDeformationPoints(points, 1);
+  assert.equal(selection.anomalies.length, 5);
+  assert.equal(selection.regions.regions[0].direction, "positive");
+  assert.equal(selectPriorityDeformationPoints(points, 1, { direction: "negative" }).candidates.length, 0);
 });
 
-test("portfolio homepage states one primary persona and exposes the guided demo", () => {
+test("portfolio homepage states the analysis and fieldwork mission and exposes the guided demo", () => {
   const home = readFileSync("app/components/HomePage.tsx", "utf8");
   const shell = readFileSync("app/components/SiteShell.tsx", "utf8");
   const auth = readFileSync("app/components/AuthPage.tsx", "utf8");
@@ -41,55 +43,60 @@ test("portfolio homepage states one primary persona and exposes the guided demo"
   const contentPages = readFileSync("app/components/ContentPages.tsx", "utf8");
   const staticIndex = readFileSync("static-src/index.html", "utf8");
   const styles = readFileSync("app/globals.css", "utf8");
+  const siteStyles = readFileSync("app/site-ui.css", "utf8");
   const layout = readFileSync("app/layout.tsx", "utf8");
-  assert.match(home, /面向 InSAR \/ GIS 科研与技术分析人员/);
+  assert.match(home, /面向 InSAR \/ GIS 科研与技术分析/);
   assert.match(home, /\/map\?demo=haikou&tour=portfolio/);
-  assert.match(home, /90 秒体验一次分析/);
-  assert.match(home, /不只看形变量/);
-  assert.match(home, /更识别形变模式/);
-  assert.doesNotMatch([home, shell, contentPages, staticIndex, layout].join("\n"), /形变过程分析|时序 InSAR 分析|更识别变化过程/);
+  assert.match(home, /进入分析工作台/);
+  assert.match(home, /时序形变研判/);
+  assert.match(home, /与外业核查协同/);
+  assert.match(home, /规划外业行程/);
+  assert.match(home, /不自动将形变结果转为出行任务/);
+  assert.doesNotMatch([home, shell, contentPages, staticIndex, layout].join("\n"), /90 秒|不只看形变量|更识别形变模式|更识别变化过程/);
   assert.match(home, /useLanguage/);
-  assert.match(styles, /hero-insar-observation-v2\.webp/);
-  assert.match(home, /卫星雷达观测/);
-  assert.match(home, /时序形变反演/);
   assert.match(home, /形变模式识别/);
-  assert.match(home, /hero-visual-label/);
-  assert.match(home, /从观测到可核查证据/);
-  assert.match(home, /不代表真实监测点、数值或工程结论/);
+  assert.match(home, /className="hero-scene" aria-hidden="true"/);
+  assert.match(home, /className="hero-scene-note"/);
+  assert.match(home, /背景为 InSAR 观测场景示意，非实测结果/);
+  assert.match(home, /Illustrative InSAR observation scene, not measured results/);
+  assert.doesNotMatch(home, /hero-visual|hero-observation-flow|hero-method-badge/);
   assert.doesNotMatch(home, /hero-point-card|−8\.24|当前点位/);
   assert.doesNotMatch(home, /观测 → 模式 → 证据/);
   assert.match(shell, /function BrandMark/);
   assert.match(shell, /lanjifyw-brand-satellite\.png/);
-  assert.match(shell, /InSAR 形变模式识别/);
-  assert.match(styles, /\.product-path\{[^}]*background:linear-gradient\(145deg,#edf6ff/);
+  assert.match(shell, /形变研判 · 外业协同/);
+  assert.match(shell, /className="site-surface"/);
+  assert.match(styles, /@import "\.\/site-ui\.css"/);
+  assert.match(siteStyles, /\.site-surface \.product-path\s*\{[^}]*background:\s*#fff/);
   assert.doesNotMatch(shell, /可解释形变分析|insar-satellite-v2/);
-  assert.match(auth, /<BrandMark \/>/);
+  assert.match(auth, /<BrandMark invert \/>/);
+  assert.match(auth, /className="auth-orbit-visual" aria-hidden="true"/);
+  assert.match(auth, /src="\/insar-satellite-v2\.png" alt=""/);
   assert.match(styles, /phase-eight-login \.login-scene\{justify-content:flex-start/);
   assert.doesNotMatch(mapRoute, /<SiteHeader/);
   assert.match(workspace, /<WorkspaceHeader/);
   assert.doesNotMatch(workspace, /<BrandMark/);
   assert.match(workspace, /useState<InsarPoint \| null>\(null\)/);
   assert.match(workspace, /risk: false/);
-  assert.doesNotMatch(auth, /城市时序 InSAR|insar-satellite-v2/);
+  assert.doesNotMatch(auth, /城市时序 InSAR/);
   assert.doesNotMatch(workspace, /INSAR WEBGIS|insar-satellite-v2/);
   assert.match(styles, /brand-symbol/);
-  assert.match(styles, /hero-deformation-field/);
-  assert.match(styles, /@keyframes heroSceneIn/);
-  assert.match(styles, /@keyframes heroCardFloat/);
-  assert.match(styles, /\.hero-method-badge\{position:relative/);
-  assert.doesNotMatch(styles, /\.hero-science-image\{[^}]*grayscale/);
   assert.doesNotMatch(home, /heat h1/);
   assert.doesNotMatch(home, /城市安全信息/);
-  assert.match(layout, /InSAR 形变模式识别工作台/);
-  assert.match(shell, /90 秒公开体验/);
+  assert.match(layout, /形变分析与外业核查工作台/);
+  assert.match(shell, /公开数据分析/);
+  assert.match(shell, /路线服务与底图独立，非实时导航/);
 });
 
 test("map-first workbench uses drawers, adjustable pixel markers and carousel evidence", () => {
   const home = readFileSync("app/components/HomePage.tsx", "utf8");
   const workspace = readFileSync("app/components/MapWorkspace.tsx", "utf8");
   const map = readFileSync("app/components/WebGisMap.tsx", "utf8");
+  const renderer = readFileSync("app/lib/full-point-layer.ts", "utf8");
   const cases = readFileSync("app/components/DataBackedCasePanel.tsx", "utf8");
   const styles = readFileSync("app/globals.css", "utf8");
+  const siteStyles = readFileSync("app/site-ui.css", "utf8");
+  const workspaceStyles = readFileSync("app/workspace-ui.css", "utf8");
   assert.match(workspace, /workspace-data-card/);
   assert.doesNotMatch(workspace, /map-corner-dock/);
   assert.match(workspace, /workspace-export-drawer/);
@@ -104,19 +111,24 @@ test("map-first workbench uses drawers, adjustable pixel markers and carousel ev
   assert.doesNotMatch(workspace, /className="map-tool-wide"/);
   assert.doesNotMatch(workspace, /<header className="map-topbar/);
   assert.doesNotMatch(workspace, /panel-resizer/);
-  assert.match(map, /L\.circleMarker\(\[p\.lat,p\.lon\],baseStyle\)/);
-  assert.match(map, /renderer:pointRenderer,radius:pointSize/);
+  // FullPointLayer's behavior suite verifies full-count WebGL/Canvas rendering;
+  // this guard checks that the workspace sends its pixel-size control to that layer.
+  assert.match(map, /pointLayer\.current\s*=\s*new FullPointLayer\(/);
+  assert.match(map, /pointLayer\.current\.update\(\{[^}]*points:displayPoints[^}]*\bpointSize\b/);
   assert.match(workspace, /aria-label="地图监测点大小"/);
   assert.doesNotMatch(map, /aria-label="地图监测点大小"/);
   assert.match(workspace, /卷帘对比/);
   assert.doesNotMatch(map, /map-swipe-tool/);
   assert.match(map, /aria-label="速率与形变模式卷帘位置"/);
   assert.match(map, /latLngToContainerPoint/);
-  assert.match(map, /colorFor\(point\.velocity,swipeVelocityStyle\)/);
-  assert.match(map, /colorForMode\(point\.mode\)/);
+  assert.match(map, /onSwipeChange=\{\(active,position\)=>pointLayer\.current\?\.setSwipe\(active,position\)\}/);
+  assert.match(renderer, /cachedBase\("swipe-left",\s*"velocity"/);
+  assert.match(renderer, /velocityPalette\(p\.velocity\)/);
+  assert.match(renderer, /cachedBase\("swipe-right",\s*"mode"/);
+  assert.match(renderer, /modeColor\s*=\s*\(p:\s*InsarPoint\)\s*=>\s*parseColor\(colorForMode\(p\.mode\)\)/);
   assert.match(map, /role="slider"/);
   assert.match(styles, /\.map-swipe-divider/);
-  assert.match(styles, /\.map-swipe-canvas/);
+  assert.match(renderer, /className\s*=\s*"leaflet-full-point-layer/);
   assert.match(workspace, /onClick=\{clearFilters\}/);
   assert.match(workspace, /setAttributeState\(result\.periods \? "displacement" : "velocity"\)/);
   assert.match(styles, /\.navigation-workspace \.gis-map\{inset:0 var\(--drawer-width\)/);
@@ -136,8 +148,8 @@ test("map-first workbench uses drawers, adjustable pixel markers and carousel ev
   assert.match(home, /\/platform-field-evidence\.webp/);
   assert.match(home, /className="signature-image" fill/);
   assert.match(styles, /\.signature-shade\{position:absolute/);
-  assert.match(styles, /\.case-gallery-selector\{background:linear-gradient\(160deg,#eaf5fc,#d7eaf7\)\}/);
-  assert.match(home, /LIVE CASE GALLERY/);
+  assert.match(siteStyles, /\.site-surface \.case-gallery-selector\s*\{\s*background:\s*var\(--wash\)/);
+  assert.match(home, /MONITORING CASES/);
   assert.match(home, /role="tablist"/);
   assert.match(home, /moveCaseTab/);
   assert.match(home, /tabIndex=\{index === activeCaseIndex \? 0 : -1\}/);
@@ -148,17 +160,18 @@ test("map-first workbench uses drawers, adjustable pixel markers and carousel ev
   assert.match(home, /\/home-case-road\.png/);
   assert.match(home, /\/home-case-landslide\.png/);
   assert.match(styles, /--font-body:/);
-  assert.match(styles, /--font-title:"Inter","PingFang SC","Source Han Sans SC"/);
-  assert.match(styles, /--font-ui:"Inter","PingFang SC","Microsoft YaHei"/);
-  assert.match(styles, /map-tool-drawer>header\.panel-head\{[^}]*background:linear-gradient\(100deg,#f8fbff,#edf5ff\)/);
-  assert.match(styles, /\.insar-action-concept\{background:linear-gradient\(145deg,#edf6ff/);
+  assert.match(siteStyles, /font-family:\s*var\(--font\)/);
+  assert.match(workspaceStyles, /font-family:\s*var\(--font\)/);
+  assert.match(workspaceStyles, /\.workspace-export-drawer \.panel-head\s*\{[^}]*background:\s*#fff/);
+  assert.match(siteStyles, /\.site-surface \.insar-action-concept\s*\{[^}]*background:\s*#fff/);
   assert.match(styles, /\.signature-pattern/);
   assert.doesNotMatch(home, /SPACE × TIME/);
   assert.doesNotMatch(home, /RATE → PROCESS/);
   assert.doesNotMatch(home, /PHOTO ↔ COORDINATE/);
   assert.match(home, /href="\/showcase"/);
-  assert.match(home, /href="\/about"/);
-  assert.match(home, /将现场观察和遥感证据放在同一位置核查/);
+  assert.match(home, /href="\/map\?demo=road"/);
+  assert.match(home, /为现场观察和遥感研判提供可追溯的关联依据/);
+  assert.match(home, /不提供实时导航，停车、入口及最后一段进入条件仍需核验/);
   assert.doesNotMatch(home, /\["01",|<i>01<\/i>|01—03/);
 });
 
@@ -197,10 +210,12 @@ test("field photo lightbox closes above the map without click-through", () => {
 test("portfolio case study exposes role, decisions, evidence and pending validation", () => {
   const about = readFileSync("app/components/ContentPages.tsx", "utf8");
   assert.match(about, /独立产品实践/);
-  assert.match(about, /第一目标用户/);
+  assert.match(about, /目标用户/);
+  assert.match(about, /InSAR \/ GIS 分析与外业人员/);
   assert.match(about, /KEY PRODUCT DECISIONS/);
-  assert.match(about, /当前已有技术证据/);
-  assert.match(about, /下一阶段用户证据/);
+  assert.match(about, /现有技术评估 · 限对应数据与测试条件/);
+  assert.match(about, /待开展的用户与现场验证/);
+  assert.match(about, /监测点和识别结果尚未自动转换为路线任务/);
   assert.match(about, /不替代现场调查、工程检测或风险判定/);
 });
 
@@ -310,6 +325,9 @@ test("road public demo is wired to the normalized Jiangdong road CSV", () => {
   const parsed = parseMappedCsv(csv, "haikou-jiangdong-road-insar.csv", inspection.mapping, true);
   assert.match(workspace, /demo-haikou-jiangdong-road/);
   assert.match(workspace, /\/data\/haikou-jiangdong-road-insar\.csv/);
+  const boundaryStatus = workspace.match(/<div className="workspace-status-line"[\s\S]*?<\/div>/)?.[0] ?? "";
+  assert.match(boundaryStatus, /navigationActive\s*\?\s*<>[\s\S]*?非实时语音导航/);
+  assert.match(boundaryStatus, /<\/>\s*:\s*<>[\s\S]*?作品集演示 · 非权威路网/);
   assert.equal(manifest.sourceFile, "cumulative_def_network_1.csv");
   assert.equal(manifest.sourcePointCount, 27_123);
   assert.equal(manifest.pointCount, 11_383);
@@ -336,23 +354,34 @@ test("showcase headings prevent orphaned Chinese glyphs without shrinking the de
 test("guided walkthrough reuses real anomaly, region and AI actions", () => {
   const workspace = readFileSync("app/components/MapWorkspace.tsx", "utf8");
   assert.match(workspace, /tour.*portfolio/);
-  assert.match(workspace, /产品操作引导/);
+  assert.match(workspace, /aria-label="形变分析操作引导"/);
   assert.match(workspace, /discoverAnomalies\(\)/);
   assert.match(workspace, /focusAnomalyRegion\(first\)/);
   assert.match(workspace, /runAiInterpretation\(\)/);
   assert.match(workspace, /不超过 12 KB/);
 });
 
-test("static Vercel deployment has a same-origin AI function", () => {
+test("static Vercel deployment blocks cloud AI under the local-only policy", () => {
   const route = readFileSync("api/ai/interpret.ts", "utf8");
-  const deployment = readFileSync("vercel.json", "utf8");
+  const deployment = JSON.parse(readFileSync("vercel.json", "utf8"));
+  const enforcement = readFileSync("scripts/enforce-local-data-deployment.mjs", "utf8");
+  assert.equal(USER_DATA_LOCAL_ONLY, true);
+  assert.ok(LOCAL_DATA_BLOCKED_ENDPOINTS.includes("api/ai/interpret"));
+  assert.deepEqual([...ONLINE_SERVICE_ENDPOINTS], ["api/auth", "api/roadops/driving"]);
+  assert.equal(localDataOnlyResponse().error.code, "USER_DATA_LOCAL_ONLY");
+  assert.equal(localDataOnlyResponse().localOnly, true);
   assert.match(route, /VercelRequest/);
+  assert.match(route, /if \(USER_DATA_LOCAL_ONLY\) return json\(response, 403, localDataOnlyResponse\(\)\)/);
   assert.match(route, /resolveAiProviderConfig/);
   assert.match(route, /resolvePersonalAiProviderConfig/);
   assert.match(route, /AI_INTERPRET_REQUEST_MAX_BYTES/);
   assert.match(route, /validOrigin/);
-  assert.match(deployment, /api\/ai\/interpret\.ts/);
-  assert.match(deployment, /"maxDuration": 45/);
+  assert.equal(deployment.buildCommand, "node scripts/build-static.mjs");
+  assert.equal(deployment.outputDirectory, "static-dist");
+  assert.equal(deployment.functions, undefined);
+  assert.match(enforcement, /for \(const endpoint of LOCAL_DATA_BLOCKED_ENDPOINTS\)/);
+  assert.match(enforcement, /await rm\(target, \{ recursive: true, force: false \}\)/);
+  assert.match(enforcement, /dest: "\/data-processing-policy\.json", status: 403/);
 });
 
 test("health endpoint distinguishes local readiness from optional service configuration", () => {
@@ -441,11 +470,14 @@ test("evidence scoring does not treat denser sampling as higher risk", () => {
   assert.doesNotMatch(brief, /路线|导航|ETA/);
 });
 
-test("landslide case exposes the observation-to-action concept and direct action workspace", () => {
+test("case details expose the manual field workflow without conflating routes and verified access", () => {
   const casesPage = readFileSync("app/components/CasePages.tsx", "utf8");
   const workspace = readFileSync("app/components/MapWorkspace.tsx", "utf8");
-  assert.match(casesPage, /遥感负责发现，现场负责确认/);
-  assert.match(casesPage, /map\?demo=landslide&panel=action/);
+  assert.match(casesPage, /<FieldInspectionWorkflow caseKey=\{active\.key\} \/>/);
+  assert.match(casesPage, /遥感线索与外业行程组织/);
+  assert.match(casesPage, /用户在驾车面板手动选点/);
+  assert.match(casesPage, /map\?demo=\$\{caseKey\}&panel=route/);
+  assert.match(casesPage, /路线生成不等于入口已核验/);
   assert.match(workspace, /核查候选/);
   assert.match(workspace, /InspectionActionPanel/);
 });

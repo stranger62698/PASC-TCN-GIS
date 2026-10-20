@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { inspectCsv, parseMappedCsv, type CsvMapping } from "../app/lib/insar-v2";
-import { analyzePascDateColumns, parsePascDateHeader } from "../app/lib/pasc-schema";
+import { analyzePascDateColumns, duplicateDateConflicts, parsePascDateHeader, resemblesPascDateField } from "../app/lib/pasc-schema";
 import { readPrivateDatasetResponse, readPrivateDatasetSource } from "../app/lib/private-datasets-client";
 import {
   PASC_AUTO_CLASSIFY_MAX_POINTS,
@@ -55,6 +55,42 @@ test("date formats parse, sort, and identify duplicate canonical dates", () => {
   const analysis = analyzePascDateColumns(["D20250103", "2024-12-22", "2025/01/03"], ["D20250103", "2024-12-22", "2025/01/03"]);
   assert.deepEqual(analysis.sorted.map(item => item.canonical), ["2024-12-22", "2025-01-03", "2025-01-03"]);
   assert.deepEqual(analysis.duplicateDates.map(item => item.canonical), ["2025-01-03"]);
+});
+
+test("observation date headers accept complete numeric dates and known prefixes", () => {
+  const bodies = ["20240229", "2024-2-29", "2024/02/29", "2024_02_29", "2024.2.29"];
+  const prefixes = ["", "D", "d_", "D ", "D-", "D.", "D/", "Date_", "date", "TIME_", "t"];
+  for (const prefix of prefixes) for (const body of bodies) {
+    const header = ` ${prefix}${body} `;
+    const parsed = parsePascDateHeader(header);
+    assert.equal(parsed?.canonical, "2024-02-29", header);
+    assert.equal(parsed?.timestamp, Date.UTC(2024, 1, 29), header);
+    assert.equal(parsed?.original, header.trim(), "preserve the source field for value lookup");
+  }
+});
+
+test("date discovery rejects impossible or partial dates without guessing metadata columns", () => {
+  for (const header of ["D20230229", "D_20241301", "D_2024-04-31", "20240001", "20240100", "date_2024/2/30"]) {
+    assert.equal(parsePascDateHeader(header), null, header);
+    assert.equal(resemblesPascDateField(header), true, "invalid observation dates must remain visible for review");
+  }
+  for (const header of ["D", "D_", "YYYYMMDD", "2024-01", "D202401", "202401011", "point_20240101", "velocity_20240101", "D20240101_quality", "updated_at", "date_modified_20240101", "longitude", "latitude"]) {
+    assert.equal(parsePascDateHeader(header), null, header);
+  }
+  const analysis = analyzePascDateColumns(["point_id", "D_20240301", "20240229", "date_2024-2-29", "D20230229", "velocity"]);
+  assert.deepEqual(analysis.sorted.map(date => date.canonical), ["2024-02-29", "2024-02-29", "2024-03-01"]);
+  assert.deepEqual(analysis.sorted.map(date => date.index), [2, 3, 1]);
+  assert.deepEqual(analysis.failed, ["D20230229"]);
+  assert.deepEqual(analysis.duplicateDates, [{ canonical: "2024-02-29", fields: ["20240229", "date_2024-2-29"] }]);
+});
+
+test("same-day date aliases compare only observed numeric values, including explicit zero", () => {
+  const headers = ["D20240229", "D_2024-2-29", "20240229"];
+  const analysis = analyzePascDateColumns(headers);
+  for (const row of [["", "3", "3.0"], ["0", " ", "0"], ["", "", ""], ["3", "NaN", ""]]) {
+    assert.deepEqual(duplicateDateConflicts(row, headers, analysis), [], JSON.stringify(row));
+  }
+  assert.equal(duplicateDateConflicts(["0", "", "3"], headers, analysis).length, 1);
 });
 
 test("ENVI D_YYYYMMDD columns become canonical PASC dates", () => {

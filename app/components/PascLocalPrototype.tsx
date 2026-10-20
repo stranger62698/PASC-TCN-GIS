@@ -5,7 +5,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PASC_LOCAL_CLASS_NAMES, type PascLocalSettings } from "../lib/pasc-local-preprocess";
 import { assertLocalFileSize, isStreamingLocalFile, localBrowserCapabilities } from "../lib/pasc-local-limits";
 import { prepareLargeLocalStorage } from "../lib/pasc-local-opfs";
-import { getSession, type AuthUser } from "../lib/auth-client";
+import { requireAccountSession } from "../lib/account-session";
+import { AccountRequired } from "./AccountRequired";
 import {
   PASC_LOCAL_WORKER_URL,
   type PascLocalCompletePayload,
@@ -41,6 +42,9 @@ function formatBytes(bytes: number) {
 }
 
 export function PascLocalPrototype() {
+  return <AccountRequired><PascLocalPrototypeContent /></AccountRequired>;
+}
+function PascLocalPrototypeContent() {
   const [file, setFile] = useState<File | null>(null);
   const [settings, setSettings] = useState(defaultSettings);
   const [batchSize, setBatchSize] = useState<256 | 512 | 1024 | 2048>(256);
@@ -48,12 +52,10 @@ export function PascLocalPrototype() {
   const [progress, setProgress] = useState(0);
   const [detail, setDetail] = useState("原始 CSV 仅交给浏览器 Worker，不会上传。");
   const [result, setResult] = useState<PascLocalCompletePayload | null>(null);
-  const [account, setAccount] = useState<AuthUser | null>(null);
   const workerRef = useRef<Worker | null>(null);
 
   const busy = !["idle", "ready", "error", "cancelled"].includes(state);
   useEffect(() => () => workerRef.current?.terminate(), []);
-  useEffect(() => { void getSession().then(setAccount).catch(() => setAccount(null)); }, []);
 
   const previews = useMemo(() => {
     if (!result) return [];
@@ -66,9 +68,9 @@ export function PascLocalPrototype() {
 
   const start = async () => {
     if (!file || busy) return;
-    if (isStreamingLocalFile(file.size) && !account) {
+    if (!await requireAccountSession()) {
       setState("error");
-      setDetail("300 MB 以上大文件模式需要先登录；CSV 仍只交给浏览器 Worker。");
+      setDetail("请先登录后使用本机分析；CSV 仍只交给浏览器 Worker。");
       return;
     }
     try {

@@ -1,7 +1,8 @@
 import type { InsarPoint } from "../data/site.js";
 import type { AnalysisMapView, SelectedRegion } from "./analysis-context.js";
 import { PASC_MODEL_VERSION } from "../types/pasc.js";
-import { normalizedMode } from "./analysis-context.js";
+import { selectPriorityDeformationPoints } from "./priority-deformation.js";
+import { pascDisplayName as normalizedMode } from "./pasc.js";
 
 export const ANALYSIS_SUMMARY_SCHEMA_VERSION = "analysis-summary-v1" as const;
 export const ANALYSIS_SUMMARY_MAX_BYTES = 12_000;
@@ -27,6 +28,7 @@ export type AnalysisSummary = {
 
 type BuildAnalysisSummaryInput = {
   points: readonly InsarPoint[];
+  anomalyPointIds?: readonly string[];
   datasetLabel: string;
   timeRange: { startDate: string; endDate: string };
   filterDescription: string;
@@ -44,13 +46,14 @@ const median = (values: number[]) => {
   return ordered.length % 2 ? ordered[middle] : (ordered[middle - 1] + ordered[middle]) / 2;
 };
 const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
-const confidenceFor = (point: InsarPoint) => point.pasc?.confidence ?? point.modeConfidence ?? null;
+const confidenceFor = (point: InsarPoint) => point.modeConfidence ?? (point.localSeriesIndex === undefined ? point.pasc?.confidence : null) ?? null;
 const currentFor = (point: InsarPoint) => point.series.at(-1) ?? point.displacement;
 const rangeFor = (point: InsarPoint) => point.series.length ? Math.max(...point.series) - Math.min(...point.series) : 0;
 const tuple4 = (values: [number, number, number, number]) => values.map(value => round(value, 6)) as [number, number, number, number];
 
 export function buildAnalysisSummary(input: BuildAnalysisSummaryInput): AnalysisSummary {
   if (!input.points.length) throw new Error("当前没有可用于 AI 解读的有效监测点。");
+  if (input.points.some(point => point.localSeriesIndex !== undefined && !point.localSeriesHydrated)) throw new Error("完整时序未载入，无法生成包含时序范围的 AI 摘要；请使用区域时序统计。");
   const velocities = input.points.map(point => point.velocity).filter(Number.isFinite);
   const current = input.points.map(currentFor).filter(Number.isFinite);
   if (!velocities.length || !current.length) throw new Error("当前统计缺少有效速率或形变值，无法生成 AI 摘要。");
@@ -80,10 +83,12 @@ export function buildAnalysisSummary(input: BuildAnalysisSummaryInput): Analysis
   });
   const lowCoherenceCount = input.points.filter(point => point.coherence > 0 && point.coherence < input.coherenceThreshold).length;
   const highMissingCount = input.points.filter(point => point.missingRate > 0.2).length;
-  const anomalyCount = input.points.filter(point => {
-    const mode = normalizedMode(point.mode);
-    return point.velocity <= -3 || mode === "加速型" || mode === "分段型";
-  }).length;
+  const detectedIds = new Set(input.anomalyPointIds ?? selectPriorityDeformationPoints(input.points,
+    input.points.reduce((maximum, point) => Math.max(maximum, point.series.length - 1), 0), {
+      coherenceThreshold: input.coherenceThreshold,
+      evaluationDate: input.points.reduce((latest, point) => (point.dates?.at(-1) || "") > latest ? point.dates!.at(-1)! : latest, "") || undefined,
+    }).anomalies.map(point => point.id));
+  const anomalyCount = input.points.filter(point => detectedIds.has(point.id)).length;
   const summary: AnalysisSummary = {
     schemaVersion: ANALYSIS_SUMMARY_SCHEMA_VERSION,
     scope: input.selectedRegion ? "selected_region" : "current_result",
@@ -100,7 +105,7 @@ export function buildAnalysisSummary(input: BuildAnalysisSummaryInput): Analysis
     currentMap: input.mapView ? { center: [round(input.mapView.center[0], 6), round(input.mapView.center[1], 6)], zoom: round(input.mapView.zoom, 2), bounds: tuple4(input.mapView.bounds) } : null,
     filterDescription: boundedText(input.filterDescription, 180),
     representativePatterns,
-    modelVersion: boundedText(input.points.find(point => point.pasc)?.pasc?.modelVersion || PASC_MODEL_VERSION, 80),
+    modelVersion: boundedText(input.points.find(point => point.localSeriesIndex === undefined && point.pasc)?.pasc?.modelVersion || PASC_MODEL_VERSION, 80),
   };
   if (analysisSummaryBytes(summary) > ANALYSIS_SUMMARY_MAX_BYTES) throw new Error("AI 分析摘要超过长度限制；请缩小当前分析范围。");
   return summary;

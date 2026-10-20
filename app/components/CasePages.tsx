@@ -11,7 +11,7 @@ const englishCaseCopy: Record<CaseKey, Partial<CaseStudy>> = {
   city: {
     label: "Urban",
     title: "Xinbu Island building time-series deformation monitoring",
-    description: "Based on 9,069 original monitoring points and 210 InSAR epochs from Xinbu Island, the case compares deformation process, velocity and pattern differences across a dense building area to produce locatable, comparable review evidence.",
+    description: "Based on 9,069 original monitoring points and 210 InSAR epochs from Xinbu Island, the case compares deformation process, velocity and pattern differences across a dense building area to support evidence review and field target selection.",
     metrics: [["Monitoring points", "9,069"], ["Epochs", "210"], ["Period", "2017—2025"]],
     imageAlt: "Dense InSAR deformation points across the building area of Xinbu Island, Hainan",
     visualLegend: ["Negative velocity", "Near stable", "Positive velocity"],
@@ -29,7 +29,7 @@ const englishCaseCopy: Record<CaseKey, Partial<CaseStudy>> = {
   landslide: {
     label: "Landslide",
     title: "Lajia landslide time-series deformation monitoring",
-    description: "Based on 11,354 real monitoring points and 58 InSAR epochs from Lajia, Maqin County, the case compares deformation process, velocity and stage-wise change across the slope to produce locatable, comparable review evidence.",
+    description: "Based on 11,354 real monitoring points and 58 InSAR epochs from Lajia, Maqin County, the case compares deformation process, velocity and stage-wise change across the slope to support evidence review and field target selection.",
     metrics: [["Monitoring points", "11,354"], ["Epochs", "58"], ["Period", "2021—2022"]],
     imageAlt: "Lajia landslide monitoring object and deformation point organisation",
     visualLegend: ["Faster change", "Transition", "Stable reference"],
@@ -47,7 +47,7 @@ const englishCaseCopy: Record<CaseKey, Partial<CaseStudy>> = {
   road: {
     label: "Road",
     title: "Haikou Jiangdong major-road time-series deformation monitoring",
-    description: "Based on 27,123 original monitoring points and 175 InSAR epochs from major roads in Jiangdong, the case uses 11,383 deterministic spatial samples to compare deformation process, velocity and quality differences and produce locatable, comparable review evidence.",
+    description: "Based on 27,123 original monitoring points and 175 InSAR epochs from major roads in Jiangdong, the case uses 11,383 deterministic spatial samples to compare deformation process, velocity and quality differences for evidence review and field target selection.",
     metrics: [["Monitoring points", "11,383"], ["Epochs", "175"], ["Period", "2018—2024"]],
     imageAlt: "Time-series InSAR monitoring along major roads in Jiangdong, Haikou",
     visualLegend: ["Faster subsidence", "Minor change", "Stable reference"],
@@ -87,7 +87,7 @@ function ScenarioFlow({ item }: { item: CaseStudy }) {
   const { text } = useLanguage();
   return (
     <section className="scenario-flow">
-      <header><span className="eyebrow">{text("场景分析流程","SCENARIO WORKFLOW")}</span><h2>{text("从业务问题到可核查结果","From a practical question to a reviewable result")}</h2><p>{text("案例按实际使用流程组织，不重复罗列产品功能。","Each case follows the real analysis journey rather than repeating a feature list.")}</p></header>
+      <header><span className="eyebrow">{text("场景分析流程","SCENARIO WORKFLOW")}</span><h2>{text("监测问题、分析方法与核查依据","Monitoring context, methods and inspection evidence")}</h2><p>{text("明确数据来源、分析过程与适用边界，为后续外业核查保留可追溯依据。","Document data sources, methods and limitations to preserve traceable evidence for field inspection.")}</p></header>
       <div className="scenario-flow-grid">
         {item.workflow.map(([title, description], index) => <article key={title}><b>{String(index + 1).padStart(2, "0")}</b><h3>{title}</h3><p>{description}</p></article>)}
       </div>
@@ -119,24 +119,24 @@ function ResearchAreaBackground({ item }: { item: CaseStudy }) {
   );
 }
 
-function LandslideInspectionConcept() {
+function FieldInspectionWorkflow({ caseKey }: { caseKey: CaseKey }) {
   const { text } = useLanguage();
   return (
     <section className="insar-action-concept">
       <header>
-        <div><span className="eyebrow">{text("遥感与现场核查","REMOTE SENSING & FIELD INSPECTION")}</span><h2>{text("遥感负责发现，现场负责确认","Remote sensing finds; field inspection confirms")}</h2></div>
-        <p>{text("高频影像让变化及时被看见；高分辨率影像、道路和地形数据，帮助判断怎样接近。","Frequent imagery reveals recent change; high-resolution imagery, roads and terrain help plan how to approach.")}</p>
+        <div><span className="eyebrow">{text("外业核查流程","FIELD INSPECTION WORKFLOW")}</span><h2>{text("遥感线索与外业行程组织","Remote-sensing evidence and field trip planning")}</h2></div>
+        <p>{text("分析结果用于筛选核查目标；用户在驾车面板手动选点，分别管理道路行程、现场进入条件与核查记录。","Analysis supports target selection. Users manually select points in the driving panel and manage road travel, site access and inspection records separately.")}</p>
       </header>
       <div className="insar-action-flow">
-        <article><b>01</b><span>{text("持续观测","CONTINUOUS OBSERVATION")}</span><h3>{text("发现近期变化","Detect recent change")}</h3><p>{text("SAR / InSAR 持续更新形变趋势和空间范围。","SAR / InSAR updates deformation trends and spatial extent.")}</p><small>{text("当前已具备","AVAILABLE")}</small></article>
-        <article><b>02</b><span>{text("核查排序","INSPECTION PRIORITY")}</span><h3>{text("排出核查顺序","Rank inspection areas")}</h3><p>{text("依据形变幅度和空间支持度生成候选区域。","Generate candidates from deformation magnitude and spatial support.")}</p><small>{text("本版已实现","IMPLEMENTED")}</small></article>
-        <article><b>03</b><span>{text("接近规划","APPROACH PLANNING")}</span><h3>{text("补齐道路证据","Add road evidence")}</h3><p>{text("叠加道路、坡度和近期高分影像后规划接近方式。","Combine roads, slope and recent high-resolution imagery to plan an approach.")}</p><small>{text("等待数据接口","DATA PENDING")}</small></article>
-        <article><b>04</b><span>{text("现场确认","FIELD CONFIRMATION")}</span><h3>{text("确认通行条件","Confirm access conditions")}</h3><p>{text("封路、路肩和交通规则必须由现场信息确认。","Closures, shoulders and traffic rules must be confirmed in the field.")}</p><small>{text("必须人工确认","HUMAN CONFIRMATION")}</small></article>
+        <article><b>01</b><span>{text("目标筛选","TARGET SELECTION")}</span><h3>{text("确定核查范围","Define inspection scope")}</h3><p>{text("结合形变幅度、时序变化与观测质量，筛选需进一步核查的位置。","Review deformation, temporal change and observation quality to select locations for follow-up.")}</p><small>{text("依据当前数据","CURRENT DATA")}</small></article>
+        <article><b>02</b><span>{text("驾车规划","DRIVING PLAN")}</span><h3>{text("编排外业行程","Organise the field trip")}</h3><p>{text("手动设置起终点和途经点，通过滴图 Web 服务计算小客车路线，并评估访问顺序与工时。","Set start, destination and waypoints manually. Didi Web Service provides car routes for visit-order and work-time assessment.")}</p><small>{text("需配置路线服务","SERVICE REQUIRED")}</small></article>
+        <article><b>03</b><span>{text("进入核验","ACCESS REVIEW")}</span><h3>{text("核实现场进入条件","Verify site access")}</h3><p>{text("路线生成不等于入口已核验；停车、禁入、封路与最后一段接近方式仍需人工确认。","A generated route does not verify an entrance. Parking, restrictions, closures and final access still require human confirmation.")}</p><small>{text("人工核验","HUMAN REVIEW")}</small></article>
+        <article><b>04</b><span>{text("现场记录","FIELD RECORDS")}</span><h3>{text("保留核查证据","Retain inspection evidence")}</h3><p>{text("记录现场位置、照片与说明，按空间关系关联监测点，并复核关联结果。","Record locations, photos and notes, associate observations with monitoring points spatially, and review the associations.")}</p><small>{text("本地记录","LOCAL RECORDS")}</small></article>
       </div>
       <div className="insar-resolution-note">
-        <div><b>{text("时间分辨率","Temporal resolution")}</b><span>{text("判断变化何时发生、是否持续","When change starts and whether it persists")}</span></div>
-        <div><b>{text("空间分辨率","Spatial resolution")}</b><span>{text("看清道路、路肩和障碍物","Resolve roads, shoulders and obstacles")}</span></div>
-        <Link className="button primary" href="/map?demo=landslide&panel=action">{text("打开核查行动原型","Open inspection-action prototype")} ↗</Link>
+        <div><b>{text("路线与底图","ROUTES & BASEMAP")}</b><span>{text("滴图路线服务与 OSM 等底图独立","Didi routes are independent of OSM or other basemaps")}</span></div>
+        <div><b>{text("使用边界","USE LIMITS")}</b><span>{text("辅助外业规划，非实时导航或通行保证","Planning support, not real-time navigation or an access guarantee")}</span></div>
+        <Link className="button primary" href={`/map?demo=${caseKey}&panel=route`}>{text("打开外业驾车规划","Open field driving planner")} ↗</Link>
       </div>
     </section>
   );
@@ -149,7 +149,7 @@ export function ShowcasePage() {
   const active = localisedCases.find((item) => item.key === activeKey) ?? localisedCases[0];
   return (
     <PageShell>
-      <PageHero eyebrow={text("案例展示","CASE STUDIES")} title={text("InSAR 在真实场景中怎么用","How InSAR supports real-world analysis")} description={text("围绕城市、滑坡与公路三个场景，展示数据如何进入产品、如何完成分析，以及结果能支持什么判断。","Urban, landslide and road cases show how data enters the product, how analysis is completed and what the results can support.")} />
+      <PageHero eyebrow={text("案例展示","CASE STUDIES")} title={text("典型场景与核查实践","Monitoring scenarios and inspection workflows")} description={text("以城市、滑坡与公路监测为例，呈现时序分析、证据复核与外业规划的方法、数据依据及适用边界。","Urban, landslide and road cases present the methods, data and limitations of time-series analysis, evidence review and field planning.")} />
       <section className="section showcase-section phase-eight-showcase">
         <p className="case-evidence-guide"><b>{text("证据状态","EVIDENCE STATUS")}</b>{text("三个案例均使用真实监测结果，可直接进入交互地图复现；页面会明确区分原始字段、程序计算结果和仍需现场确认的结论。","All three cases use real monitoring results and can be reproduced in the interactive map. Source fields, computed results and conclusions requiring field confirmation are clearly separated.")}</p>
         <div className="case-tabs" role="tablist" aria-label={text("应用场景","Use cases")}>
@@ -175,7 +175,7 @@ export function CaseDetailPage({ item }: { item: CaseStudy }) {
         <ResearchAreaBackground item={active} />
         <CaseVisual item={active} full />
         <ScenarioFlow item={active} />
-        {active.key === "landslide" && <LandslideInspectionConcept />}
+        <FieldInspectionWorkflow caseKey={active.key} />
         <div className="story-action"><div><span className="eyebrow">{text("体验产品","TRY THE PRODUCT")}</span><h2>{active.key === "city" ? text("在海口公开数据中复现这条流程","Reproduce the workflow with public Haikou data") : active.key === "landslide" ? text("打开拉加镇滑坡真实数据","Open the real Lajia landslide data") : text("查看江东新区道路真实结果","Explore the real Jiangdong road results")}</h2><p>{text("先用轻量样本熟悉流程，或选择本机完整数据进行全量分析。","Start with a lightweight sample, or choose the complete local dataset for full analysis.")}</p></div><div className="case-entry-actions"><Link className="button primary" href={active.key === "city" ? "/map?demo=haikou&tour=portfolio" : `/map?demo=${active.key}`}>{text("快速示例","Quick demo")} ↗</Link><Link className="button ghost" href={`/map?demo=${active.key}&scope=full`}>{text("完整数据","Full dataset")}</Link></div></div>
       </section>
     </PageShell>

@@ -25,6 +25,11 @@ export function WorkspaceSelect<T extends string>({ label, value, options, onCha
   const close = () => { setOpen(false); trigger.current?.focus(); };
   const navigate = (event: KeyboardEvent) => {
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); return; }
+    if (event.key === "Tab") {
+      // Resume the page's tab order from the trigger before the menu unmounts.
+      close();
+      return;
+    }
     const buttons = items();
     const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
     let next: number;
@@ -41,6 +46,7 @@ export function WorkspaceSelect<T extends string>({ label, value, options, onCha
     <button className="workspace-select-trigger" type="button" ref={trigger}
       aria-label={`${label}：${current?.label ?? ""}`} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined}
       onClick={() => setOpen(!open)} onKeyDown={event => {
+        if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); close(); return; }
         if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setOpen(true); }
       }}>
       <span className="workspace-control-icon" aria-hidden="true">{icon}</span>

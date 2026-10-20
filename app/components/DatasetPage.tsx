@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { getSession, signOut as logout, type AuthUser } from "../lib/auth-client";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { requireAccountSession, useAccountSession } from "../lib/account-session";
+import { AccountRequired } from "./AccountRequired";
 import { trackEvent } from "../lib/analytics";
 import {
   PRIVATE_DATASET_CHUNK_SIZE,
+  PrivateDatasetRequestError,
   completePrivateDataset,
   deletePrivateDataset,
   listPrivateDatasets,
@@ -23,6 +25,10 @@ import {
 import { PascCompatibilityCheck } from "./PascCompatibilityCheck";
 import { PascJobPanel } from "./PascJobPanel";
 import { PageHero, PageShell } from "./SiteShell";
+import { MapWorkspace, type WorkspaceLocalImport } from "./MapWorkspace";
+import { PASC_LOCAL_HARD_FILE_BYTES } from "../lib/pasc-local-limits";
+import { analyzePascDateColumns, uniqueSortedDateColumns } from "../lib/pasc-schema";
+import { LOCAL_DATA_ONLY_MESSAGE, USER_DATA_LOCAL_ONLY } from "../lib/data-processing-policy";
 
 type ImportDecision = "recommended" | "keep-all";
 type DatasetMeta = {
@@ -47,14 +53,16 @@ type DatasetMeta = {
 type AccountInfo = { userId: string; email: string; roles: string[]; usedBytes: number; maxUserBytes: number; maxFileSize: number; isAdmin: boolean };
 type ImportStage = "idle" | "reading" | "mapping" | "quality" | "uploading" | "success" | "error";
 type Preflight = { file: File; text?: string; inspection?: CsvInspection; mapping?: CsvMapping; result?: DatasetParseResult; largeFile?: boolean; error?: string };
+type DatasetAccountResponse = { items?: DatasetMeta[]; account?: AccountInfo };
+type ClassificationResponse = { job?: { jobId?: string }; created?: boolean; error?: { message?: string } };
 
 const DIRECT_ANALYSIS_LIMIT = 300 * 1024 * 1024;
 const COHERENCE_LIMIT = 0.75;
 const lifecycle = [
-  ["01", "上传数据", "选择 CSV，原始文件只读检查，不修改任何字段。"],
+  ["01", USER_DATA_LOCAL_ONLY ? "选择数据" : "上传数据", "选择 CSV，原始文件只读检查，不修改任何字段。"],
   ["02", "识别字段", "自动识别经纬度、速率、相干性、模式和时间序列。"],
   ["03", "检查数据", "统计缺测、低相干、重复坐标和无法解析的时间字段。"],
-  ["04", "用户确认", "确认映射及推荐筛选后，再保存私有数据资产。"],
+  ["04", "用户确认", USER_DATA_LOCAL_ONLY ? "确认映射及筛选后在本机分析，结果可下载到电脑。" : "确认映射及推荐筛选后，再保存私有数据资产。"],
 ];
 const mappingFields: Array<[keyof Pick<CsvMapping, "lon" | "lat" | "velocity" | "coherence" | "mode">, string, boolean]> = [
   ["lon", "经度", true], ["lat", "纬度", true], ["velocity", "形变速率", false], ["coherence", "相干性", false], ["mode", "形变模式", false],
@@ -98,6 +106,7 @@ function enrichQuality(result: DatasetParseResult, inspection: CsvInspection, ma
 }
 
 async function createAutomaticClassification(datasetId: string) {
+  if (USER_DATA_LOCAL_ONLY) throw new Error(LOCAL_DATA_ONLY_MESSAGE);
   const response = await fetch("/api/pasc-jobs?op=create", {
     method: "POST",
     credentials: "include",
@@ -105,8 +114,8 @@ async function createAutomaticClassification(datasetId: string) {
     body: JSON.stringify({ datasetId }),
   });
   const text = await response.text();
-  let body: { job?: { jobId?: string }; created?: boolean; error?: { message?: string } } | null = null;
-  try { body = text ? JSON.parse(text) as typeof body : null; } catch { body = null; }
+  let body: ClassificationResponse | null = null;
+  try { body = text ? JSON.parse(text) as ClassificationResponse : null; } catch { body = null; }
   if (!response.ok || !body?.job?.jobId) {
     throw new Error(body?.error?.message || `后台分类任务创建失败（HTTP ${response.status}）。`);
   }
@@ -114,8 +123,10 @@ async function createAutomaticClassification(datasetId: string) {
 }
 
 export function DatasetPage() {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  return <AccountRequired><DatasetPageContent /></AccountRequired>;
+}
+function DatasetPageContent() {
+  const { user, logout } = useAccountSession();
   const [items, setItems] = useState<DatasetMeta[]>([]);
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [progress, setProgress] = useState(0);
@@ -128,27 +139,58 @@ export function DatasetPage() {
   const [importedDatasetId, setImportedDatasetId] = useState("");
   const [replaceParent, setReplaceParent] = useState<DatasetMeta | null>(null);
   const [report, setReport] = useState<DatasetMeta | null>(null);
+  const [serviceError, setServiceError] = useState<Error | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [failedStage, setFailedStage] = useState<ImportStage | null>(null);
+  const [uploadError, setUploadError] = useState<Error | null>(null);
+  const [localImport, setLocalImport] = useState<WorkspaceLocalImport | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const stateCardRef = useRef<HTMLDivElement>(null);
+  const refreshRun = useRef(0);
+  const uploadInFlight = useRef(false);
+  const uploadAttempt = useRef<{ file: File; parentId?: string; datasetId: string } | null>(null);
 
   const refresh = async () => {
+    if (USER_DATA_LOCAL_ONLY) return { error: new Error(LOCAL_DATA_ONLY_MESSAGE) };
+    const run = ++refreshRun.current;
+    setRefreshing(true);
     try {
-      const data = await listPrivateDatasets<{ items?: DatasetMeta[]; account?: AccountInfo }>();
-      setItems((data.items || []).sort((a: DatasetMeta, b: DatasetMeta) => b.uploadedAt.localeCompare(a.uploadedAt)));
-      setAccount(data.account || null);
+      const data = await listPrivateDatasets<DatasetAccountResponse>();
+      if (!Array.isArray(data.items) || !data.account || !Number.isFinite(data.account.maxFileSize) || !Number.isFinite(data.account.maxUserBytes) || !Number.isFinite(data.account.usedBytes)) throw new Error("云端数据服务未返回有效账户信息，请稍后重试。");
+      if (run === refreshRun.current) {
+        setItems([...data.items].sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt)));
+        setAccount(data.account);
+        setServiceError(null);
+      }
+      return { data };
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "私有数据服务暂时不可用，请稍后重试");
+      const failure = error instanceof Error ? error : new Error("私有数据服务暂时不可用，请稍后重试。");
+      if (run === refreshRun.current) setServiceError(failure);
+      return { error: failure };
+    } finally {
+      if (run === refreshRun.current) setRefreshing(false);
     }
   };
   useEffect(() => {
-    getSession().then((current) => {
-      setUser(current);
-      setLoading(false);
-      if (current) refresh();
-    }).catch(() => setLoading(false));
+    if (!USER_DATA_LOCAL_ONLY && user) void refresh();
+    // Cloud dataset reads remain disabled under the local-only data policy.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    if (!preflight || stage === "success") return;
+    const confirmLeave = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", confirmLeave);
+    return () => window.removeEventListener("beforeunload", confirmLeave);
+  }, [preflight, stage]);
+  useEffect(() => {
+    if (!localImport && (stage === "error" || stage === "success")) stateCardRef.current?.focus();
+  }, [stage, localImport]);
 
   const quality = preflight?.result?.quality;
-  const currentStep = stage === "mapping" || stage === "reading" ? 2 : stage === "quality" ? 3 : stage === "uploading" || stage === "success" ? 4 : 1;
+  const detectedDates = useMemo(() => preflight?.inspection ? uniqueSortedDateColumns(preflight.inspection.dateAnalysis) : [], [preflight]);
+  const selectedDates = useMemo(() => preflight?.inspection && preflight.mapping ? uniqueSortedDateColumns(analyzePascDateColumns(preflight.inspection.headers, preflight.mapping.timeCols)) : [], [preflight]);
+  const displayedStage = stage === "error" ? failedStage : stage;
+  const currentStep = displayedStage === "mapping" || displayedStage === "reading" ? 2 : displayedStage === "quality" ? 3 : displayedStage === "uploading" || displayedStage === "success" ? 4 : 1;
   const lowRatio = quality?.validPoints ? quality.lowCoherence / quality.validPoints : 0;
   const canConfirmMapping = Boolean(preflight?.mapping?.lon && preflight.mapping.lat && preflight.mapping.displacementUnit && preflight.mapping.displacementUnit !== "unknown" && (!preflight.mapping.velocity || (preflight.mapping.velocityUnit && preflight.mapping.velocityUnit !== "unknown")) && preflight.mapping.signConvention && preflight.mapping.signConvention !== "unknown" && preflight.mapping.preprocessingState && preflight.mapping.preprocessingState !== "unknown");
   const accountName = String(user?.name || user?.email || "访客");
@@ -162,20 +204,21 @@ export function DatasetPage() {
     setMessage("");
     setImportedDatasetId("");
     setReplaceParent(null);
+    setFailedStage(null);
+    setUploadError(null);
+    uploadAttempt.current = null;
     if (fileRef.current) fileRef.current.value = "";
   };
   const prepareFile = async (file?: File) => {
     if (!file) return;
+    if (!await requireAccountSession()) return;
     setMessage("");
     setDecision(null);
+    setFailedStage(null);
+    setUploadError(null);
+    uploadAttempt.current = null;
     if (!/\.csv$/i.test(file.name)) {
       setPreflight({ file, error: "仅支持 CSV 文件" }); setStage("error"); return;
-    }
-    if (account && file.size > account.maxFileSize) {
-      setPreflight({ file, error: `单个文件超过 ${formatBytes(account.maxFileSize)} 限制` }); setStage("error"); return;
-    }
-    if (account && account.usedBytes + file.size > account.maxUserBytes) {
-      setPreflight({ file, error: `账户容量不足，当前剩余 ${formatBytes(account.maxUserBytes - account.usedBytes)}` }); setStage("error"); return;
     }
     if (file.size > DIRECT_ANALYSIS_LIMIT) {
       setPreflight({ file, largeFile: true });
@@ -200,13 +243,20 @@ export function DatasetPage() {
     setPreflight((current) => {
       if (!current?.mapping) return current;
       const selected = current.mapping.timeCols.includes(header);
-      return { ...current, mapping: { ...current.mapping, timeCols: selected ? current.mapping.timeCols.filter((field) => field !== header) : [...current.mapping.timeCols, header] } };
+      const changed = selected ? current.mapping.timeCols.filter((field) => field !== header) : [...current.mapping.timeCols, header];
+      const parsed = analyzePascDateColumns(current.inspection?.headers ?? [], changed).sorted.map(date => date.original);
+      const parsedFields = new Set(parsed);
+      // Retain unparseable manual choices so confirmation can explain the error.
+      const timeCols = [...parsed, ...changed.filter(field => !parsedFields.has(field))];
+      return { ...current, mapping: { ...current.mapping, timeCols } };
     });
   };
-  const confirmMapping = () => {
+  const confirmMapping = async () => {
     if (!preflight?.text || !preflight.mapping || !preflight.inspection) return;
+    if (!await requireAccountSession()) return;
     try {
       const parsed = parseMappedCsv(preflight.text, preflight.file.name, preflight.mapping, true);
+      parsed.datasetTitle = preflight.file.name;
       parsed.quality = enrichQuality(parsed, preflight.inspection, preflight.mapping, preflight.text);
       trackEvent("dataset_loaded", { dataset_type: "local_preflight", point_count: parsed.points.length, period_count: parsed.periods, invalid_count: parsed.invalid });
       setPreflight({ ...preflight, result: parsed });
@@ -214,11 +264,14 @@ export function DatasetPage() {
       setDecision(null);
     } catch (error) {
       setPreflight({ ...preflight, error: error instanceof Error ? error.message : "字段映射检查失败" });
+      setFailedStage("mapping");
       setStage("error");
     }
   };
   const uploadOriginal = async (choice: ImportDecision) => {
-    if (!preflight?.file || !user) return;
+    if (USER_DATA_LOCAL_ONLY) { setMessage(LOCAL_DATA_ONLY_MESSAGE); return; }
+    if (!preflight?.file || !user || uploadInFlight.current) return;
+    uploadInFlight.current = true;
     const file = preflight.file;
     const parentId = replaceParent?.id;
     let chunks = 0;
@@ -226,13 +279,23 @@ export function DatasetPage() {
     setStage("uploading");
     setMessage(`正在保存原始文件 ${file.name}`);
     setProgress(0);
+    setUploadError(null);
     try {
-      const datasetId = crypto.randomUUID();
+      const readiness = await refresh();
+      if (readiness.error) throw readiness.error;
+      const currentAccount = readiness.data?.account;
+      if (!currentAccount) throw new Error("云端账户信息不可用，请稍后重试。");
+      if (file.size > currentAccount.maxFileSize) throw new Error(`单个文件超过 ${formatBytes(currentAccount.maxFileSize)} 限制。`);
+      const existingAttempt = uploadAttempt.current;
+      const alreadySaved = readiness.data?.items?.find(item => item.id === existingAttempt?.datasetId);
+      if (currentAccount.usedBytes + (alreadySaved ? 0 : file.size) > currentAccount.maxUserBytes) throw new Error("账户容量不足，请清理云端空间或使用本机分析。");
+      if (!existingAttempt || existingAttempt.file !== file || existingAttempt.parentId !== parentId) uploadAttempt.current = { file, parentId, datasetId: crypto.randomUUID() };
+      const datasetId = uploadAttempt.current!.datasetId;
       const partSize = PRIVATE_DATASET_CHUNK_SIZE;
       chunks = Math.ceil(file.size / partSize);
       trackEvent("dataset_upload_start", { source: "private_storage", file_size_bytes: file.size, chunk_count: chunks, replaces_version: Boolean(parentId) });
-      localStorage.setItem("lanjifyw-upload-session", JSON.stringify({ id: datasetId, name: file.name, size: file.size, chunks, parentId, startedAt: new Date().toISOString() }));
-      for (let index = 0; index < chunks; index += 1) {
+      try { localStorage.setItem("lanjifyw-upload-session", JSON.stringify({ id: datasetId, name: file.name, size: file.size, chunks, parentId, startedAt: new Date().toISOString() })); } catch { /* Optional session marker must not block saving. */ }
+      for (let index = 0; !alreadySaved && index < chunks; index += 1) {
         const body = file.slice(index * partSize, Math.min(file.size, (index + 1) * partSize));
         await uploadPrivateDatasetChunk(datasetId, index, body);
         setProgress(Math.round(((index + 1) / chunks) * 86));
@@ -269,43 +332,60 @@ export function DatasetPage() {
       setStage("success");
       setMessage(completionMessage);
       trackEvent("dataset_upload_success", { source: "private_storage", file_size_bytes: file.size, chunk_count: chunks, point_count: quality?.validPoints ?? null });
-      localStorage.removeItem("lanjifyw-upload-session");
+      try { localStorage.removeItem("lanjifyw-upload-session"); } catch { /* The confirmed cloud save remains successful. */ }
       await refresh();
     } catch (error) {
       trackEvent("dataset_upload_fail", { source: "private_storage", reason: "storage_or_network_failed", file_size_bytes: file.size, chunk_count: chunks });
       setPreflight({ ...preflight, error: error instanceof Error ? error.message : "上传失败" });
+      setUploadError(error instanceof Error ? error : new Error("上传失败"));
+      setFailedStage("uploading");
       setStage("error");
+    } finally {
+      uploadInFlight.current = false;
     }
   };
-  const chooseDecision = (choice: ImportDecision) => {
+  const chooseDecision = async (choice: ImportDecision) => {
+    if (!await requireAccountSession()) return;
     setDecision(choice);
+    if (USER_DATA_LOCAL_ONLY) {
+      if (preflight?.result?.points.length) setLocalImport({ file: preflight.file, inspection: preflight.inspection, mapping: preflight.mapping, result: preflight.result, coherenceMin: choice === "recommended" ? COHERENCE_LIMIT : undefined });
+      return;
+    }
     if (user) uploadOriginal(choice);
     else setMessage("本地质检已完成。登录后可保存原始 CSV、字段映射和筛选偏好。浏览器未上传文件。\n");
   };
+  const openLocalAnalysis = async () => {
+    if (!preflight || (!preflight.result?.points.length && !preflight.largeFile) || (!USER_DATA_LOCAL_ONLY && preflight.file.size > PASC_LOCAL_HARD_FILE_BYTES)) return;
+    if (!await requireAccountSession()) return;
+    setLocalImport({ file: preflight.file, inspection: preflight.inspection, mapping: preflight.mapping, result: preflight.result, coherenceMin: decision === "recommended" ? COHERENCE_LIMIT : undefined });
+  };
   const updateDataset = async (item: DatasetMeta, patch: Partial<DatasetMeta>) => {
+    if (USER_DATA_LOCAL_ONLY) { setMessage(LOCAL_DATA_ONLY_MESSAGE); return; }
     try {
       await patchPrivateDataset(item.id, patch as Record<string, unknown>);
       setMessage("数据集信息已更新"); setRenaming(null); await refresh();
     } catch (error) { setMessage(error instanceof Error ? error.message : "更新失败"); }
   };
   const remove = async (id: string) => {
+    if (USER_DATA_LOCAL_ONLY) { setMessage(LOCAL_DATA_ONLY_MESSAGE); return; }
     if (!confirm("确认删除这个私有数据集及其全部分块？此操作不可恢复。")) return;
     try { await deletePrivateDataset(id); setMessage("数据集已删除"); await refresh(); }
     catch (error) { setMessage(error instanceof Error ? error.message : "删除失败"); }
   };
   const signOut = async () => { await logout(); window.location.href = "/login"; };
 
-  if (loading) return <div className="auth-loading">正在检查账户…</div>;
+  if (localImport) return <div className="map-route-shell"><MapWorkspace initialImport={localImport} onReturnToImport={() => setLocalImport(null)} /></div>;
   return <PageShell>
-    <PageHero eyebrow="PHASE 6 · DATA ONBOARDING" title="把 InSAR CSV 稳定接入分析流程" description={user ? `当前账户：${accountName}。先识别、再质检、确认后保存；原始 CSV 始终保持不变。` : "无需登录即可在浏览器完成小型 CSV 的字段识别与质检；登录后才会私有保存文件和配置。"}/>
+    <PageHero eyebrow="DATA ONBOARDING" title="InSAR 数据接入与质量检查" description={USER_DATA_LOCAL_ONLY ? `当前账户：${accountName}。所有 CSV 均在访问者自己的电脑处理。小文件可先检查字段，大文件进入本机分块分析；不会上传云端或创建服务器分类任务。` : user ? `当前账户：${accountName}。字段识别、质量检查与保存确认，为形变分析和核查目标筛选提供数据基础；原始 CSV 保持不变。` : "请登录后导入个人数据。"}/>
     <section className="section dataset-layout phase-six-datasets">
       <aside>
-        <b>数据空间</b><Link className="active" href="/datasets">我的数据集 <span>{items.length}</span></Link><Link href="/map">地图工作台</Link><Link href="/statistics">区域统计</Link><Link href="/platform">存储架构</Link>
+        <b>数据空间</b><Link className="active" href="/datasets">{USER_DATA_LOCAL_ONLY ? "本机数据导入" : <>我的数据集 <span>{items.length}</span></>}</Link><Link href="/map">地图工作台</Link><Link href="/statistics">区域统计</Link><Link href="/platform">存储架构</Link>
         {user ? <button onClick={signOut}>退出登录</button> : <Link href="/login">登录 / 注册</Link>}
       </aside>
       <div>
-        {!user && <div className="phase-six-guest-banner"><b>访客检查模式</b><span>文件仅在当前浏览器中解析，不会上传。完成质检后可登录保存。</span><Link href="/login">登录保存</Link></div>}
-        {user && account && <div className="account-strip">
+        {USER_DATA_LOCAL_ONLY && <div className="phase-six-guest-banner"><b>已登录 · 本机数据模式</b><span>账户用于访问管理，文件与计算留在当前电脑，云端存储和后台分类已关闭。本机缓存按浏览器与网站域名隔离，换域名或清理浏览器后需重新选择原始文件；请及时下载结果。</span></div>}
+        {!USER_DATA_LOCAL_ONLY && user && serviceError && <div className="raw-data-boundary" role="status"><b>云端数据空间暂不可用</b><span>{serviceError.message} 本地字段检查和地图分析仍可继续。</span><button type="button" className="button ghost" disabled={refreshing || stage === "uploading"} onClick={() => void refresh()}>{refreshing ? "正在检查连接…" : "重试云端连接"}</button></div>}
+        {!USER_DATA_LOCAL_ONLY && user && account && <div className="account-strip">
           <article><span>账户隔离</span><b>{account.isAdmin ? "管理员" : "普通用户"}</b><small>{account.email}</small></article>
           <article><span>容量使用</span><b>{formatBytes(account.usedBytes)} / {formatBytes(account.maxUserBytes)}</b><i><em style={{ width: `${usage}%` }}/></i></article>
           <article><span>文件限制</span><b>{formatBytes(account.maxFileSize)}</b><small>超过 300 MB 转后台流式处理</small></article>
@@ -318,19 +398,19 @@ export function DatasetPage() {
           {(stage === "idle" || stage === "reading") && <div className="upload-zone phase-six-upload">
             <img src="/insar-satellite-v2.png" alt=""/><span className="eyebrow">NON-DESTRUCTIVE IMPORT</span>
             <h2>{replaceParent ? `创建新版本：${replaceParent.name}` : "选择 InSAR CSV 开始检查"}</h2>
-            <p>系统先在本地识别字段和检查质量，只有用户确认后才保存。不会静默删除行、覆盖原文件或修改字段。</p>
+            <p>{USER_DATA_LOCAL_ONLY ? "文件只在当前电脑读取，确认设置后再开始本机分析。不会上传原始 CSV、静默删除行或覆盖原文件。" : "系统先在本地识别字段和检查质量，只有用户确认后才保存。不会静默删除行、覆盖原文件或修改字段。"}</p>
             <button className="button primary" disabled={stage === "reading"} onClick={() => fileRef.current?.click()}>{stage === "reading" ? "正在读取…" : "选择 CSV"}</button>
             <button className="button ghost" onClick={downloadTemplate}>下载 CSV 模板</button>
             {replaceParent && <button className="button ghost" onClick={resetImport}>取消新版本</button>}
             <input ref={fileRef} hidden type="file" accept=".csv,text/csv" onChange={(event) => prepareFile(event.target.files?.[0])}/>
-            <small>必需：经度、纬度；速率可选，缺失时按逐点真实日期最小二乘计算。Level 2 需要至少 2 个时间值，Level 3 PASC 候选需要至少 20 个；20—39 期仅供探索性判读。</small>
+            <small>日期列会自动识别并按时间排序，支持 D20240101、D_20240101、20240101、D_2024-01-01 等表头。必需：经度、纬度；速率可选，缺失时按逐点真实日期最小二乘计算。Level 2 需要至少 2 个时间值，Level 3 PASC 候选需要至少 20 个；20—39 期仅供探索性判读。</small>
           </div>}
 
           {stage === "mapping" && preflight?.inspection && preflight.mapping && <div className="field-recognition-panel">
             <div className="quality-status"><span className="eyebrow">FIELD RECOGNITION</span><b>已读取 {preflight.file.name}</b><small>{formatBytes(preflight.file.size)} · 共 {preflight.inspection.headers.length} 个字段</small></div>
             <div className="recognition-grid">
               <article><span>经纬度</span><b>{preflight.mapping.lon && preflight.mapping.lat ? "已识别" : "需要确认"}</b><small>{preflight.mapping.lon || "—"} / {preflight.mapping.lat || "—"}</small></article>
-              <article><span>时间序列</span><b>{preflight.mapping.timeCols.length} 期</b><small>{preflight.mapping.timeCols.slice(0, 2).join(" → ") || "未识别"}</small></article>
+              <article><span>时间序列</span><b>已自动找到 {detectedDates.length} 期</b><small>{detectedDates.length ? `${detectedDates[0].canonical} 至 ${detectedDates.at(-1)!.canonical}` : "未找到可解析的日期列"}</small></article>
               <article><span>形变速率</span><b>{preflight.mapping.velocity || "未提供"}</b><small>可选；可由真实日期计算</small></article>
               <article><span>相干性</span><b>{preflight.mapping.coherence || "未提供"}</b><small>可选质量字段</small></article>
             </div>
@@ -345,17 +425,19 @@ export function DatasetPage() {
               <label><span>预处理状态<i>必需</i></span><select value={preflight.mapping.preprocessingState ?? "unknown"} onChange={(event) => setPreflight({ ...preflight, mapping: { ...preflight.mapping!, preprocessingState: event.target.value as CsvMapping["preprocessingState"] } })}><option value="unknown">请选择</option><option value="raw">raw</option><option value="already_smoothed">already_smoothed</option></select></label>
             </div>
             <small className="mapping-contract-note">单位、正负号和预处理状态必须由用户确认，系统不按数值大小猜测。</small>
-            <div className="time-field-confirm"><span>累计形变时间列</span><b>{preflight.mapping.timeCols.length} 个已选择</b><small>{preflight.mapping.timeCols.slice(0, 10).join("、")}{preflight.mapping.timeCols.length > 10 ? " …" : ""}</small></div>
+            <div className="time-field-confirm"><span>累计形变时间列</span><b>{selectedDates.length} 期 / {preflight.mapping.timeCols.length} 列已选择</b><small>{selectedDates.length ? `${selectedDates[0].canonical} 至 ${selectedDates.at(-1)!.canonical} · ` : "无有效日期 · "}{preflight.mapping.timeCols.slice(0, 10).join("、")}{preflight.mapping.timeCols.length > 10 ? " …" : ""}</small></div>
+            <small className="mapping-contract-note">可手动增减时间字段，日期将按时间先后排列。当前仅识别字段；确认前不会运行分类或上传文件。</small>
             <details className="time-field-picker"><summary>手动增减时间字段</summary><div>{preflight.inspection.headers.map((header) => <label key={header}><input type="checkbox" checked={preflight.mapping?.timeCols.includes(header) || false} onChange={() => toggleTimeField(header)}/><span>{header}</span></label>)}</div></details>
             {preflight.inspection.warnings.length > 0 && <div className="dataset-inline-error">{preflight.inspection.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div>}
             <div className="workflow-actions"><button className="button ghost" onClick={resetImport}>重新选择</button><button className="button primary" disabled={!canConfirmMapping} onClick={confirmMapping}>确认映射并检查数据</button></div>
           </div>}
 
           {stage === "quality" && preflight?.largeFile && <div className="large-file-review">
-            <span className="eyebrow">LARGE FILE ROUTE</span><h2>大文件需要后台流式质检</h2><p>{preflight.file.name} · {formatBytes(preflight.file.size)}</p>
-            <p>浏览器不会一次读取超过 300 MB 的 CSV。生产流程应分片上传原始文件，再由后台逐行识别字段、生成质检报告并转换为 GeoParquet / PostGIS / PMTiles。</p>
-            <div className="raw-data-boundary"><b>当前阶段未执行质检</b><span>为避免误报，不会把“未检查”显示成“检查通过”。Phase 6 保留清晰的待处理状态。</span></div>
-            <div className="workflow-actions"><button className="button ghost" onClick={resetImport}>重新选择</button>{user ? <button className="button primary" onClick={() => uploadOriginal("keep-all")}>仅归档原始 CSV</button> : <Link className="button primary" href="/login">登录后归档</Link>}</div>
+            <span className="eyebrow">LARGE FILE ROUTE</span><h2>{USER_DATA_LOCAL_ONLY ? "大文件在本机分块分析" : "大文件需要后台流式质检"}</h2><p>{preflight.file.name} · {formatBytes(preflight.file.size)}</p>
+            <p>{USER_DATA_LOCAL_ONLY ? "为避免一次性占满内存，此处不整文件读取。继续后由本机分析面板读取表头，确认设置后分块处理；资源检查也在当前浏览器完成，不会转交云端。" : "浏览器不会一次读取超过 300 MB 的 CSV。生产流程应分片上传原始文件，再由后台逐行识别字段、生成质检报告并转换为 GeoParquet / PostGIS / PMTiles。"}</p>
+            <div className="raw-data-boundary"><b>当前阶段未执行质检</b><span>尚未完整读取文件，不会把“未检查”显示成“检查通过”。请在本机分析面板核对字段与处理结果。</span></div>
+            <div className="workflow-actions"><button className="button ghost" onClick={resetImport}>重新选择</button>{USER_DATA_LOCAL_ONLY ? <button className="button primary" type="button" onClick={openLocalAnalysis}>继续本机分块分析</button> : user ? <button className="button primary" onClick={() => uploadOriginal("keep-all")}>仅归档原始 CSV</button> : <Link className="button primary" href="/login">登录后归档</Link>}</div>
+            {!USER_DATA_LOCAL_ONLY && preflight.file.size <= PASC_LOCAL_HARD_FILE_BYTES && <div className="workflow-actions"><button className="button ghost" type="button" onClick={openLocalAnalysis}>使用此文件进行本机分析</button></div>}
           </div>}
 
           {stage === "quality" && quality && <div className="quality-review-panel">
@@ -371,24 +453,36 @@ export function DatasetPage() {
             <PascCompatibilityCheck summary={quality.compatibility} />
             {quality.coherenceProvided && quality.lowCoherence > 0 ? <div className="recommendation-card">
               <div><span className="eyebrow">RECOMMENDATION</span><h3>检测到 {quality.lowCoherence} 个低相干点</h3><p>建议在地图分析中默认过滤相干性低于 {COHERENCE_LIMIT} 的点。该选择只保存为分析偏好，不会删除原始行。</p></div>
-              <button className={`button ${decision === "recommended" ? "primary" : "ghost"}`} onClick={() => chooseDecision("recommended")}>应用推荐筛选</button>
-              <button className={`button ${decision === "keep-all" ? "primary" : "ghost"}`} onClick={() => chooseDecision("keep-all")}>保留全部数据</button>
-            </div> : <div className="recommendation-card"><div><span className="eyebrow">RECOMMENDATION</span><h3>{quality.coherenceProvided ? "未发现低相干点" : "CSV 未提供相干性字段"}</h3><p>{quality.coherenceProvided ? "无需应用低相干筛选，可保留全部有效点。" : "系统不会虚构质量结论；后续仍可补充 coherence 字段重新导入。"}</p></div><button className="button primary" onClick={() => chooseDecision("keep-all")}>确认并保留有效数据</button></div>}
-            <div className="raw-data-boundary"><b>数据边界</b><span>原始 CSV 原样保存；无效行、重复坐标、低相干点仅进入报告和筛选配置，不静默删除。</span></div>
+              <button className={`button ${decision === "recommended" ? "primary" : "ghost"}`} onClick={() => chooseDecision("recommended")}>{USER_DATA_LOCAL_ONLY ? "应用推荐筛选并看图" : "应用推荐筛选"}</button>
+              <button className={`button ${decision === "keep-all" ? "primary" : "ghost"}`} onClick={() => chooseDecision("keep-all")}>{USER_DATA_LOCAL_ONLY ? "保留全部数据并看图" : "保留全部数据"}</button>
+            </div> : <div className="recommendation-card"><div><span className="eyebrow">RECOMMENDATION</span><h3>{quality.coherenceProvided ? "未发现低相干点" : "CSV 未提供相干性字段"}</h3><p>{quality.coherenceProvided ? "无需应用低相干筛选，可保留全部有效点。" : "系统不会虚构质量结论；后续仍可补充 coherence 字段重新导入。"}</p></div><button className="button primary" onClick={() => chooseDecision("keep-all")}>{USER_DATA_LOCAL_ONLY ? "确认并在本机看图" : "确认并保留有效数据"}</button></div>}
+            <div className="raw-data-boundary"><b>数据边界</b><span>{USER_DATA_LOCAL_ONLY ? "原始 CSV 保留在当前电脑；无效行、重复坐标、低相干点仅进入本机报告和筛选配置，不上传或静默删除。" : "原始 CSV 原样保存；无效行、重复坐标、低相干点仅进入报告和筛选配置，不静默删除。"}</span></div>
             {(preflight?.result?.errors.length || quality.warnings.length) > 0 && <details className="quality-error-report"><summary>查看错误与质量提示</summary><div>{preflight?.result?.errors.slice(0, 12).map((error) => <span key={error}>{error}</span>)}{quality.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div></details>}
-            {!user && decision && <div className="workflow-actions"><button className="button ghost" onClick={() => setStage("mapping")}>返回修改映射</button><Link className="button primary" href="/login">登录并保存结果</Link></div>}
+            {!USER_DATA_LOCAL_ONLY && !user && decision && <div className="workflow-actions"><button className="button ghost" onClick={() => setStage("mapping")}>返回修改映射</button><Link className="button primary" href="/login">登录并保存结果</Link></div>}
+            {Boolean(preflight?.result?.points.length) && <div className="workflow-actions"><button className="button ghost" type="button" onClick={openLocalAnalysis}>使用此文件进行本机分析</button><small>保留当前文件与字段映射，无需云端保存。</small></div>}
           </div>}
 
           {stage === "uploading" && <div className="dataset-state-card loading"><span className="eyebrow">PRIVATE UPLOAD</span><h2>正在保存原始 CSV 与质检元数据</h2><p>{message}</p><div className="upload-progress"><i style={{ width: `${progress}%` }}/><span>{progress}%</span></div></div>}
-          {stage === "success" && <div className="dataset-state-card success"><span className="eyebrow">IMPORT COMPLETE</span><h2>数据接入完成</h2><p>{message}</p><div className="workflow-actions"><button className="button ghost" onClick={resetImport}>继续导入</button><a className="button primary" href="#pasc-job-console">查看实时分类进度</a><Link className="button ghost" href={importedDatasetId ? `/map?dataset=${encodeURIComponent(importedDatasetId)}` : "/map"}>进入地图查看数据</Link></div></div>}
-          {stage === "error" && <div className="dataset-state-card error"><span className="eyebrow">IMPORT ERROR</span><h2>本次导入未完成</h2><p>{preflight?.error || "请检查文件后重试"}</p><button className="button primary" onClick={resetImport}>返回并重新选择</button></div>}
+          {stage === "success" && <div className="dataset-state-card success" ref={stateCardRef} tabIndex={-1}><span className="eyebrow">IMPORT COMPLETE</span><h2>数据接入完成</h2><p>{message}</p><div className="workflow-actions"><button className="button ghost" onClick={resetImport}>继续导入</button><a className="button primary" href="#pasc-job-console">查看实时分类进度</a><Link className="button ghost" href={importedDatasetId ? `/map?dataset=${encodeURIComponent(importedDatasetId)}` : "/map"}>进入地图查看数据</Link></div></div>}
+          {stage === "error" && <div className="dataset-state-card error" role="alert" ref={stateCardRef} tabIndex={-1}><span className="eyebrow">{failedStage === "uploading" ? "CLOUD SAVE INCOMPLETE" : "IMPORT ERROR"}</span><h2>{failedStage === "uploading" ? "云端保存未完成" : "本次导入未完成"}</h2><p>{preflight?.error || "请检查文件后重试"}</p>
+            {failedStage === "uploading" && <p>已保留当前文件、字段映射和质检结果。云端保存尚未确认完成，请保留此页面后重试，或继续本机分析。</p>}
+            {uploadError instanceof PrivateDatasetRequestError && <small>错误代码：{uploadError.code}{uploadError.requestId ? ` · 请求编号：${uploadError.requestId}` : ""}</small>}
+            <div className="workflow-actions">
+              {failedStage === "uploading" && user && <button type="button" className="button primary" onClick={() => void uploadOriginal(decision ?? "keep-all")}>重试云端保存</button>}
+              {failedStage === "uploading" && uploadError instanceof PrivateDatasetRequestError && uploadError.status === 401 && <a className="button ghost" href="/login" target="_blank" rel="noopener noreferrer">在新标签页重新登录</a>}
+              {(preflight?.result?.points.length || preflight?.largeFile) && (USER_DATA_LOCAL_ONLY || preflight.file.size <= PASC_LOCAL_HARD_FILE_BYTES) ? <button type="button" className="button ghost" onClick={openLocalAnalysis}>使用此文件进行本机分析</button> : null}
+              {failedStage === "uploading" && <button type="button" className="button ghost" onClick={() => { setStage("quality"); setUploadError(null); }}>返回质检结果</button>}
+              {failedStage === "mapping" && <button type="button" className="button primary" onClick={() => setStage("mapping")}>返回修改字段映射</button>}
+              <button type="button" className="button ghost" onClick={resetImport}>重新选择文件</button>
+            </div>
+          </div>}
         </div>
 
-        <div className="product-checklist phase-six-flow"><span className="eyebrow">PRODUCT FLOW</span><h2>Phase 6 数据接入闭环</h2>{lifecycle.map(([number, title, description]) => <article key={number}><b>{number}</b><span>{title}</span><small>{description}</small></article>)}</div>
+        <div className="product-checklist phase-six-flow"><span className="eyebrow">DATA WORKFLOW</span><h2>数据接入流程</h2>{lifecycle.map(([number, title, description]) => <article key={number}><b>{number}</b><span>{title}</span><small>{description}</small></article>)}</div>
 
-        {user && <PascJobPanel datasets={items} />}
+        {!USER_DATA_LOCAL_ONLY && user && <PascJobPanel datasets={items} />}
 
-        {user && <div className="dataset-table private-table product-table">
+        {!USER_DATA_LOCAL_ONLY && user && <div className="dataset-table private-table product-table">
           <div><b>数据集名称</b><b>流程状态</b><b>质检摘要</b><b>文件大小</b><b>操作</b></div>
           {items.length === 0 && <div className="empty-dataset">当前账户还没有保存的数据集。可以先上传海口示例 CSV 或自己的 InSAR 点数据。</div>}
           {items.map((item) => <div key={item.id}>

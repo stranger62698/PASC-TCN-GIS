@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CsvMapping } from "../lib/insar-v2";
 import type { PascJobEvent, PascPublicJob } from "../lib/pasc-job-client";
+import { LOCAL_DATA_ONLY_MESSAGE, USER_DATA_LOCAL_ONLY } from "../lib/data-processing-policy";
 
 type DatasetOption = { id: string; name: string; pointCount?: number; qualityReport?: { validPoints?: number }; mapping?: CsvMapping; status?: string };
 type JobDetail = { job: PascPublicJob; events: PascJobEvent[] };
@@ -45,7 +46,7 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
   const [jobs, setJobs] = useState<PascPublicJob[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [detail, setDetail] = useState<JobDetail | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!USER_DATA_LOCAL_ONLY);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState("");
   const [clock, setClock] = useState(() => Date.now());
@@ -59,6 +60,7 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
   }, []);
 
   const loadDetail = useCallback(async (jobId: string, signal?: AbortSignal) => {
+    if (USER_DATA_LOCAL_ONLY) throw new Error(LOCAL_DATA_ONLY_MESSAGE);
     const response = await fetch(`/api/pasc-jobs?op=detail&id=${encodeURIComponent(jobId)}`, { credentials: "include", cache: "no-store", signal });
     const body = await response.json().catch(() => null) as JobDetail | null;
     if (!response.ok || !body?.job) throw new Error(readError(body, "任务详情读取失败。", response.status));
@@ -69,6 +71,7 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
   }, [mergeJob]);
 
   const refresh = useCallback(async (quiet = false, preferredId = "") => {
+    if (USER_DATA_LOCAL_ONLY) return;
     try {
       const response = await fetch("/api/pasc-jobs?op=list", { credentials: "include", cache: "no-store" });
       const body = await response.json().catch(() => null) as { jobs?: PascPublicJob[] } | null;
@@ -88,9 +91,9 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
   const selectedJobId = selected?.jobId ?? "";
   const selectedStatus = selected?.status ?? "";
 
-  useEffect(() => { const timer = window.setTimeout(() => void refresh(), 0); return () => window.clearTimeout(timer); }, [refresh]);
+  useEffect(() => { if (USER_DATA_LOCAL_ONLY) return; const timer = window.setTimeout(() => void refresh(), 0); return () => window.clearTimeout(timer); }, [refresh]);
   useEffect(() => {
-    if (!selectedJobId || !activeStatuses.has(selectedStatus)) return;
+    if (USER_DATA_LOCAL_ONLY || !selectedJobId || !activeStatuses.has(selectedStatus)) return;
     let inFlight = false;
     const controller = new AbortController();
     const pollSelectedJob = async () => {
@@ -110,12 +113,13 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
     };
   }, [loadDetail, selectedJobId, selectedStatus]);
   useEffect(() => {
-    if (!activeStatuses.has(selectedStatus)) return;
+    if (USER_DATA_LOCAL_ONLY || !activeStatuses.has(selectedStatus)) return;
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [selectedStatus]);
 
   const createJob = async () => {
+    if (USER_DATA_LOCAL_ONLY) return;
     if (!selectedDatasetId || creating) return;
     setCreating(true); setMessage("");
     try {
@@ -130,6 +134,7 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
   };
 
   const mutateJob = async (jobId: string, op: "cancel" | "retry") => {
+    if (USER_DATA_LOCAL_ONLY) return;
     setMessage("");
     const response = await fetch(`/api/pasc-jobs?op=${op}&id=${encodeURIComponent(jobId)}`, { method: "POST", credentials: "include" });
     const body = await response.json().catch(() => null) as { job?: PascPublicJob } | null;
@@ -146,6 +151,7 @@ export function PascJobPanel({ datasets }: { datasets: DatasetOption[] }) {
   };
 
   const summary = selected?.summary ?? {};
+  if (USER_DATA_LOCAL_ONLY) return <section className="pasc-job-console" aria-label="云端分类已关闭"><h2>云端分类已关闭</h2><p>{LOCAL_DATA_ONLY_MESSAGE}</p><Link href="/datasets">选择本机 CSV</Link></section>;
   return (
     <section id="pasc-job-console" className="pasc-job-console" aria-label="PASC-TCN 大数据任务中心">
       <header className="pasc-job-console-head">

@@ -113,3 +113,11 @@ test("Phase 5 UI uses the same-origin API and retains the manual free-web fallba
   assert.doesNotMatch(workspace, /api\.deepseek\.com|dashscope\.aliyuncs\.com|BAILIAN_API_KEY|DEEPSEEK_API_KEY/);
   assert.doesNotMatch(client, /fetch\(|BAILIAN_API_KEY|DEEPSEEK_API_KEY|@vercel\/blob|\/v1\/jobs/);
 });
+
+
+test("AI anomaly counts follow the selected spatial result and never promote PASC labels", () => {
+  const input = { points: [...points, point("POSITIVE", "稳定型", 20, .9)], datasetLabel: "test", timeRange: { startDate: "2024-01-01", endDate: "2025-01-01" }, filterDescription: "test", coherenceThreshold: .75 };
+  assert.equal(buildAnalysisSummary(input).anomalyCount, 0);
+  assert.equal(buildAnalysisSummary({ ...input, anomalyPointIds: ["POSITIVE", "OUTSIDE"] }).anomalyCount, 1);
+  assert.equal(buildAnalysisSummary({ ...input, anomalyPointIds: [] }).anomalyCount, 0);
+});

@@ -1,4 +1,5 @@
 import { QueueClient, type MessageMetadata } from "@vercel/queue";
+import { USER_DATA_LOCAL_ONLY } from "../app/lib/data-processing-policy.js";
 import {
   PASC_LARGE_MAX_ATTEMPTS,
   PASC_LARGE_TOPIC,
@@ -14,6 +15,7 @@ const enqueue: PascLargeEnqueue = async (message, idempotencyKey, delaySeconds =
 };
 
 async function consume(message: PascLargeMessage, metadata: MessageMetadata) {
+  if (USER_DATA_LOCAL_ONLY) return;
   try {
     await processPascLargeMessage(message, metadata.deliveryCount, enqueue);
   } catch (error) {

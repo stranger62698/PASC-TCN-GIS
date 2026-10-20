@@ -86,7 +86,8 @@ test("Phase 4 region list, map polygons and context detail are wired without dan
   const workspace = readFileSync("app/components/MapWorkspace.tsx", "utf8");
   const map = readFileSync("app/components/WebGisMap.tsx", "utf8");
   const panel = readFileSync("app/components/AnomalyRegionPanel.tsx", "utf8");
-  assert.match(workspace, /buildAnomalyRegions/);
+  assert.match(workspace, /useLocalPriorityAnalysis/);
+  assert.match(readFileSync("app/lib/local-analysis-compute.ts", "utf8"), /selectPriorityDeformationPoints/);
   assert.match(workspace, /focusAnomalyRegion/);
   assert.match(map, /anomalyRegionLayer/);
   assert.match(panel, /邻域半径/);

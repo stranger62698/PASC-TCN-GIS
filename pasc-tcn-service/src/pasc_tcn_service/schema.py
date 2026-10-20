@@ -24,11 +24,13 @@ from .contract import (
 )
 from .errors import MESSAGES, ServiceError
 
-_DATE_RE = re.compile(
-    r"^(?:D)?(?P<year>\d{4})(?:[-_/]?)(?P<month>\d{2})(?:[-_/]?)(?P<day>\d{2})$",
-    re.IGNORECASE,
+# Match the browser's observation-header grammar without renaming source columns.
+_DATE_PREFIX_RE = re.compile(r"^(?:date|time|d|t)[\s._/-]*", re.IGNORECASE)
+_DATE_RE = re.compile(r"^(?P<year>(?:19|20)\d{2})(?P<month>\d{2})(?P<day>\d{2})$")
+_SEPARATED_DATE_RE = re.compile(
+    r"^(?P<year>(?:19|20)\d{2})[-_/.](?P<month>\d{1,2})[-_/.](?P<day>\d{1,2})$"
 )
-_DATE_LIKE_RE = re.compile(r"^(?:D)?\d{4}", re.IGNORECASE)
+_DATE_LIKE_RE = re.compile(r"^(?:19|20)\d")
 
 
 @dataclass(frozen=True)
@@ -60,9 +62,13 @@ def _issue(code: str, message: str | None = None, *, severity="error", **details
     }
 
 
+def _date_header_value(field: str) -> str:
+    return _DATE_PREFIX_RE.sub("", str(field).strip(), count=1)
+
+
 def parse_date_field(field: str) -> tuple[str, date] | None:
-    text = str(field).strip()
-    match = _DATE_RE.fullmatch(text)
+    text = _date_header_value(field)
+    match = _DATE_RE.fullmatch(text) or _SEPARATED_DATE_RE.fullmatch(text)
     if not match:
         return None
     try:
@@ -301,7 +307,7 @@ def inspect_payload(payload: dict[str, Any]) -> ValidatedDataset:
         parsed = parse_date_field(header)
         if parsed:
             parsed_dates.append(DateColumn(header, parsed[0], parsed[1]))
-        elif _DATE_LIKE_RE.match(header):
+        elif selected_dates_explicitly or _DATE_LIKE_RE.match(_date_header_value(header)):
             invalid_date_like.append(header)
 
     if invalid_date_like:

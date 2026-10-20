@@ -17,6 +17,19 @@ export type GisFeature = {
 
 export type GisLayerRole = "generic" | "road" | "landslide";
 
+export type GisLayerProvenance = {
+  kind: "osm" | "user";
+  builtIn: boolean;
+  datasetId?: string;
+  sourceUrl?: string;
+  extractedAt?: string;
+  attribution?: string;
+  license?: string;
+  licenseUrl?: string;
+  sha256?: string;
+  disclaimer?: string;
+};
+
 export type GisBounds = {
   west: number;
   south: number;
@@ -37,6 +50,7 @@ export type GisLayer = {
   bounds: GisBounds | null;
   features: GisFeature[];
   importedAt: string;
+  provenance?: GisLayerProvenance;
 };
 
 export function createGisId(prefix = "gis") {

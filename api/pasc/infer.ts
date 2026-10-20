@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { getRequestUser } from "../../server/auth.js";
+import { USER_DATA_LOCAL_ONLY, localDataOnlyResponse } from "../../app/lib/data-processing-policy.js";
 import {
   PHASE_E_MAX_BODY_BYTES,
   PascProxyError,
@@ -28,6 +29,7 @@ const requestBody = (request: VercelRequest) => {
 };
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
+  if (USER_DATA_LOCAL_ONLY) return json(response, 403, localDataOnlyResponse());
   if (request.method !== "POST") return json(response, 405, { error: { code: "PASC_METHOD_NOT_ALLOWED", message: "仅支持 POST 请求。" } });
   const user = getRequestUser(request.headers.cookie);
   if (!user) return json(response, 401, { error: { code: "PASC_PHASE_E_AUTH_REQUIRED", message: "请先登录后再使用自动识别。" } });

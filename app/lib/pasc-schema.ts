@@ -72,10 +72,15 @@ export function resolvePascField(headers: string[], semantic: PascSemanticField)
   return { semantic, field: "", method: "unresolved", candidates: ambiguous, requiresConfirmation: true };
 }
 
+// Restrict discovery to a complete date with a known observation prefix. A date
+// embedded in a description or an ID must not silently become an observation.
+const dateHeaderValue = (value: string) => value.trim().replace(/^(?:date|time|d|t)[\s._/-]*/i, "");
+
 export function parsePascDateHeader(value: string): PascParsedDateColumn | null {
   const original = value.trim();
-  let match = original.match(/^(?:D_?)?((?:19|20)\d{2})(\d{2})(\d{2})$/i);
-  if (!match) match = original.match(/^((?:19|20)\d{2})[-_/.](\d{1,2})[-_/.](\d{1,2})$/);
+  const candidate = dateHeaderValue(original);
+  let match = candidate.match(/^((?:19|20)\d{2})(\d{2})(\d{2})$/);
+  if (!match) match = candidate.match(/^((?:19|20)\d{2})[-_/.](\d{1,2})[-_/.](\d{1,2})$/);
   if (!match) return null;
   const year = Number(match[1]), month = Number(match[2]), day = Number(match[3]);
   const timestamp = Date.UTC(year, month - 1, day);
@@ -90,7 +95,7 @@ export function isPascDateField(value: string) {
 }
 
 export function resemblesPascDateField(value: string) {
-  return /^(?:d|date|time|t)?[._/-]?(?:19|20)\d/i.test(value.trim());
+  return /^[._/-]?(?:19|20)\d/.test(dateHeaderValue(value));
 }
 
 export function analyzePascDateColumns(headers: string[], selected?: string[]): PascDateSchemaAnalysis {
@@ -116,10 +121,13 @@ export function analyzePascDateColumns(headers: string[], selected?: string[]): 
 }
 
 export function duplicateDateConflicts(row: string[], headers: string[], analysis: PascDateSchemaAnalysis) {
+  if (!analysis.duplicateDates.length) return [];
   const indexByHeader = new Map(headers.map((header, index) => [header, index]));
   return analysis.duplicateDates.filter(group => {
     const values = group.fields
-      .map(field => Number(row[indexByHeader.get(field) ?? -1]))
+      .map(field => row[indexByHeader.get(field) ?? -1])
+      .filter((value): value is string => value !== undefined && value.trim() !== "")
+      .map(Number)
       .filter(Number.isFinite);
     return new Set(values.map(value => value.toPrecision(14))).size > 1;
   });

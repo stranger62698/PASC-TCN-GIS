@@ -194,7 +194,7 @@ export function nearestInsarPoint<T extends { id: string; lon: number; lat: numb
 }
 
 export function insarCandidates<T extends { id: string; lon: number; lat: number }>(
-  observation: Pick<FieldObservation, "longitude" | "latitude" | "links">,
+  observation: Pick<FieldObservation, "longitude" | "latitude"> & Partial<Pick<FieldObservation, "links">>,
   points: T[],
   radiusMeters = 500,
   datasetId = "",

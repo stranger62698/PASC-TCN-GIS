@@ -18,6 +18,8 @@ export function InspectionActionPanel({
   onOpenLayers,
   onOpenAi,
   onExport,
+  onAddRegionToNavigation,
+  navigationBusy = false,
 }: {
   regions: AnomalyRegion[];
   activeRegionId: string | null;
@@ -32,6 +34,8 @@ export function InspectionActionPanel({
   onOpenLayers: () => void;
   onOpenAi: () => void;
   onExport: () => void;
+  onAddRegionToNavigation?: (region: AnomalyRegion) => void;
+  navigationBusy?: boolean;
 }) {
   const candidates = buildInspectionCandidates(regions);
   const activeCandidate = candidates.find(candidate => candidate.region.id === activeRegionId) ?? null;
@@ -106,7 +110,8 @@ export function InspectionActionPanel({
               <span><i>02</i><b>空间证据</b><small>候选区域由邻域连通规则生成，边界不是业务对象边界。</small></span>
               <span><i>03</i><b>质量边界</b><small>候选发现已排除低相干或高缺测点，仍需查看原始质量字段。</small></span>
             </div>
-            <div className="inspection-evidence-actions"><button onClick={onClearFocus}>取消当前分组</button><button onClick={onOpenAi}>进入证据解读</button></div>
+            <div className="inspection-evidence-actions"><button onClick={onClearFocus}>取消当前分组</button><button onClick={onOpenAi}>进入证据解读</button>{onAddRegionToNavigation && <button disabled={navigationBusy} onClick={() => onAddRegionToNavigation(activeCandidate.region)}>加入核查行程</button>}</div>
+            {onAddRegionToNavigation && <p>以该组真实成员点作为核查目标；车辆到达位置和现场进入条件需另行核验。</p>}
           </section>}
 
           <section className={"inspection-layer-bridge" + (layers.length ? " has-layers" : "")}>
