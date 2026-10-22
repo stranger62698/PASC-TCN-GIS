@@ -1,6 +1,9 @@
 # Vercel 发布
 
-2026-10-20 当前正式版为本地与线上统一部署 `dpl_72aNPU2Y4p1EncWdP9A3UNCV619P`，固定版本 `https://pasc-tcn-of60eob2e-fyw.vercel.app`。版本 `2026-10-20-88047ed225a2`，正式域名 `/release.json` 与本机版本元数据逐字节一致；25 项资源及接口检查和 6 项 CSS/页面检查通过。详见 [本次统一发布记录](UNIFIED_RELEASE_2026-10-20.md)。
+2026-10-22 当前正式版已移除左上角图标及配套文字，首页、工作台、登录页和页脚同步清理。部署 `dpl_EiSotG7JBq9W6wNRGVJe42PE1kiV` READY，固定版本 `https://pasc-tcn-228dnwohj-fyw.vercel.app`；版本 `2026-10-22-74810594c8d2`。正式域名 25 项资源/接口检查及 5 项标识删除检查通过，旧 PNG 地址返回 404。详见 [本次标识移除记录](BRAND_MARK_REMOVAL_2026-10-22.md)。
+
+
+2026-10-20 前一正式版为本地与线上统一部署 `dpl_72aNPU2Y4p1EncWdP9A3UNCV619P`，固定版本 `https://pasc-tcn-of60eob2e-fyw.vercel.app`。版本 `2026-10-20-88047ed225a2`，正式域名 `/release.json` 与本机版本元数据逐字节一致；25 项资源及接口检查和 6 项 CSS/页面检查通过。详见 [本次统一发布记录](UNIFIED_RELEASE_2026-10-20.md)。
 
 正式关联源码仓库为 `stranger62698/PASC-TCN-GIS`。发布采用本机完整预构建；`git.deploymentEnabled: false` 关闭 Git 自动部署，避免缺少本机模型的远端构建替换正式版。每次 build:static 自动生成版本指纹，发布前验证当前源码，发布后验证线上字节一致。
 

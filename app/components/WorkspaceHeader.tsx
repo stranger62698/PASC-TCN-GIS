@@ -1,7 +1,6 @@
 "use client";
 import Link from "next/link";
 import { useState } from "react";
-import { BrandMark } from "./SiteShell";
 import { LanguageSwitch, useLanguage } from "../lib/language-context";
 import { buildLoginContinuationHref } from "../lib/local-analysis-session";
 import { useAccountSession } from "../lib/account-session";
@@ -53,7 +52,6 @@ export function WorkspaceHeader({ active, onChange, onHelp, onReturnToImport }: 
   const [signingOut, setSigningOut] = useState(false), [logoutError, setLogoutError] = useState("");
   const handleLogout = async () => { setSigningOut(true); setLogoutError(""); try { await logout(); } catch (error) { setLogoutError(error instanceof Error ? error.message : text("退出失败，请重试", "Sign-out failed; retry")); } finally { setSigningOut(false); } };
   return <header className="workspace-header">
-    <BrandMark />
     <nav className="workspace-primary-nav" aria-label={text("工作台主导航", "Workspace navigation")}>
       {sections.map(section => <button key={section.id} type="button" className={active === section.id ? "active" : ""} aria-expanded={active === section.id} onClick={() => onChange(section.id)}>
         <WorkspaceNavIcon section={section.id} />

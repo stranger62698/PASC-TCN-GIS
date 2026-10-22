@@ -20,16 +20,6 @@ const navigationEnglish: Record<string, string> = {
   "/about": "Project overview",
 };
 
-export function BrandMark({ invert = false }: { invert?: boolean }) {
-  const { text } = useLanguage();
-  return <Link className={`site-brand brand-system${invert ? " invert" : ""}`} href="/">
-    {/* Static 86 KB transparent mark; keeping it as a direct asset avoids runtime image-optimisation usage. */}
-    {/* eslint-disable-next-line @next/next/no-img-element */}
-    <img className="brand-symbol" src="/lanjifyw-brand-satellite.png" alt="" aria-hidden="true" />
-    <span><b>LANJIFYW</b><small>{text("形变研判 · 外业协同","Deformation analysis · Fieldwork")}</small></span>
-  </Link>;
-}
-
 export function SiteHeader(){
   const path=usePathname(); const { locale, text }=useLanguage(); const [scrolled,setScrolled]=useState(false); const [open,setOpen]=useState(false);
   const { status, user, logout } = useAccountSession();
@@ -38,7 +28,6 @@ export function SiteHeader(){
   const handleLogout = async () => { setSigningOut(true); setLogoutError(""); try { await logout(); } catch (error) { setLogoutError(error instanceof Error ? error.message : text("退出失败，请重试", "Sign-out failed; retry")); } finally { setSigningOut(false); } };
   useEffect(()=>{const fn=()=>setScrolled(window.scrollY>24);fn();window.addEventListener("scroll",fn);return()=>window.removeEventListener("scroll",fn)},[]);
   return <header className={`site-header ${scrolled?"is-scrolled":""}`}>
-    <BrandMark />
     <button className="nav-toggle" aria-label={text("打开导航","Open navigation")} aria-expanded={open} onClick={()=>setOpen(!open)}>☰</button>
     <nav className={open?"site-nav is-open":"site-nav"} aria-label={text("主导航","Primary navigation")}>{navItems.map(item=><div className="nav-entry" key={item.href}>
       <Link className={path===item.href||path.startsWith(item.href+"/")?"active":""} href={item.href} onClick={()=>setOpen(false)}>{locale==="zh"?item.label:navigationEnglish[item.href]}{item.children&&<span>⌄</span>}</Link>
@@ -55,7 +44,6 @@ export function SiteFooter() {
   const { text } = useLanguage();
   return <footer className="site-footer">
     <div>
-      <BrandMark invert />
       <p>{text("面向时序 InSAR 的形变研判与外业核查支持平台，整合模式识别、驾车行程及现场证据。","A time-series InSAR workspace for deformation analysis and field verification, combining pattern recognition, driving itineraries and field evidence.")}</p>
       <small className="site-footer-boundary">{text("科研与非商业化产品实践。分析及规划结果需结合专业判断与现场条件复核。","A research and non-commercial product project. Analysis and planning outputs require professional review and verification of site conditions.")}</small>
     </div>

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { authRequest, getSession } from "../lib/auth-client";
 import { safeReturnTo } from "../lib/local-analysis-session";
-import { BrandMark } from "./SiteShell";
 
 type AuthMode = "login" | "register" | "forgot";
 
@@ -70,7 +69,6 @@ export function AuthPage() {
   return (
     <main className="new-login phase-eight-login">
       <section className="login-scene grid-surface">
-        <BrandMark invert />
         <div className="auth-orbit-visual" aria-hidden="true">
           <i className="auth-orbit-ring ring-a" /><i className="auth-orbit-ring ring-b" /><i className="auth-orbit-ring ring-c" />
           {/* Existing decorative asset from the original account page. */}

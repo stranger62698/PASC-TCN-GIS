@@ -39,6 +39,7 @@ test("portfolio homepage states the analysis and fieldwork mission and exposes t
   const shell = readFileSync("app/components/SiteShell.tsx", "utf8");
   const auth = readFileSync("app/components/AuthPage.tsx", "utf8");
   const workspace = readFileSync("app/components/MapWorkspace.tsx", "utf8");
+  const workspaceHeader = readFileSync("app/components/WorkspaceHeader.tsx", "utf8");
   const mapRoute = readFileSync("app/map/page.tsx", "utf8");
   const contentPages = readFileSync("app/components/ContentPages.tsx", "utf8");
   const staticIndex = readFileSync("static-src/index.html", "utf8");
@@ -62,14 +63,11 @@ test("portfolio homepage states the analysis and fieldwork mission and exposes t
   assert.doesNotMatch(home, /hero-visual|hero-observation-flow|hero-method-badge/);
   assert.doesNotMatch(home, /hero-point-card|−8\.24|当前点位/);
   assert.doesNotMatch(home, /观测 → 模式 → 证据/);
-  assert.match(shell, /function BrandMark/);
-  assert.match(shell, /lanjifyw-brand-satellite\.png/);
-  assert.match(shell, /形变研判 · 外业协同/);
+  assert.doesNotMatch([shell, auth, workspaceHeader].join("\n"), /BrandMark|lanjifyw-brand-satellite\.png|形变研判 · 外业协同/);
   assert.match(shell, /className="site-surface"/);
   assert.match(styles, /@import "\.\/site-ui\.css"/);
   assert.match(siteStyles, /\.site-surface \.product-path\s*\{[^}]*background:\s*#fff/);
   assert.doesNotMatch(shell, /可解释形变分析|insar-satellite-v2/);
-  assert.match(auth, /<BrandMark invert \/>/);
   assert.match(auth, /className="auth-orbit-visual" aria-hidden="true"/);
   assert.match(auth, /src="\/insar-satellite-v2\.png" alt=""/);
   assert.match(styles, /phase-eight-login \.login-scene\{justify-content:flex-start/);
@@ -80,7 +78,6 @@ test("portfolio homepage states the analysis and fieldwork mission and exposes t
   assert.match(workspace, /risk: false/);
   assert.doesNotMatch(auth, /城市时序 InSAR/);
   assert.doesNotMatch(workspace, /INSAR WEBGIS|insar-satellite-v2/);
-  assert.match(styles, /brand-symbol/);
   assert.doesNotMatch(home, /heat h1/);
   assert.doesNotMatch(home, /城市安全信息/);
   assert.match(layout, /形变分析与外业核查工作台/);

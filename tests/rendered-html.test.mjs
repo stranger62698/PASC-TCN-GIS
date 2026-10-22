@@ -34,6 +34,7 @@ test("server-renders the LANJIFYW InSAR website", async () => {
   const html = await response.text();
   assert.doesNotMatch(html, developmentPreviewMeta);
   assert.match(html, /LANJIFYW/);
+  assert.doesNotMatch(html, /lanjifyw-brand-satellite\.png|class="[^"]*\bbrand-system\b|<b>LANJIFYW<\/b>|形变研判 · 外业协同/);
   assert.match(html, /形变分析与外业核查工作台/);
   assert.match(html, /时序形变研判/);
   assert.match(html, /与外业核查协同/);

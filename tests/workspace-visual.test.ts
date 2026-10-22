@@ -76,14 +76,14 @@ function primaryButtons(html: string): string[] {
 }
 
 async function writeVisualPreview(): Promise<void> {
-  const [globals, workspace, brand, bundledModules] = await Promise.all([
-    readFile("app/globals.css", "utf8"), readFile("app/workspace-ui.css", "utf8"), readFile("public/lanjifyw-brand-satellite.png"), readFile("build/tests/workspace-visual.css", "utf8"),
+  const [globals, workspace, bundledModules] = await Promise.all([
+    readFile("app/globals.css", "utf8"), readFile("app/workspace-ui.css", "utf8"), readFile("build/tests/workspace-visual.css", "utf8"),
   ]);
   // Preserve the import order in globals.css, without leaving any external stylesheet dependencies.
   const css = `${globals.replace(/@import\s+["']\.\/workspace-ui\.css["'];?/, workspace).replace(/@import\s+[^;]+;/g, "")}\n${bundledModules}`;
   const unknown = fixtureDraft(), blocked = fixtureDraft(true);
   const panel = (title: string, content: ReactElement, variant: string) => `<section class="ui-preview-sample ${variant}"><h2>${title}</h2><aside class="gis-left phase-two-left workspace-task-drawer"><div class="panel-head"><strong>驾车出行规划</strong></div>${renderToStaticMarkup(content)}</aside></section>`;
-  const header = renderHeader().replaceAll('src="/lanjifyw-brand-satellite.png"', `src="data:image/png;base64,${brand.toString("base64")}"`).replace(/<link rel="preload"[^>]*>/g, "");
+  const header = renderHeader().replace(/<link rel="preload"[^>]*>/g, "");
   const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; script-src 'none'"><title>${fixtureBanner}</title><style>${css}</style><style>
     html,body.ui-preview-body{height:auto!important;min-height:100%;overflow:auto!important;background:#eef0f2}
     .ui-preview-body .navigation-workspace{height:auto!important;min-height:100vh;overflow:visible!important}
@@ -128,6 +128,7 @@ if (process.argv.includes("--preview-only")) {
     assert.ok(primaryButtons(renderHeader(null)).every(button => button.includes('aria-expanded="false"')));
     assert.match(renderHeader(), /aria-label="返回首页"/);
     assert.match(renderHeader(), /aria-label="切换网站语言"/);
+    assert.doesNotMatch(renderHeader(), /lanjifyw-brand-satellite\.png|brand-system|LANJIFYW|形变研判 · 外业协同/);
   });
 
   test("an embedded local workspace returns to the parent import draft through a button", () => {
